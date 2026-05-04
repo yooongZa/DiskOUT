@@ -1,0 +1,43 @@
+name: EjectDrives
+options:
+  bundleIdPrefix: com.yongza
+  deploymentTarget:
+    macOS: "13.0"
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: 495S4FVMCB
+    ENABLE_HARDENED_RUNTIME: YES
+    PRODUCT_BUNDLE_IDENTIFIER: com.yongza.ejectdrives
+
+targets:
+  EjectDrives:
+    type: application
+    platform: macOS
+    sources:
+      - path: AppDelegate.swift
+      - path: main.swift
+    info:
+      path: Info.plist
+      properties:
+        CFBundleName: EjectDrives
+        CFBundleDisplayName: EjectDrives
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "13.0"
+        LSUIElement: true
+        NSPrincipalClass: NSApplication
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: "EjectDrives by yongZa"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yongza.ejectdrives
+        DEVELOPMENT_TEAM: 495S4FVMCB
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: NO

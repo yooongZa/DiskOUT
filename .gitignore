@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.app
+*.dSYM
+
+# Xcode user state
+*.xcent
+
+# /tmp build path used in README
+EjectDrives-derived/
