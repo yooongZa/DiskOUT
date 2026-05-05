@@ -3,7 +3,8 @@
 //  EjectDrives — 혼자 쓰는 초간단 버전
 //
 //  - 메뉴바 아이콘 + 드라이브 목록 + 모두 추출
-//  - 뚜껑 닫을 때만 자동 추출 (메뉴에서 토글, 시간 지난 자동 sleep 은 무시)
+//  - 잠자기 진입 시 자동 추출 + wake 시 자동 재마운트 한 쌍
+//  - DMG / sparseimage 는 자동 제외 (Chrome.dmg 같은 마운트 보호)
 //  - 전역 단축키 ⌥⌘E
 //  - 우클릭 = 모두 추출
 //  - 추출 결과 알림
@@ -12,7 +13,7 @@
 import Cocoa
 import UserNotifications
 import Carbon.HIToolbox
-import IOKit
+import Darwin
 import os
 
 /// 통합 로깅 (unified logging) — Console.app 에서 다음 명령으로 확인:
@@ -26,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var lastEjectAt: Date = .distantPast
     /// 마지막 추출 결과 symbol (wake 후 복원용). nil 이면 default ⏏ 표시.
     private var lastResultSymbol: String?
+    /// 자동(lid-close) 추출된 disk BSD names — wake 시 재마운트 대상.
+    /// 수동 추출(단축키/메뉴)은 여기 안 들어감 — 사용자 의도 존중.
+    private var autoEjectedDisks: Set<String> = []
     private lazy var cachedDefaultIcon: NSImage? = {
         let img = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: "Eject Drives")
         img?.isTemplate = true
@@ -151,11 +155,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         menu.addItem(NSMenuItem.separator())
 
-        let toggle = NSMenuItem(title: "뚜껑 닫을 때 자동 추출",
-                                action: #selector(toggleLidEject),
+        let toggle = NSMenuItem(title: "잠자기 시 자동 추출",
+                                action: #selector(toggleSleepEject),
                                 keyEquivalent: "")
         toggle.target = self
-        toggle.state = LidEject.enabled ? .on : .off
+        toggle.state = SleepEject.enabled ? .on : .off
         menu.addItem(toggle)
 
         menu.addItem(NSMenuItem.separator())
@@ -166,9 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         menu.addItem(quit)
     }
 
-    @objc private func toggleLidEject() {
-        LidEject.enabled.toggle()
-        log.info("LidEject toggled → \(LidEject.enabled, privacy: .public)")
+    @objc private func toggleSleepEject() {
+        SleepEject.enabled.toggle()
+        log.info("SleepEject toggled → \(SleepEject.enabled, privacy: .public)")
     }
 
     // MARK: - Status Icon Feedback (단축키/추출 시각 피드백)
@@ -406,68 +410,136 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                        name: NSWorkspace.didWakeNotification, object: nil)
     }
 
-    /// wake 직후 macOS 가 status bar view 를 redraw 하면서 우리 button.image 가
-    /// reset 되는 케이스 보호 — 마지막 결과 symbol 다시 set.
+    /// wake 직후:
+    /// 1. macOS 가 status bar view 를 redraw 하면서 button.image 가 reset 되는 케이스 보호 —
+    ///    마지막 결과 symbol 다시 set.
+    /// 2. 자동(lid-close) 추출된 디스크들 자동 재마운트 시도 — 사용자 무감각 UX.
     @objc private func systemDidWake() {
         log.info("didWake notification received")
-        guard let symbol = lastResultSymbol else { return }
-        // status bar 가 완전히 ready 되기까지 약간 시간 필요
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self, let symbol = self.lastResultSymbol else { return }
-            log.info("didWake → restore icon: \(symbol, privacy: .public)")
-            self.setPersistentIcon(symbol: symbol)
+
+        // 1) 아이콘 복원
+        if lastResultSymbol != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self, let symbol = self.lastResultSymbol else { return }
+                log.info("didWake → restore icon: \(symbol, privacy: .public)")
+                self.setPersistentIcon(symbol: symbol)
+            }
+        }
+
+        // 2) 자동 추출된 디스크 재마운트 — 2초 후 (USB 안정화 대기)
+        let toRemount = autoEjectedDisks
+        autoEjectedDisks = []  // 즉시 clear (중복 트리거 방지)
+        guard !toRemount.isEmpty else { return }
+        log.info("didWake → schedule remount: \(toRemount.sorted(), privacy: .public)")
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.remountWithBackoff(disks: toRemount)
         }
     }
 
     @objc private func systemWillSleep() {
         log.info("willSleep notification received")
-        guard LidEject.enabled else {
-            log.info("EJECT(sleep) SKIPPED — LidEject disabled")
+        guard SleepEject.enabled else {
+            log.info("EJECT(sleep) SKIPPED — SleepEject disabled")
             return
         }
-        guard Self.isLidClosed() else {
-            log.info("EJECT(sleep) SKIPPED — lid open")
-            return
-        }
-        log.info("EJECT(sleep) START — lid closed")
+        log.info("EJECT(sleep) START")
+
+        // 추출 직전 BSD 이름 기록 — wake 시 재마운트 대상.
+        // 모든 sleep 에서 추출 + wake 재마운트가 한 쌍으로 동작.
+        // 짧은 sleep 후 wake → 자동 재마운트로 사용자 무감각.
+        // 긴 sleep 후 분리 → 재마운트 시도하지만 silent (분리 의도 감지).
+        let drives = ExternalDrive.list()
+        autoEjectedDisks = Set(drives.compactMap { $0.wholeDiskBSDName })
+        log.info("EJECT(sleep) recorded BSDs: \(self.autoEjectedDisks.sorted(), privacy: .public)")
+
         let r = ejectAllSilently()
         log.info("EJECT(sleep) DONE — success=\(r.success.count) failure=\(r.failure.count)")
     }
 
-    /// IOPMrootDomain 의 AppleClamshellState 조회.
-    ///
-    /// **중요 — IOKit 의 의미는 직관과 반대**:
-    /// - `AppleClamshellState = Yes` (true)  → 뚜껑 **닫힘** (closed)
-    /// - `AppleClamshellState = No`  (false) → 뚜껑 **열림** (open)
-    /// - property 자체가 없으면 → 데스크탑 맥 (lid 없음)
-    ///
-    /// 검증: `ioreg -r -k AppleClamshellState` 로 현재 raw value 직접 확인 가능.
-    ///
-    /// - returns: true = 뚜껑 닫힘. false = 열려있거나 property 없음(데스크탑) → 안전하게 추출 안 함.
-    private static func isLidClosed() -> Bool {
-        let service = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPMrootDomain")
-        )
-        guard service != 0 else {
-            log.error("isLidClosed: IOPMrootDomain service not found")
-            return false
-        }
-        defer { IOObjectRelease(service) }
+    // MARK: - Remount (wake 후 자동 재마운트)
 
-        guard let cfProp = IORegistryEntryCreateCFProperty(
-            service,
-            "AppleClamshellState" as CFString,
-            kCFAllocatorDefault,
-            0
-        ) else {
-            log.info("isLidClosed: AppleClamshellState property is nil (desktop Mac?) → return false")
-            return false
+    /// 재마운트 결과.
+    /// - success: 정상 재마운트
+    /// - userDisconnected: 디스크가 끝까지 USB enumerate 안 됨 — 사용자가 케이블 분리한 것으로 간주, 알림 X
+    /// - mountFailed: 디스크는 인식되는데 mount 실패 — file system 문제 가능, 알림 O
+    private enum RemountOutcome {
+        case success
+        case userDisconnected
+        case mountFailed(String)
+    }
+
+    /// 여러 디스크를 병렬로 backoff 재시도. mount 실패 디스크만 알림.
+    /// 사용자 분리 (USB 케이블 뽑힌 케이스) 는 silent.
+    private func remountWithBackoff(disks: Set<String>) {
+        let lock = NSLock()
+        var mountFailed: [String] = []
+        let group = DispatchGroup()
+        let parallel = DispatchQueue(label: "com.yongza.ejectdrives.remount", attributes: .concurrent)
+
+        for bsd in disks {
+            group.enter()
+            parallel.async { [weak self] in
+                defer { group.leave() }
+                guard let self = self else { return }
+                switch self.tryRemount(bsd: bsd, delays: [0, 1, 3, 7]) {
+                case .success:
+                    break
+                case .userDisconnected:
+                    log.info("remount: \(bsd, privacy: .public) treated as user disconnect — silent")
+                case .mountFailed:
+                    lock.lock(); mountFailed.append(bsd); lock.unlock()
+                }
+            }
         }
-        // raw value: Yes(true) = closed, No(false) = open
-        let isClosed = (cfProp.takeRetainedValue() as? Bool) ?? false
-        log.info("isLidClosed: AppleClamshellState raw=\(isClosed, privacy: .public) → \(isClosed ? "CLOSED" : "OPEN", privacy: .public)")
-        return isClosed
+        group.wait()
+
+        guard !mountFailed.isEmpty else {
+            log.info("remount: all disks handled (success or user disconnect)")
+            return
+        }
+        let list = mountFailed.sorted().joined(separator: ", ")
+        log.error("remount: mount FAILED = \(list, privacy: .public)")
+        DispatchQueue.main.async { [weak self] in
+            self?.notify(title: "재마운트 실패",
+                         body: "\(list)\n디스크는 인식되는데 mount 안 됨 — 디스크 검사 필요할 수 있음")
+        }
+    }
+
+    /// 한 BSD 디스크에 대해 지정된 delays(초) 간격으로 mountDisk 재시도.
+    /// 각 시도마다 먼저 `diskutil info` 로 enumerate 여부 확인 — 분리 의도 감지.
+    /// 첫 시도 delay=0 즉시. 이후 1, 3, 7s 백오프 (USB 재인식 시간 확보).
+    /// 이미 마운트된 디스크에 호출되면 idempotent (no-op success).
+    private func tryRemount(bsd: String, delays: [Int]) -> RemountOutcome {
+        var everEnumerated = false
+        var lastMountError: String?
+
+        for (i, delay) in delays.enumerated() {
+            if delay > 0 { Thread.sleep(forTimeInterval: TimeInterval(delay)) }
+
+            // 1) 디스크가 시스템에 보이나? — diskutil info exit code 만 확인
+            let info = runDiskutil(["info", bsd])
+            guard info.success else {
+                log.notice("attempt \(i + 1, privacy: .public)/\(delays.count, privacy: .public): \(bsd, privacy: .public) not enumerated — wait for re-detection")
+                continue
+            }
+            everEnumerated = true
+
+            // 2) 디스크 보임 → mount 시도
+            let mount = runDiskutil(["mountDisk", bsd])
+            if mount.success {
+                log.info("✓ remount OK: \(bsd, privacy: .public) (attempt \(i + 1, privacy: .public)/\(delays.count, privacy: .public))")
+                return .success
+            }
+            lastMountError = mount.errorMessage
+            log.notice("attempt \(i + 1, privacy: .public) mount failed: \(bsd, privacy: .public) — \(mount.errorMessage ?? "?", privacy: .public)")
+        }
+
+        if !everEnumerated {
+            log.info("✗ \(bsd, privacy: .public) never enumerated across \(delays.count, privacy: .public) attempts — user disconnect")
+            return .userDisconnected
+        }
+        log.error("✗ remount FAIL: \(bsd, privacy: .public) — enumerate OK but mount failed all \(delays.count, privacy: .public) attempts")
+        return .mountFailed(lastMountError ?? "unknown")
     }
 
     // MARK: - Notifications
@@ -533,6 +605,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 }
 
+// MARK: - Disk Image Detection
+
+/// 마운트된 DMG / sparseimage / sparsebundle 의 mount path 조회.
+/// `hdiutil info -plist` 출력 파싱.
+///
+/// **왜 필요?** 외장 USB/Thunderbolt 디스크 와 DMG 디스크 이미지를 반드시 구분해야 함.
+/// 잘못 처리 시 "Chrome 설치 중인데 DMG 가 빠짐" 같은 사고 발생.
+enum DiskImages {
+    /// 현재 마운트된 모든 디스크 이미지(`/Volumes/Chrome` 같은) 의 mount path 집합.
+    /// hdiutil 호출 ~50ms. 메뉴 열 때마다 호출되어도 OK.
+    static func mountedPaths() -> Set<String> {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        task.arguments = ["info", "-plist"]
+        let outPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = Pipe()  // 무시
+        do {
+            try task.run()
+            task.waitUntilExit()
+            guard task.terminationStatus == 0 else {
+                log.error("hdiutil info exit code \(task.terminationStatus, privacy: .public)")
+                return []
+            }
+            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            guard let plist = try PropertyListSerialization
+                    .propertyList(from: data, format: nil) as? [String: Any],
+                  let images = plist["images"] as? [[String: Any]]
+            else { return [] }
+
+            var paths: Set<String> = []
+            for image in images {
+                guard let entities = image["system-entities"] as? [[String: Any]] else { continue }
+                for entity in entities {
+                    if let mountPoint = entity["mount-point"] as? String, !mountPoint.isEmpty {
+                        paths.insert(mountPoint)
+                    }
+                }
+            }
+            return paths
+        } catch {
+            log.error("hdiutil info failed: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+    }
+}
+
 // MARK: - External Drive Detection
 
 struct ExternalDrive {
@@ -540,6 +659,8 @@ struct ExternalDrive {
     let url: URL
 
     static func list() -> [ExternalDrive] {
+        let dmgPaths = DiskImages.mountedPaths()
+
         let keys: [URLResourceKey] = [
             .volumeNameKey,
             .volumeIsInternalKey,
@@ -560,19 +681,58 @@ struct ExternalDrive {
             // 외장 = 내장 아님 + 사용자에게 보임 + 로컬 (network mount 제외)
             // ejectable/removable 은 체크 안 함 — Thunderbolt 외장 SSD 등이 false 로 보고됨
             guard !isInternal, isBrowsable, isLocal else { continue }
+            // DMG / sparseimage 제외 — Chrome.dmg 같은 마운트된 디스크 이미지가 같이 빠지면 사고
+            guard !dmgPaths.contains(url.path) else {
+                log.debug("filter: DMG excluded \(url.path, privacy: .public)")
+                continue
+            }
             let name = v.volumeName ?? url.lastPathComponent
             drives.append(ExternalDrive(name: name, url: url))
         }
         return drives
     }
+
+    /// volume URL → whole disk BSD name. 예: /Volumes/SYSJO → "disk2"
+    ///
+    /// 재마운트용 식별자. statfs 의 `f_mntfromname` (예: "/dev/disk2s1") 에서
+    /// partition suffix 제거해 whole disk 만 추출. `diskutil mountDisk <bsd>` 로
+    /// 해당 디스크의 모든 마운트 가능한 partition 을 한 번에 mount 가능.
+    var wholeDiskBSDName: String? {
+        var stat = statfs()
+        guard statfs(url.path, &stat) == 0 else { return nil }
+        let dev = withUnsafeBytes(of: &stat.f_mntfromname) { raw -> String in
+            String(cString: raw.bindMemory(to: CChar.self).baseAddress!)
+        }
+        // "/dev/disk2s1" → "disk2"
+        guard dev.hasPrefix("/dev/") else { return nil }
+        let bsd = String(dev.dropFirst("/dev/".count))
+        guard let match = bsd.range(of: #"^disk\d+"#, options: .regularExpression)
+        else { return nil }
+        return String(bsd[match])
+    }
 }
 
-// MARK: - Lid Eject Toggle (UserDefaults)
+// MARK: - Sleep Eject Toggle (UserDefaults)
 
-enum LidEject {
-    private static let key = "ejectOnLidClose"
+/// 잠자기 진입 시 자동 추출 여부.
+/// 노트북 / 데스크탑 / sleep 종류 무관 — 모든 sleep 에서 추출. wake 시 자동 재마운트로 짝.
+///
+/// **마이그레이션**: v0.1.0 의 `ejectOnLidClose` key 가 있으면 그 값 승계, 없으면 default true.
+enum SleepEject {
+    private static let key = "ejectOnSleep"
+    private static let legacyKey = "ejectOnLidClose"
+
     static var enabled: Bool {
-        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        get {
+            let d = UserDefaults.standard
+            if let v = d.object(forKey: key) as? Bool { return v }
+            if let legacy = d.object(forKey: legacyKey) as? Bool {
+                d.set(legacy, forKey: key)
+                d.removeObject(forKey: legacyKey)
+                return legacy
+            }
+            return true
+        }
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }

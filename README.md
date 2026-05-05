@@ -1,13 +1,13 @@
 # EjectDrives — 혼자 쓰는 초간단 버전
 
-**v0.1.0** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
+**v0.2.0** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
 
-맥북 외장 드라이브를 한방에 안전하게 추출하는 메뉴바 앱.
-**Swift 2 파일, ~450줄.** 환경설정 창·다중 단축키 프리셋·로그인 자동실행 코드 없음. 본질만.
+맥 외장 드라이브를 한방에 안전하게 추출하는 메뉴바 앱.
+**Swift 2 파일, ~700줄.** 환경설정 창·다중 단축키 프리셋·로그인 자동실행 코드 없음. 본질만.
 
 ## 현재 상태 (2026-05-05 기준)
 
-✅ **v0.1.0 동작 중**. `~/Applications/EjectDrives.app` 에 설치됨. macOS 26.4.1 (Apple Silicon) 에서 검증.
+✅ **v0.2.0 동작 중**. `~/Applications/EjectDrives.app` 에 설치됨. macOS 26.4.1 (Apple Silicon) 에서 검증.
 
 | 항목 | 값 |
 |---|---|
@@ -25,10 +25,14 @@
 | 메뉴바 드롭다운 | 연결된 외장 드라이브 목록 |
 | 개별 추출 | 드라이브 이름 클릭 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
-| 전역 단축키 | `⌃⇧₩` (한글 키보드 `\` 자리) |
-| **뚜껑 닫을 때만** 자동 추출 | 메뉴에서 토글. 시간 지난 자동 sleep·메뉴→잠자기 는 추출 안 함 (IOKit `AppleClamshellState` 분기) |
-| 결과 알림 | **무음** banner (도서관·회의실 고려) |
-| 병렬 추출 | `DispatchQueue.concurrentPerform` 으로 N개 드라이브 동시 추출 |
+| 전역 단축키 | `⌥⌘E` (한/영 IME 무관, 물리 키 코드 비교) |
+| 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭 |
+| **잠자기 진입 시** 자동 추출 | 메뉴 토글. 노트북·데스크탑·sleep 종류 무관 모든 sleep 에서 동작 |
+| **wake 시 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
+| **DMG / sparseimage 제외** | `hdiutil info` 로 가상 디스크 식별, 자동 추출 대상에서 제외 (Chrome.dmg 같은 마운트 보호) |
+| graceful + force fallback | 1단계 `diskutil eject` 실패 시 2단계 `diskutil unmount force` 자동 재시도 |
+| 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗ (알림 권한 거부 시에도 보임) |
+| 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 
 ## 파일 구성
 
@@ -72,8 +76,10 @@ open ~/Applications/EjectDrives.app
 - 메뉴바 좌측의 **⏏ 추출 아이콘** 클릭 → 드라이브 목록
 - 드라이브 이름 클릭 → 개별 추출
 - "모두 추출" → 전체 추출
-- `⌃⇧₩` → 어디서든 전체 추출
-- "뚜껑 닫을 때 자동 추출" 토글 → ON 이면 뚜껑 닫는 순간만 자동 추출. 시간 지나서 자동 sleep 들어가거나 메뉴→잠자기 한 경우엔 추출 안 함
+- `⌥⌘E` → 어디서든 전체 추출
+- 메뉴바 아이콘 우클릭 → 즉시 모두 추출 (메뉴 안 거침)
+- "잠자기 시 자동 추출" 토글 → ON 이면 모든 sleep 진입 시 자동 추출. wake 후엔 자동 재마운트로 사용자 무감각 UX
+- 사용자 단축키 / 메뉴 클릭 추출 시엔 wake 후 재마운트 안 함 (사용자 의도 존중)
 
 ## 로그인 시 자동 실행
 
@@ -85,19 +91,19 @@ open ~/Applications/EjectDrives.app
 
 | 바꿀 것 | 위치 |
 |---|---|
-| 단축키 | `AppDelegate.swift` 의 `installHotkey()` — `controlKey \| shiftKey`, `kVK_ANSI_Backslash` 부분 수정 |
-| 자동추출 기본값 | `LidEject.enabled` 의 `?? true` 를 `?? false` 로 |
-| 뚜껑 체크 비활성화 (모든 sleep 에서 추출) | `systemWillSleep()` 의 `guard Self.isLidClosed()` 가드 제거 |
+| 단축키 | `AppDelegate.swift` 의 `installHotkey()` — `requiredFlags` 와 `eKeyCode` 수정 |
+| 자동추출 기본값 | `SleepEject.enabled` 의 `return true` 를 `return false` 로 |
+| 재마운트 backoff 간격 | `tryRemount(bsd:delays:)` 호출 시 `delays: [0, 1, 3, 7]` 수정 |
 | 메뉴 텍스트 | `menuWillOpen(_:)` 의 문자열 |
 
 키 코드는 Carbon `Events.h` 의 `kVK_ANSI_*` 상수 참조.
 
 ## 알려진 제한
 
-- **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS 가 sleep 자체를 안 들어감 → `willSleep` 노티 발생 X → 자동 추출 트리거도 안 됨. **자동으로 안전하게 보호됨**.
-- **사용 중 드라이브**: Finder 에서 파일 열려있거나 백업 진행 중이면 추출 거부됨. 알림에 원인 표시.
-- **재마운트 없음**: USB 추출 후 재인식하려면 물리적으로 다시 연결.
-- **데스크탑 맥 (Mini, Studio, iMac)**: 뚜껑 자체가 없어 `AppleClamshellState` 키 없음 → 자동 추출 트리거 안 됨. 토글을 끄거나 단축키만 사용.
+- **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS 가 sleep 자체를 안 들어감 → `willSleep` 노티 발생 X → 자동 추출도 트리거 안 됨. **자동으로 안전하게 보호됨** (어차피 dock 분리 안 일어남).
+- **사용 중 드라이브**: graceful eject 거부 시 force fallback 으로 대부분 처리. 진짜 write 중 file 은 잘릴 수 있음 (sleep 직전 시나리오엔 거의 없음).
+- **재마운트 신뢰도**: `diskutil eject` 가 디스크 전원까지 차단해서 wake 시 USB 재인식이 macOS 환경에 따라 들쭉날쭉. 재인식 안 되는 디스크는 알림으로 사용자 행동 유도. 재인식 자체가 안 되면 silent (사용자 분리로 간주).
+- **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
 
 ---
 

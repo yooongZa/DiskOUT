@@ -1,5 +1,118 @@
 # CHANGELOG
 
+## v0.2.0 — 2026-05-05
+
+**경쟁사 갭 메우기 + 데스크탑 맥 지원.** 두 가지 시급한 코어 갭(DMG 필터링 부재, wake 후 재마운트 부재) 을 메우고, 자동 추출을 lid-close 한정에서 *모든 sleep* 으로 일반화.
+
+---
+
+### 한 줄 요약
+
+> "잠자기 들어가면 추출하고, 깨어나면 알아서 다시 마운트한다 — 노트북·데스크탑 동일."
+
+---
+
+### 추가된 기능
+
+| # | 기능 | 동작 |
+|---|---|---|
+| 1 | **DMG / sparseimage 필터** | `hdiutil info -plist` 파싱해 마운트된 가상 디스크 식별. 메뉴 / 자동 추출 대상에서 제외. Chrome.dmg 같은 마운트가 잠자기 시 같이 빠지는 사고 방지 |
+| 2 | **잠자기 진입 시 자동 추출 (일반화)** | 노트북 lid close 한정 → **모든 sleep** 에서 동작. 데스크탑 맥(Mac mini, iMac, Studio) 도 자동 추출 ✓ |
+| 3 | **wake 후 자동 재마운트** | 자동 추출된 디스크(BSD name) 만 wake 후 `diskutil mountDisk` 로 재마운트. `[0, 1, 3, 7]s` 백오프 |
+| 4 | **사용자 분리 의도 감지** | 각 재시도 직전 `diskutil info <bsd>` 로 enumerate 여부 확인. 한 번도 enumerate 안 되면 사용자가 케이블 분리한 것으로 간주, **silent**. mount 만 실패하면 알림 (FS 손상 가능) |
+| 5 | 수동 추출은 재마운트 안 함 | 단축키 / 메뉴 / 개별 클릭 추출 → BSD 기록 안 함 → wake 후 재마운트 대상 X. **자동은 자동 회복, 수동은 사용자 책임** |
+
+---
+
+### 동작 변경 (v0.1.0 → v0.2.0)
+
+| 항목 | v0.1.0 | v0.2.0 |
+|---|---|---|
+| 자동 추출 trigger | lid close 한정 (`AppleClamshellState`) | **모든 sleep** |
+| 데스크탑 맥 | 자동 추출 안 함 | 자동 추출 ✓ |
+| 메뉴→잠자기 / 시간 자동 sleep | 추출 안 함 | 추출 ✓ |
+| Wake 후 재마운트 | ✗ | ✓ |
+| DMG / sparseimage 필터 | ✗ | ✓ |
+| `IOKit` import / `isLidClosed()` 함수 | 사용됨 | **제거** (dead code) |
+| 메뉴 토글 텍스트 | "뚜껑 닫을 때 자동 추출" | "잠자기 시 자동 추출" |
+| UserDefaults key | `ejectOnLidClose` | `ejectOnSleep` (자동 마이그레이션) |
+
+---
+
+### 디자인 결정 — 왜 lid-close 한정에서 일반화로?
+
+v0.1.0 의 lid-close 한정 추출은 **시나리오 3번 보호** 가 목적이었음:
+- 사용자가 시간 지나 자동 sleep 들어갔다가 자리 돌아옴 → 외장하드 사라지면 짜증
+
+v0.2.0 에서는 **wake 후 자동 재마운트 로직** 이 추가되어 이 비용이 사라짐 (1~2초 재마운트 지연으로 대체). 그러면서 시나리오 4번 (slipt 상태에서 외장하드만 뽑아 감 — 데스크탑 맥의 표준 use case) 까지 자동으로 커버.
+
+| 시나리오 | v0.1.0 동작 | v0.2.0 동작 |
+|---|---|---|
+| 1. 뚜껑 닫음 → 분리 (이동) | 자동 추출 ✓ | 동일 |
+| 2. 뚜껑 닫음 → 그대로 → 작업 재개 | 자동 추출 ✓ but 재마운트 ✗ | 자동 추출 ✓ + 자동 재마운트 ✓ |
+| 3. sleep → 작업 재개 | 추출 X (의도) | 추출 ✓ + 자동 재마운트 ✓ (사용자 무감각) |
+| 4. 데스크탑 sleep → 외장하드만 분리 | 추출 X (불가능) | 추출 ✓ |
+
+---
+
+### 발생했던 이슈와 해결
+
+#### 1. DMG 필터 — `hdiutil info` 의 mount-point 추출
+
+DiskArbitration framework 호출도 가능하지만 `hdiutil info -plist` 의 system-entities → mount-point 가 더 단순. 50 ms 호출, 메뉴 열 때마다 호출되어도 OK.
+
+검증: 현재 환경에 Xcode CoreSimulator 의 watchOS / iOS 시뮬레이터 디스크 두 개가 마운트되어 있음. 이전엔 외장으로 잘못 분류될 가능성, 이제 차단.
+
+#### 2. BSD name 추출 — `statfs` 의 `f_mntfromname` 파싱
+
+`/Volumes/SYSJO` → statfs → `/dev/disk12s1` → 정규식 `^disk\d+` → `disk12` (whole disk).
+
+`diskutil mountDisk disk12` 로 해당 disk 의 모든 partition 한 번에 mount.
+
+#### 3. 사용자 분리 의도 감지 — `diskutil info` exit code
+
+각 백오프 시도 직전:
+- `diskutil info disk12` → exit 0 → 디스크 USB 재인식됨 → mount 시도
+- `diskutil info disk12` → exit 1 → 시스템에 없음 → 다음 시도 (재인식 대기)
+
+4회 시도 (0, 1, 3, 7s) 동안 한 번도 enumerate 안 되면 **사용자가 분리한 것으로 간주** → 알림 X.
+
+이전 설계에서는 4회 시도 후 무조건 *"USB 케이블 다시 꽂아주세요"* 알림 → 사용자가 의도적으로 분리했는데 알림 뜨면 짜증. 정정.
+
+#### 4. UserDefaults key 마이그레이션
+
+```swift
+if let v = d.object(forKey: "ejectOnSleep") as? Bool { return v }
+if let legacy = d.object(forKey: "ejectOnLidClose") as? Bool {
+    d.set(legacy, forKey: "ejectOnSleep")
+    d.removeObject(forKey: "ejectOnLidClose")
+    return legacy
+}
+return true
+```
+
+v0.1.0 에서 토글 끈 적 있는 사용자도 그 상태 그대로 승계. 첫 실행 시 한 번만 마이그레이션.
+
+---
+
+### 코드 라인 변화
+
+| 파일 | v0.1.0 | v0.2.0 | 변화 |
+|---|---|---|---|
+| `AppDelegate.swift` | ~580줄 | ~700줄 | **+120줄** (DMG filter, BSD helper, remount logic) / `isLidClosed` 35줄 제거 |
+| `import IOKit` | 사용 | 제거 | dead code |
+| `import Darwin` | — | 추가 | `statfs` 호출 |
+
+---
+
+### 알려진 갭 (v0.3.0 검토)
+
+- **사용 중 프로세스 표기**: 추출 실패 시 `lsof +D /Volumes/X` 로 어떤 앱이 잡고 있는지 표시. "Photoshop이 IMG_1234.psd 사용 중" 같은 사용자 친화적 메시지.
+- **재마운트 신뢰도 향상**: `diskutil eject` 대신 DiskArbitration framework 의 `DARegisterDiskMountApprovalCallback` 으로 자동 mount 차단 + 명시적 mount 제어. 현재는 `diskutil` 의존이라 USB-C 재인식 들쭉날쭉을 못 피함.
+- **재마운트 후 결과 알림**: 현재는 실패 시에만 알림. 성공 시에도 "재마운트: SYSJO, SSD_W ✓" 한 줄 banner 가 사용자 안심에 도움 가능. (단, 스팸 위험)
+
+---
+
 ## v0.1.0 — 2026-05-05
 
 **혼자 쓰는 초간단 버전 첫 릴리즈.** macOS 메뉴바 외장 드라이브 자동 추출 앱.
