@@ -1,5 +1,87 @@
 # CHANGELOG
 
+## v0.3.0 — 2026-05-05
+
+**화면 꺼짐 시 자동 추출 (display sleep eject) 추가.** `pmset sleep = 0` 환경의 도킹 분리 사고 보호. Jettison 1.9.1 의 동등 기능.
+
+---
+
+### 한 줄 요약
+
+> "자동 sleep 끈 환경 (`pmset sleep = 0`) 에서도 화면 꺼지면 외장 추출 + 화면 켜지면 재마운트."
+
+---
+
+### 배경 — 왜 필요했나
+
+v0.2.x 까지는 **system sleep** 만 처리. 그런데 다음 환경에서 갭:
+
+- `pmset -g` 의 `sleep = 0` (자동 system sleep 비활성)
+- 데스크탑 / 외장 모니터 + Mac mini / 백그라운드 작업 돌리는 환경에서 흔함
+- 화면이 꺼져도 (display sleep) 시스템은 awake → EjectDrives 동작 X
+- 그 상태에서 도킹/외장 분리 = ungraceful disconnect (`danglingVolumeList` 등록, "Disk Not Ejected Properly" 알림)
+
+실제 사고 사례: 2026-05-05 22:40 — 사용자가 "화면 꺼짐 = sleep" 으로 오인하고 도킹 분리. SYSJO/SSD_W 두 디스크 강제 unmount.
+
+Jettison 도 이 갭을 인지해 1.9.1 (2025-04) 에 동등 기능 추가. 우리도 따라잡음.
+
+---
+
+### 추가된 기능
+
+| # | 기능 | 동작 |
+|---|---|---|
+| 1 | **화면 꺼짐 시 자동 추출** | `NSWorkspace.screensDidSleepNotification` 옵저버. 화면 꺼지는 즉시 외장 추출 + BSD 기록 |
+| 2 | **화면 켜질 때 재마운트** | `screensDidWakeNotification` 옵저버. 2초 대기 후 `[0,1,3,7]s` 백오프 |
+| 3 | **메뉴 토글 신설** | "화면 꺼질 때도 자동 추출 (실험)" — 기존 sleep 토글과 별개 |
+| 4 | **중복 추출 가드** | `autoEjectedDisks` 가드로 system sleep + display sleep 양쪽 trigger 시 중복 호출 방지 (idempotent) |
+| 5 | **추출 실패 시 알림** | "화면 꺼짐 시 N개 디스크 추출 실패" — banner + 알림 센터 보관 (v0.2.1 의 archived 정책 준수) |
+
+---
+
+### 동작 변경
+
+| 항목 | v0.2.1 | v0.3.0 |
+|---|---|---|
+| sleep eject trigger | system sleep only | system sleep + (옵션) display sleep |
+| display sleep 시 보호 | ✗ | ✓ (토글 ON 시) |
+| 메뉴 토글 | 1개 | 2개 |
+| UserDefaults key | `ejectOnSleep` | + `ejectOnDisplaySleep` (default: false) |
+| 옵저버 | 2개 (will/didSleep) | 4개 (+ screensDid Sleep/Wake) |
+
+---
+
+### 트레이드오프 (사용자에게 솔직)
+
+display sleep eject 는 강력하지만 **default = false**. 이유:
+
+- ⚠️ **빈번한 발동**: 자리 5분 비우면 화면 꺼짐 → 추출. 돌아와서 마우스 흔들면 재마운트. 잦으면 disk wear / 사용 흐름 끊김
+- ⚠️ **영상 재생 / 작업 중**: 외장 SSD 의 영상 보다 화면 sleep 만 발동되는 케이스 (예: 음악 재생 중 디스플레이만 sleep) 에서 추출 시도 → graceful 거부 → force unmount → 작업 끊김
+- ⚠️ **macOS 가 화면 sleep 직전 알림 못함**: Jettison 측도 명시 — display 가 *꺼진 후* 노티 받음. 추출 시작 시점에 0~3초의 mount 상태 존재
+
+→ 명시적으로 opt-in 필요한 사용자만 (특히 `pmset sleep = 0` 환경) 켜는 게 맞음.
+
+---
+
+### 검증 시나리오
+
+| 환경 | sleep 토글 | display 토글 | 동작 |
+|---|---|---|---|
+| 노트북 + 자동 sleep ON | ON | OFF | system sleep 시 추출 (v0.2.x 동일) |
+| 데스크탑 + `sleep=0` | ON | **ON** | 화면 꺼지는 즉시 추출 → wake 시 재마운트 |
+| 양쪽 모두 OFF | OFF | OFF | 자동 추출 없음 (수동만) |
+| 양쪽 모두 ON, system sleep 진입 | ON | ON | display sleep 먼저 발화 → 추출 → system sleep 발화 시 `autoEjectedDisks` 가드로 skip (no double-eject) |
+
+---
+
+### 알려진 갭 (v0.4.0 검토)
+
+- **Pre-eject delay**: 화면 꺼진 후 30초~5분 동안 추출 보류 → 그 사이 wake 되면 cancel. 빠르게 돌아오는 사용자 보호 (현 시점 즉시 추출)
+- **추출 제외 화이트리스트**: Time Machine 디스크 / 항상 mount 유지하고 싶은 외장 등 사용자 지정 ignore
+- **재마운트 성공 알림 옵션**: 사용자가 추출/재마운트 사이클을 인지하기 위한 한 줄 banner
+
+---
+
 ## v0.2.1 — 2026-05-05
 
 **버그 fix + 알림 정책 정비.** 빠른 추출에서 결과 아이콘이 사라지던 race 수정. 알림을 importance 별로 banner-only / 알림 센터 보관 분리. Sleep 추출 실패 알림 신설.

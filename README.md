@@ -1,13 +1,13 @@
 # EjectDrives — 혼자 쓰는 초간단 버전
 
-**v0.2.1** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
+**v0.3.0** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
 
 맥 외장 드라이브를 한방에 안전하게 추출하는 메뉴바 앱.
 **Swift 2 파일, ~700줄.** 환경설정 창·다중 단축키 프리셋·로그인 자동실행 코드 없음. 본질만.
 
 ## 현재 상태 (2026-05-05 기준)
 
-✅ **v0.2.1 동작 중**. `~/Applications/EjectDrives.app` 에 설치됨. macOS 26.4.1 (Apple Silicon) 에서 검증.
+✅ **v0.3.0 동작 중**. `~/Applications/EjectDrives.app` 에 설치됨. macOS 26.4.1 (Apple Silicon) 에서 검증.
 
 | 항목 | 값 |
 |---|---|
@@ -28,7 +28,8 @@
 | 전역 단축키 | `⌥⌘E` (한/영 IME 무관, 물리 키 코드 비교) |
 | 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭 |
 | **잠자기 진입 시** 자동 추출 | 메뉴 토글. 노트북·데스크탑·sleep 종류 무관 모든 sleep 에서 동작 |
-| **wake 시 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
+| **화면 꺼질 때도 자동 추출** (v0.3.0, 옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. 빈번한 발동 우려로 명시적 opt-in |
+| **wake / 화면 켜질 때 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
 | **DMG / sparseimage 제외** | `hdiutil info` 로 가상 디스크 식별, 자동 추출 대상에서 제외 (Chrome.dmg 같은 마운트 보호) |
 | graceful + force fallback | 1단계 `diskutil eject` 실패 시 2단계 `diskutil unmount force` 자동 재시도 |
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
@@ -104,6 +105,7 @@ open ~/Applications/EjectDrives.app
 - **사용 중 드라이브**: graceful eject 거부 시 force fallback 으로 대부분 처리. 진짜 write 중 file 은 잘릴 수 있음 (sleep 직전 시나리오엔 거의 없음).
 - **재마운트 신뢰도**: `diskutil eject` 가 디스크 전원까지 차단해서 wake 시 USB 재인식이 macOS 환경에 따라 들쭉날쭉. 재인식 안 되는 디스크는 알림으로 사용자 행동 유도. 재인식 자체가 안 되면 silent (사용자 분리로 간주).
 - **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
+- **`pmset sleep = 0` 환경에서 화면 꺼짐 ≠ system sleep**: v0.2.x 까지는 화면만 꺼져도 추출 안 됨. v0.3.0 의 "화면 꺼질 때도 자동 추출" 토글로 보완 (명시적 opt-in). 트레이드오프: 자리 잠깐 비울 때마다 추출/재마운트 사이클 발생 가능 — 빈번하면 disk wear / 작업 흐름 끊김.
 
 ---
 

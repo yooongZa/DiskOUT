@@ -166,6 +166,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         toggle.state = SleepEject.enabled ? .on : .off
         menu.addItem(toggle)
 
+        let toggleDisp = NSMenuItem(title: "화면 꺼질 때도 자동 추출 (실험)",
+                                    action: #selector(toggleDisplaySleepEject),
+                                    keyEquivalent: "")
+        toggleDisp.target = self
+        toggleDisp.state = DisplaySleepEject.enabled ? .on : .off
+        toggleDisp.toolTip = "pmset sleep=0 환경에서 화면 꺼질 때 추출. 자리 잠깐 비울 때 잦은 추출/재마운트 가능."
+        menu.addItem(toggleDisp)
+
         menu.addItem(NSMenuItem.separator())
 
         let quit = NSMenuItem(title: "종료",
@@ -177,6 +185,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     @objc private func toggleSleepEject() {
         SleepEject.enabled.toggle()
         log.info("SleepEject toggled → \(SleepEject.enabled, privacy: .public)")
+    }
+
+    @objc private func toggleDisplaySleepEject() {
+        DisplaySleepEject.enabled.toggle()
+        log.info("DisplaySleepEject toggled → \(DisplaySleepEject.enabled, privacy: .public)")
     }
 
     // MARK: - Status Icon Feedback (단축키/추출 시각 피드백)
@@ -426,6 +439,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                        name: NSWorkspace.willSleepNotification, object: nil)
         nc.addObserver(self, selector: #selector(systemDidWake),
                        name: NSWorkspace.didWakeNotification, object: nil)
+        // Display sleep — 화면만 꺼지는 시점. system sleep 과 별개 노티.
+        // `pmset sleep = 0` 환경 (데스크탑/항상-켬) 에서 보호 갭을 메우는 용도.
+        nc.addObserver(self, selector: #selector(screensDidSleep),
+                       name: NSWorkspace.screensDidSleepNotification, object: nil)
+        nc.addObserver(self, selector: #selector(screensDidWake),
+                       name: NSWorkspace.screensDidWakeNotification, object: nil)
     }
 
     /// wake 직후:
@@ -481,6 +500,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             notify(title: "Sleep 시 \(r.failure.count)개 디스크 추출 실패",
                    body: "\(failedNames)\n디스크가 unmount 안 된 채 sleep — 분리 시 손상 위험. wake 후 메뉴에서 수동 추출 권장.",
                    archived: true)
+        }
+    }
+
+    // MARK: - Display Sleep (`pmset sleep = 0` 환경 보호용)
+
+    /// 화면이 꺼질 때 자동 추출. system sleep 과 독립.
+    ///
+    /// **왜?** `pmset sleep = 0` (데스크탑/항상-켬) 사용자는 화면이 꺼져도 system 은 awake 상태.
+    /// 그 상태에서 도킹/외장 분리 시 ungraceful disconnect (`danglingVolumeList` 등록).
+    /// system sleep 만 처리하던 v0.2.x 의 갭. Jettison 1.9.1 도 동일 시나리오 대응.
+    ///
+    /// **트레이드오프**: 자리 잠깐 비우면 (디스플레이 sleep) 추출 → 돌아와서 (디스플레이 wake)
+    /// 재마운트 사이클 빈번 발생 가능. 그래서 default = false, 명시적 opt-in.
+    @objc private func screensDidSleep() {
+        log.info("screensDidSleep notification received")
+        guard DisplaySleepEject.enabled else {
+            log.info("EJECT(displaysleep) SKIPPED — DisplaySleepEject disabled")
+            return
+        }
+        // system sleep 핸들러가 먼저 발화해 이미 추출 진행/완료한 경우 skip.
+        // autoEjectedDisks 가 비어있지 않으면 다른 trigger 가 이미 처리 중.
+        guard autoEjectedDisks.isEmpty else {
+            log.info("EJECT(displaysleep) SKIPPED — autoEjectedDisks not empty (other trigger active)")
+            return
+        }
+        log.info("EJECT(displaysleep) START")
+
+        let drives = ExternalDrive.list()
+        autoEjectedDisks = Set(drives.compactMap { $0.wholeDiskBSDName })
+        log.info("EJECT(displaysleep) recorded BSDs: \(self.autoEjectedDisks.sorted(), privacy: .public)")
+
+        let r = ejectAllSilently()
+        log.info("EJECT(displaysleep) DONE — success=\(r.success.count) failure=\(r.failure.count)")
+
+        if !r.failure.isEmpty {
+            let failedNames = r.failure.map { $0.0 }.joined(separator: ", ")
+            notify(title: "화면 꺼짐 시 \(r.failure.count)개 디스크 추출 실패",
+                   body: "\(failedNames)\n디스크가 unmount 안 된 채 — 분리 시 손상 위험. 화면 켜고 메뉴에서 수동 추출 권장.",
+                   archived: true)
+        }
+    }
+
+    /// 화면 다시 켜질 때 재마운트.
+    /// systemDidWake 와 동일한 재마운트 함수 호출. autoEjectedDisks 가 첫 호출에서 비워지므로
+    /// 두 trigger (system + display) 가 모두 와도 idempotent.
+    @objc private func screensDidWake() {
+        log.info("screensDidWake notification received")
+        let toRemount = autoEjectedDisks
+        autoEjectedDisks = []
+        guard !toRemount.isEmpty else {
+            log.info("screensDidWake → no remount target")
+            return
+        }
+        log.info("screensDidWake → schedule remount: \(toRemount.sorted(), privacy: .public)")
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.remountWithBackoff(disks: toRemount)
         }
     }
 
@@ -768,6 +843,18 @@ enum SleepEject {
             }
             return true
         }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
+/// 화면 꺼질 때 자동 추출 여부. system sleep 과 별개 토글.
+/// `pmset sleep = 0` (자동 sleep 비활성) 환경의 도킹 분리 사고 보호용.
+/// **default = false** — 빈번한 추출/재마운트 위험 때문에 명시적 opt-in.
+enum DisplaySleepEject {
+    private static let key = "ejectOnDisplaySleep"
+
+    static var enabled: Bool {
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
