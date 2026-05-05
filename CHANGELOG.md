@@ -82,6 +82,18 @@ display sleep eject 는 강력하지만 **default = false**. 이유:
 
 ---
 
+### 설치 / 검증 기록
+
+- **2026-05-05 23:05** — 안전 설치 절차로 교체 완료
+  - 기존 v0.2.0 (PID 67951) 종료 → `~/Applications/EjectDrives.app.v0.2.0.bak` 백업
+  - DerivedData 의 Debug 빌드 (`23:02` 산출물) 를 `~/Applications/` 로 복사 + `xattr -cr` 로 provenance 정리
+  - 새 PID 63837 으로 정상 실행, `globalKeyMonitor REGISTERED` / `Accessibility trusted = true` 확인
+- **검증 환경** — macOS 26.4.1 (Apple Silicon), `pmset sleep = 0`, `displaysleep = 20` 분
+- **알림 권한** — 여전히 denied (`authStatus=1`). 알림 매트릭스 검증 원하면 시스템 설정 → 알림 → EjectDrives 켜야 함
+- **롤백 절차** — README "안전 설치" 섹션 참조
+
+---
+
 ## v0.2.1 — 2026-05-05
 
 **버그 fix + 알림 정책 정비.** 빠른 추출에서 결과 아이콘이 사라지던 race 수정. 알림을 importance 별로 banner-only / 알림 센터 보관 분리. Sleep 추출 실패 알림 신설.

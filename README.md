@@ -72,6 +72,38 @@ open ~/Applications/EjectDrives.app
 
 또는 Xcode 열어서 `EjectDrives.xcodeproj` → `Cmd+R`.
 
+### 안전 설치 (롤백 가능)
+
+새 빌드 검증 안 끝났을 때 권장. 기존 .app 을 먼저 백업 후 교체.
+
+```bash
+# 1. 빌드
+cd ~/Documents/diskOUT
+xcodebuild -project EjectDrives.xcodeproj -scheme EjectDrives -configuration Debug build
+
+# 2. 종료 + 백업 + 교체
+pkill -f EjectDrives
+mv ~/Applications/EjectDrives.app ~/Applications/EjectDrives.app.prev.bak
+DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name "EjectDrives.app" -type d | head -1)
+cp -R "$DERIVED" ~/Applications/EjectDrives.app
+xattr -cr ~/Applications/EjectDrives.app   # provenance/quarantine 정리
+open ~/Applications/EjectDrives.app
+
+# 3. 검증 (메뉴 동작, 로그 확인)
+log show --predicate 'subsystem == "com.yongza.ejectdrives"' --info --last 1m
+
+# 4a. 문제 없으면 백업 제거
+rm -rf ~/Applications/EjectDrives.app.prev.bak
+
+# 4b. 문제 있으면 롤백
+pkill -f EjectDrives
+rm -rf ~/Applications/EjectDrives.app
+mv ~/Applications/EjectDrives.app.prev.bak ~/Applications/EjectDrives.app
+open ~/Applications/EjectDrives.app
+```
+
+> Debug 빌드는 `~/Library/Developer/Xcode/DerivedData/EjectDrives-<hash>/Build/Products/Debug/` 에 생성됨. Release 는 `Release/`. xcodebuild 의 `-derivedDataPath` 를 안 줄 때만 default 위치 사용.
+
 ## 사용법
 
 - 메뉴바 좌측의 **⏏ 추출 아이콘** 클릭 → 드라이브 목록
