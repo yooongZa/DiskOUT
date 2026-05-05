@@ -1,13 +1,13 @@
 # EjectDrives — 혼자 쓰는 초간단 버전
 
-**v0.2.0** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
+**v0.2.1** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
 
 맥 외장 드라이브를 한방에 안전하게 추출하는 메뉴바 앱.
 **Swift 2 파일, ~700줄.** 환경설정 창·다중 단축키 프리셋·로그인 자동실행 코드 없음. 본질만.
 
 ## 현재 상태 (2026-05-05 기준)
 
-✅ **v0.2.0 동작 중**. `~/Applications/EjectDrives.app` 에 설치됨. macOS 26.4.1 (Apple Silicon) 에서 검증.
+✅ **v0.2.1 동작 중**. `~/Applications/EjectDrives.app` 에 설치됨. macOS 26.4.1 (Apple Silicon) 에서 검증.
 
 | 항목 | 값 |
 |---|---|
@@ -31,7 +31,7 @@
 | **wake 시 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
 | **DMG / sparseimage 제외** | `hdiutil info` 로 가상 디스크 식별, 자동 추출 대상에서 제외 (Chrome.dmg 같은 마운트 보호) |
 | graceful + force fallback | 1단계 `diskutil eject` 실패 시 2단계 `diskutil unmount force` 자동 재시도 |
-| 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗ (알림 권한 거부 시에도 보임) |
+| 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 
 ## 파일 구성

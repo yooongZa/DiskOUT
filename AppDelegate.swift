@@ -253,7 +253,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 if result.success {
                     self.notify(title: "추출 완료", body: name)
                 } else {
-                    self.notify(title: "추출 실패: \(name)", body: result.errorMessage ?? "알 수 없는 오류")
+                    self.notify(title: "추출 실패: \(name)",
+                                body: result.errorMessage ?? "알 수 없는 오류",
+                                archived: true)
                 }
             }
         }
@@ -302,12 +304,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return
         }
         let title: String
+        let archived: Bool
         if result.failure.isEmpty {
             title = "모든 드라이브 추출 완료"
+            archived = false   // 성공 — 결과 아이콘 ✓ 으로 즉시 피드백 충분
         } else if result.success.isEmpty {
             title = "추출 실패"
+            archived = true    // 실패 — 어떤 디스크인지 사후 확인 가치
         } else {
             title = "일부 추출 실패"
+            archived = true
         }
         var lines: [String] = []
         if !result.success.isEmpty {
@@ -316,7 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if !result.failure.isEmpty {
             lines.append("실패: " + result.failure.map { $0.0 }.joined(separator: ", "))
         }
-        notify(title: title, body: lines.joined(separator: "\n"))
+        notify(title: title, body: lines.joined(separator: "\n"), archived: archived)
     }
 
     /// 병렬 추출. background thread 에서 호출하라.
@@ -466,6 +472,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         let r = ejectAllSilently()
         log.info("EJECT(sleep) DONE — success=\(r.success.count) failure=\(r.failure.count)")
+
+        // Sleep 추출 실패는 부재 중 발생한 negative event → 알림 센터에 보관.
+        // unmount 안 된 채 sleep 진입했으니 dock 분리 시 file system 손상 위험.
+        // sleep 진입 직전이지만 UNUserNotificationCenter 는 OS-level 이라 등록만 되면 OS 가 처리.
+        if !r.failure.isEmpty {
+            let failedNames = r.failure.map { $0.0 }.joined(separator: ", ")
+            notify(title: "Sleep 시 \(r.failure.count)개 디스크 추출 실패",
+                   body: "\(failedNames)\n디스크가 unmount 안 된 채 sleep — 분리 시 손상 위험. wake 후 메뉴에서 수동 추출 권장.",
+                   archived: true)
+        }
     }
 
     // MARK: - Remount (wake 후 자동 재마운트)
@@ -513,7 +529,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.error("remount: mount FAILED = \(list, privacy: .public)")
         DispatchQueue.main.async { [weak self] in
             self?.notify(title: "재마운트 실패",
-                         body: "\(list)\n디스크는 인식되는데 mount 안 됨 — 디스크 검사 필요할 수 있음")
+                         body: "\(list)\n디스크는 인식되는데 mount 안 됨 — 디스크 검사 필요할 수 있음",
+                         archived: true)
         }
     }
 
@@ -556,10 +573,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     // MARK: - Notifications
 
-    private func notify(title: String, body: String) {
+    /// archived=true 면 알림 센터에 보관 (사후 확인 가치 있는 negative event 등),
+    /// false 면 banner 만 잠깐 표시되고 사라짐 (즉시 인지 가능한 positive event 등).
+    /// userInfo 에 flag 를 박아 willPresent 콜백에서 옵션 분기.
+    private func notify(title: String, body: String, archived: Bool = false) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
+        content.userInfo = ["archived": archived]
         // sound 의도적으로 설정 안 함 — 도서관 등 조용한 환경 고려
         let request = UNNotificationRequest(identifier: UUID().uuidString,
                                             content: content,
@@ -571,7 +592,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler:
                                 @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner])  // 사운드 제외 — 항상 무음 banner
+        let archived = (notification.request.content.userInfo["archived"] as? Bool) ?? false
+        // archived 만 .list (알림 센터 보관). sound 는 항상 제외 — 무음 정책.
+        completionHandler(archived ? [.banner, .list] : [.banner])
     }
 
     // MARK: - Global Hotkey (⌥⌘E)
