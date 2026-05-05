@@ -177,6 +177,7 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 - **노치 모델**: status items 가 메뉴바 좌측 (앱 메뉴 옆) 에도 배치될 수 있음 — 우측이 가득 차면 노치 너머 좌측에 등장.
 - **`com.apple.provenance` xattr**: macOS 의 fileprovider 서비스 (iCloud Drive / OneDrive 등) 가 `~/Documents/` 안의 파일에 자동으로 붙임. codesign 이 이걸 보면 "resource fork, Finder information, or similar detritus not allowed" 로 사인 거부. `xattr -cr` 로 정리해도 곧 다시 붙음. **빌드는 `/tmp/` 등 fileprovider 영향 없는 곳에서 하는 게 안전.**
 - **CGWindowList 의 한계**: `kCGWindowOwnerName == "EjectDrives"` 검색으로 윈도우 0개라도 메뉴바에 떠있을 수 있음. `ControlCenter` 가 status item 의 view 를 자체 윈도우 안에 그리는 케이스가 있어 외부에서는 안 보임. **진짜 보이는지 검증은 시각적 확인 필수.**
+- **`runDiskutil` 의 stdout drain 안 함 (잠재 hang)**: `Process` 의 stdout 을 `Pipe` 로 redirect 만 하고 `readDataToEndOfFile()` 로 비우지 않음 (stderr 만 비움). pipe buffer (~64KB) 가 가득 차면 child 가 write 에서 block → `waitUntilExit()` 영구 hang 가능. `diskutil eject` 정상 출력은 1~2줄이라 현실적으로 발생 안 하지만, verbose 옵션이나 디스크 다수일 때는 위험. 고치려면 stdout 도 `readabilityHandler` 로 비동기 drain 하거나 `fileHandleForReading.readDataToEndOfFile()` 호출. 지금은 알고 두기만.
 
 ---
 

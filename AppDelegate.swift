@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var lastEjectAt: Date = .distantPast
     /// 마지막 추출 결과 symbol (wake 후 복원용). nil 이면 default ⏏ 표시.
     private var lastResultSymbol: String?
+    /// flashIcon 의 지연 reset 이 그 사이 set 된 결과 아이콘을 덮어쓰는 race 방지용.
+    /// flashIcon 호출 시 +1, reset 시점에 같은 값이면 그대로 reset, 다르면 skip.
+    /// setPersistentIcon / resetIcon 도 +1 해서 진행중인 reset 무효화.
+    private var iconFlashGeneration: Int = 0
     /// 자동(lid-close) 추출된 disk BSD names — wake 시 재마운트 대상.
     /// 수동 추출(단축키/메뉴)은 여기 안 들어감 — 사용자 의도 존중.
     private var autoEjectedDisks: Set<String> = []
@@ -178,6 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // MARK: - Status Icon Feedback (단축키/추출 시각 피드백)
 
     /// 메뉴바 아이콘 잠시 다른 심볼로 변경 후 원복 (회전화살표 등 임시 표시용).
+    /// 지연 reset 이 그 사이 표시된 결과 아이콘 (setPersistentIcon) 을 덮어쓰지 않도록
+    /// generation 토큰으로 보호. 빠른 추출에서 결과 ✓ 가 사라지던 race 방지.
     private func flashIcon(symbol: String, duration: TimeInterval = 0.4) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let button = self.statusItem.button else { return }
@@ -187,8 +193,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }
             newImg.isTemplate = true
             button.image = newImg
+            self.iconFlashGeneration += 1
+            let myGen = self.iconFlashGeneration
             DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
                 guard let self = self, let button = self.statusItem.button else { return }
+                // 그 사이 다른 flashIcon / setPersistentIcon / resetIcon 호출되었으면 skip.
+                guard self.iconFlashGeneration == myGen else { return }
                 button.image = self.cachedDefaultIcon
             }
         }
@@ -208,6 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }
             img.isTemplate = true
             button.image = img
+            self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
         }
     }
 
@@ -217,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let button = self.statusItem.button else { return }
             button.image = self.cachedDefaultIcon
+            self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
         }
     }
 
