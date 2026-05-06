@@ -23,6 +23,7 @@ targets:
     sources:
       - path: AppDelegate.swift
       - path: main.swift
+      - path: DiskArbitrationBackend.swift
     entitlements:
       path: EjectDrives.entitlements
     info:

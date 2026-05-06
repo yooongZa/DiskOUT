@@ -15,12 +15,36 @@
 - `Scripts/release.sh` (Developer ID + 노타리 자동화 스크립트) — App Store 노선과 무관.
 - `processesUsing()` / `annotateFailure()` 헬퍼 + 4곳 호출 (lsof 점유 프로세스 표기) — sandbox 가 다른 프로세스 fd 들여다보기를 명시적 차단. 우회 불가능. 우리 차별점이었지만 App Store 양립 불가능해 폐기.
 
-### 다음 작업 (App Store 출시 전 처리)
+### DiskArbitration / IOKit 재작성 — 완료
 
-- `diskutil` / `hdiutil` 외부 명령 호출을 **DiskArbitration framework** 직접 호출로 재작성 (`DADiskUnmount`, `DADiskMount`, `DADiskCopyDescription`). sandbox 안에서도 동작.
-- `unmount force` fallback 폐기 — sandbox 에선 작동 X. graceful 만 시도, 실패는 사용자에게 노출.
-- `hdiutil info` 의 DMG 식별을 `kDADiskDescriptionDeviceProtocolKey` (`"Disk Image"` 검사) 로 대체.
-- 단축키 (`⌥⌘E`, `⌃⌘E`) 의 Accessibility 권한 요청 UX 추가.
+모든 외부 명령 spawn (`diskutil` / `hdiutil`) 을 framework 직접 호출로 교체. sandbox 안에서 동작.
+
+**새 파일** [DiskArbitrationBackend.swift](DiskArbitrationBackend.swift) (~270줄):
+
+- `unmount(disk:)` — `DADiskUnmount` 동기 wrapper. graceful 만 시도, force 폐기.
+- `mount(disk:)` — `DADiskMount` 동기 wrapper.
+- `disk(forVolumePath:)` / `disk(forBSDName:)` — DADisk 핸들 생성.
+- `description(for:)` / `isVirtualDisk(_:)` — DA description 기반 DMG/sparseimage 식별 (`kDADiskDescriptionDeviceProtocolKey == "Disk Image"`).
+- `enumerateExternalWholeDisks()` — IOKit `IOMedia` enumerate, internal=false 만 (`diskutil list -plist external` 대체).
+- `childPartitions(ofWholeDisk:)` — IOKit 으로 child partition + APFS synth volume enumerate (`diskutil mountDisk` 의 partition 자동 mount 동작 모방).
+
+**호출 패턴**:
+- DA 비동기 callback → `DispatchSemaphore` sync wrapper. `runDiskutil` 과 같은 sync 호출 패턴 유지 → 기존 코드 구조 보존.
+- DA session 은 background `DispatchQueue` 에 묶음 (`DASessionSetDispatchQueue`). main thread 에서 호출 시 deadlock 방지 위해 background thread 에서만 호출.
+- C function pointer callback ↔ Swift closure 간 결과 전달은 `Unmanaged.passRetained` + `ResultBox` reference type 사용.
+
+**기능 변화**:
+- ❌ **force unmount fallback 폐기** — `diskutil unmount force` 동등 동작이 sandbox + non-root 환경에서 거절. graceful 실패 시 사용자에게 *"디스크가 사용 중"* 노출만.
+- ❌ **`DADiskEject` 사용 X** — power off 까지 가는 eject 는 sandbox 에서 거절 가능성. unmount 만 사용 (Jettison 도 동일). 사용자 체감엔 차이 없음 (`/Volumes` 에서 사라짐).
+- ✅ **DMG/sparseimage/CoreSimulator 식별** — `DeviceProtocol` 키 기반. `hdiutil info` 보다 빠르고 sandbox 호환.
+- ✅ **APFS Container child synth volume enumerate** — IORegistry parent chain traversal 로 동작.
+
+**제거된 코드**:
+- `runDiskutil()` helper
+- `DiskImages.mountedPaths()` (hdiutil 호출)
+- `UnmountedExternal.busProtocol(for:)` (diskutil info 호출)
+- `UnmountedExternal.firstVolumeName(in:)` (plist 파싱)
+- 합 ~120줄 삭감
 
 ### 유지된 것 (배포 노선과 무관, 그대로 유효)
 
