@@ -26,6 +26,17 @@ targets:
       - path: DiskArbitrationBackend.swift
     entitlements:
       path: EjectDrives.entitlements
+      properties:
+        # Mac App Store 필수
+        com.apple.security.app-sandbox: true
+        # 사용자가 메뉴에서 외장 드라이브 클릭 = 사용자 선택 파일/폴더 접근
+        com.apple.security.files.user-selected.read-write: true
+        # USB 장치 접근 — 외장 USB 디스크 unmount/mount 에 필요
+        com.apple.security.device.usb: true
+        # /Volumes/ 절대 경로 접근 — 외장 디스크 mount path 가 모두 /Volumes/ 아래.
+        # App Store 심사 정당화: 외장 드라이브 추출/마운트가 본 앱의 본질 기능.
+        com.apple.security.temporary-exception.files.absolute-path.read-write:
+          - /Volumes/
     info:
       path: Info.plist
       properties:

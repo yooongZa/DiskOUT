@@ -14,3 +14,7 @@ xcuserdata/
 
 # /tmp build path used in README
 EjectDrives-derived/
+
+# macOS sync conflict duplicates (예: "EjectDrives 2.xcodeproj")
+* 2.xcodeproj/
+* 2/
