@@ -43,6 +43,13 @@
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "모든 드라이브 추출 완료" } }
       }
     },
+    "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 전에 Music / Photos 자동 종료, 깨어나면 다시 실행. 외장 디스크에 라이브러리 둔 경우 유용." } }
+      }
+    },
     "All drives mounted" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -90,6 +97,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all  (⌥⌘E · or right-click)" } },
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 추출  (⌥⌘E · 또는 우클릭)" } }
+      }
+    },
+    "Exclude from auto-eject" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Exclude from auto-eject" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "자동 추출에서 제외" } }
       }
     },
     "Eject failed" : {
@@ -153,6 +167,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount all  (⌃⌘E)" } },
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트  (⌃⌘E)" } }
+      }
+    },
+    "Quit Music/Photos before sleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit Music/Photos before sleep" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 전 Music / Photos 자동 종료" } }
       }
     },
     "Mount failed" : {
@@ -230,6 +251,20 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Some drives didn't mount" } },
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "일부 마운트 실패" } }
+      }
+    },
+    "Time Machine drive protected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Time Machine drive protected" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "Time Machine 디스크 자동 추출 제외" } }
+      }
+    },
+    "\"%@\" is excluded from auto-eject. Toggle in the menu if you want it ejected on sleep." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "\"%@\" is excluded from auto-eject. Toggle in the menu if you want it ejected on sleep." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "\"%@\" 디스크는 자동 추출에서 제외됨. 잠자기 시 같이 추출되길 원하면 메뉴에서 토글 OFF." } }
       }
     },
     "Succeeded: %@" : {

@@ -65,6 +65,63 @@ sandbox 활성 + entitlements (USB, /Volumes/, user-selected) 채운 상태에�
 
 ---
 
+## 안전 패키지 — Per-disk 제외 + Time Machine 보호 + 라이브러리 앱 quit (Unreleased)
+
+Jettison 비교 분석에서 도출된 *진짜 위험* 3가지 — Time Machine 자동 추출 사고 / 외장 라이브러리 lock / 사용자별 디스크 정책 부재 — 를 v1.0 출시 전에 모두 처리.
+
+### Phase 1 — Per-disk 자동 추출 제외 (Volume UUID 기반)
+
+- 신규 `ExcludedVolumes` enum (`UserDefaults["excludedVolumeUUIDs"]`)
+- `ExternalDrive` struct 에 `volumeUUID: String?` 필드 추가 (DA description 의 `kDADiskDescriptionVolumeUUIDKey` → `CFUUIDCreateString`)
+- 메뉴의 각 디스크 항목에 submenu — *"자동 추출 제외"* 토글
+- `ejectAllSilently(applyExcludeFilter:)` — 자동 path (sleep / display sleep) 만 filter 적용. 사용자 명시 추출 (메뉴 클릭 / `⌥⌘E` / 우클릭) 은 영향 X (사용자 의도 우선).
+- 식별자로 BSD 가 아닌 **Volume UUID** 채택 — 케이블 / 슬롯 변경에도 유지.
+
+### Phase 2 — Time Machine 자동 식별 + 기본 제외
+
+- `ExternalDrive.isTimeMachineDisk(volumeURL:)` — sandbox 호환 (file 존재 검사):
+  - APFS: `.com.apple.timemachine.donotpresent` 마커 파일
+  - Legacy HFS+: `Backups.backupdb/` 디렉토리
+- 처음 보는 Time Machine 디스크는 자동으로 `ExcludedVolumes` 에 추가 + 1회 알림 (*"Time Machine 디스크 자동 추출 제외"*)
+- `TimeMachineNotified` enum — 같은 UUID 에 알림 반복 방지
+- 메뉴에 *(Time Machine)* 접미사 + 시계 아이콘 (`clock.arrow.circlepath`) 으로 시각 구분
+- 사용자가 의도적으로 토글 OFF 한 경우 그 의도 존중 (다시 자동 추가 안 함)
+
+### Phase 3 — 외장 라이브러리 앱 자동 종료 (Music / Photos)
+
+- 신규 `LibraryAppManagement` toggle (default OFF, 명시적 opt-in)
+- `LibraryAppHandler.quitLibraryApps()` — `NSWorkspace.runningApplications` enumerate, `com.apple.Music` / `com.apple.Photos` graceful terminate
+- `LibraryAppHandler.relaunchQuitApps()` — wake 시 `NSWorkspace.openApplication(at:configuration:)` 으로 백그라운드 재실행 (`activates: false, hides: true`)
+- sleep 핸들러 (`systemWillSleep`, `screensDidSleep`) 에 quit 호출 추가
+- wake 핸들러 (`systemDidWake`, `screensDidWake`) 에 relaunch 호출 추가
+- 메뉴에 *"잠자기 전 Music / Photos 자동 종료"* 토글 추가 (자동 추출 토글 옆)
+
+### 다국어 — 신규 5개 키
+
+`Localizable.xcstrings` 에 추가 (총 41개):
+- `Exclude from auto-eject` / "자동 추출에서 제외"
+- `Time Machine drive protected` / "Time Machine 디스크 자동 추출 제외"
+- `"%@" is excluded from auto-eject. ...` / 한국어 변형
+- `Quit Music/Photos before sleep` / "잠자기 전 Music / Photos 자동 종료"
+- 라이브러리 토글 tooltip
+
+### Jettison 대비 잔여 갭 (의도적으로 v1.1+ 로 미룸)
+
+- ❌ Time Machine 백업 *진행 중* detection — sandbox 에서 `tmutil`, `IOPMAssertion` 접근 어려움. v1.1+
+- ❌ Dark wake 시 Time Machine 만 마운트 — sandbox + background process 영역 복합. v1.1+
+- ❌ Disk type 별 필터 (HDD/SSD/DVD/CD/SD) — 우선순위 낮음. 사용자 피드백 보고 결정
+- ❌ "Eject and sleep" 단축키 — 우선순위 낮음
+
+### 위험 매트릭스 (이전 → 이후)
+
+| 시나리오 | 이전 | 이후 |
+|---|---|---|
+| Time Machine 디스크 자동 추출 사고 | **🔴 높음** — 첫 sleep 에 추출 → 백업 사이클 깨짐 → 부정 리뷰 | 🟢 자동 식별 + default 제외 |
+| 외장 사진/음악 라이브러리 lock | 🟡 중 — 추출 실패 (graceful unmount declined) | 🟢 옵션으로 자동 quit/relaunch |
+| 디스크별 다른 정책 (예: SSD 만 추출, HDD 는 유지) | 🔴 높음 — 일괄 ON/OFF 만 가능 | 🟢 디스크별 토글 |
+
+---
+
 ## SMAppService 자동 실행 + 다국어 (ko + en) — 추가 (Unreleased)
 
 ### SMAppService — 로그인 시 자동 실행 토글

@@ -140,13 +140,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             empty.isEnabled = false
             menu.addItem(empty)
         } else {
+            // Time Machine 디스크 첫 등장 시 자동으로 ExcludedVolumes 에 추가 + 1회 알림.
+            // 사용자가 모르는 사이 백업 디스크가 자동 추출되어 백업 사이클 깨지는 사고 방지.
+            autoExcludeNewTimeMachineDisks(drives)
+
             for drive in drives {
-                let item = NSMenuItem(title: drive.name,
+                let title = drive.isTimeMachine
+                    ? "\(drive.name) (Time Machine)"
+                    : drive.name
+                let item = NSMenuItem(title: title,
                                       action: #selector(ejectOne(_:)),
                                       keyEquivalent: "")
                 item.target = self
                 item.representedObject = drive.url
-                item.image = NSImage(systemSymbolName: "externaldrive", accessibilityDescription: nil)
+                item.image = NSImage(systemSymbolName: drive.isTimeMachine ? "clock.arrow.circlepath" : "externaldrive",
+                                     accessibilityDescription: nil)
+                // submenu — 자동 추출 제외 토글. UUID 없으면 (네트워크 mount 등 식별 불가) submenu 없음.
+                if let uuid = drive.volumeUUID {
+                    let sub = NSMenu()
+                    let exclude = NSMenuItem(title: String(localized: "Exclude from auto-eject"),
+                                             action: #selector(toggleExcludeVolume(_:)),
+                                             keyEquivalent: "")
+                    exclude.target = self
+                    exclude.representedObject = uuid
+                    exclude.state = ExcludedVolumes.isExcluded(uuid) ? .on : .off
+                    sub.addItem(exclude)
+                    item.submenu = sub
+                }
                 menu.addItem(item)
             }
             menu.addItem(NSMenuItem.separator())
@@ -207,6 +227,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         toggleDisp.toolTip = String(localized: "Eject on display sleep tooltip")
         menu.addItem(toggleDisp)
 
+        // 외장 라이브러리 앱 자동 종료 — Music / Photos 가 외장 라이브러리 lock 잡고 있으면
+        // 추출 실패. 옵션 ON 이면 sleep 직전 quit, wake 후 relaunch.
+        let toggleLib = NSMenuItem(title: String(localized: "Quit Music/Photos before sleep"),
+                                   action: #selector(toggleLibraryAppManagement),
+                                   keyEquivalent: "")
+        toggleLib.target = self
+        toggleLib.state = LibraryAppManagement.enabled ? .on : .off
+        toggleLib.toolTip = String(localized: "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives.")
+        menu.addItem(toggleLib)
+
         // 로그인 시 자동 실행 — SMAppService.mainApp 으로 시스템 로그인 항목 등록.
         // status 가 .requiresApproval 이면 시스템 설정에서 사용자가 직접 허용해야 함.
         let loginItemStatus = LoginItem.status
@@ -236,6 +266,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     @objc private func toggleDisplaySleepEject() {
         DisplaySleepEject.enabled.toggle()
         log.info("DisplaySleepEject toggled → \(DisplaySleepEject.enabled, privacy: .public)")
+    }
+
+    /// 디스크별 *"자동 추출 제외"* 토글. representedObject = Volume UUID.
+    @objc private func toggleExcludeVolume(_ sender: NSMenuItem) {
+        guard let uuid = sender.representedObject as? String else { return }
+        ExcludedVolumes.toggle(uuid)
+        log.info("ExcludedVolumes toggled \(uuid, privacy: .public) → excluded=\(ExcludedVolumes.isExcluded(uuid), privacy: .public)")
+    }
+
+    /// 외장 라이브러리 앱 (Music / Photos) 자동 종료 토글.
+    @objc private func toggleLibraryAppManagement() {
+        LibraryAppManagement.enabled.toggle()
+        log.info("LibraryAppManagement toggled → \(LibraryAppManagement.enabled, privacy: .public)")
+    }
+
+    /// Time Machine 디스크 처음 등장 시 자동으로 ExcludedVolumes 에 등록 + 1회 알림.
+    /// 사용자가 명시적으로 토글 OFF 하면 그 의도 존중 (다시 자동 추가 안 함).
+    private func autoExcludeNewTimeMachineDisks(_ drives: [ExternalDrive]) {
+        for drive in drives where drive.isTimeMachine {
+            guard let uuid = drive.volumeUUID else { continue }
+            // 이미 한 번이라도 알림 줬으면 (사용자가 OFF 했어도) 다시 자동 추가 안 함
+            if TimeMachineNotified.wasNotified(uuid) { continue }
+            ExcludedVolumes.add(uuid)
+            TimeMachineNotified.markNotified(uuid)
+            log.notice("Auto-excluded Time Machine disk: \(drive.name, privacy: .public) uuid=\(uuid, privacy: .public)")
+            notify(title: String(localized: "Time Machine drive protected"),
+                   body: String(localized: "\"\(drive.name)\" is excluded from auto-eject. Toggle in the menu if you want it ejected on sleep."),
+                   archived: true)
+        }
     }
 
     /// 로그인 항목 등록/해제 토글. requiresApproval 상태면 시스템 설정 직접 열어줌.
@@ -421,9 +480,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     /// 병렬 추출. background thread 에서 호출하라.
+    /// - parameter applyExcludeFilter: true 면 ExcludedVolumes 에 등록된 디스크는 추출 제외.
+    ///   자동 (sleep / display sleep) path 에서만 true. 사용자 명시 추출은 false (사용자 의도 우선).
     @discardableResult
-    private func ejectAllSilently() -> (attempted: [String], success: [String], failure: [(String, String)]) {
-        let drives = ExternalDrive.list()
+    private func ejectAllSilently(applyExcludeFilter: Bool = false) -> (attempted: [String], success: [String], failure: [(String, String)]) {
+        var drives = ExternalDrive.list()
+        if applyExcludeFilter {
+            let before = drives.count
+            drives = drives.filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
+            let skipped = before - drives.count
+            if skipped > 0 {
+                log.info("ejectAllSilently: filtered out \(skipped, privacy: .public) excluded disks")
+            }
+        }
         log.info("ejectAllSilently: \(drives.count) drives = \(drives.map { $0.name }, privacy: .public)")
         guard !drives.isEmpty else { return ([], [], []) }
 
@@ -657,10 +726,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 2) 자동 추출된 디스크 재마운트 — 2초 후 (USB 안정화 대기)
         let toRemount = autoEjectedDisks
         autoEjectedDisks = []  // 즉시 clear (중복 트리거 방지)
-        guard !toRemount.isEmpty else { return }
+        guard !toRemount.isEmpty else {
+            // remount 대상 없어도 라이브러리 앱 재실행은 시도 (option ON 인 경우)
+            if LibraryAppManagement.enabled {
+                LibraryAppHandler.relaunchQuitApps()
+            }
+            return
+        }
         log.info("didWake → schedule remount: \(toRemount.sorted(), privacy: .public)")
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.remountWithBackoff(disks: toRemount)
+            // remount 끝난 뒤 라이브러리 앱 재실행 — 외장에 라이브러리 있을 때 mount 후 launch.
+            if LibraryAppManagement.enabled {
+                LibraryAppHandler.relaunchQuitApps()
+            }
         }
     }
 
@@ -676,11 +755,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 모든 sleep 에서 추출 + wake 재마운트가 한 쌍으로 동작.
         // 짧은 sleep 후 wake → 자동 재마운트로 사용자 무감각.
         // 긴 sleep 후 분리 → 재마운트 시도하지만 silent (분리 의도 감지).
-        let drives = ExternalDrive.list()
+        // 자동 추출 제외 디스크 (Time Machine 등) 는 BSD 기록도 안 함 (재마운트 대상 아님).
+        let drives = ExternalDrive.list().filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
         autoEjectedDisks = Set(drives.compactMap { $0.wholeDiskBSDName })
         log.info("EJECT(sleep) recorded BSDs: \(self.autoEjectedDisks.sorted(), privacy: .public)")
 
-        let r = ejectAllSilently()
+        // 외장 라이브러리 앱 자동 종료 (Music / Photos) — 옵션 ON 시 추출 직전.
+        if LibraryAppManagement.enabled {
+            LibraryAppHandler.quitLibraryApps()
+        }
+
+        let r = ejectAllSilently(applyExcludeFilter: true)
         log.info("EJECT(sleep) DONE — success=\(r.success.count) failure=\(r.failure.count)")
 
         // Sleep 추출 실패는 부재 중 발생한 negative event → 알림 센터에 보관.
@@ -718,11 +803,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         log.info("EJECT(displaysleep) START")
 
-        let drives = ExternalDrive.list()
+        // 자동 추출 제외 디스크 (Time Machine 등) 는 BSD 기록도 안 함.
+        let drives = ExternalDrive.list().filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
         autoEjectedDisks = Set(drives.compactMap { $0.wholeDiskBSDName })
         log.info("EJECT(displaysleep) recorded BSDs: \(self.autoEjectedDisks.sorted(), privacy: .public)")
 
-        let r = ejectAllSilently()
+        // 외장 라이브러리 앱 자동 종료 (옵션 ON 시).
+        if LibraryAppManagement.enabled {
+            LibraryAppHandler.quitLibraryApps()
+        }
+
+        let r = ejectAllSilently(applyExcludeFilter: true)
         log.info("EJECT(displaysleep) DONE — success=\(r.success.count) failure=\(r.failure.count)")
 
         if !r.failure.isEmpty {
@@ -742,11 +833,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         autoEjectedDisks = []
         guard !toRemount.isEmpty else {
             log.info("screensDidWake → no remount target")
+            if LibraryAppManagement.enabled {
+                LibraryAppHandler.relaunchQuitApps()
+            }
             return
         }
         log.info("screensDidWake → schedule remount: \(toRemount.sorted(), privacy: .public)")
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.remountWithBackoff(disks: toRemount)
+            if LibraryAppManagement.enabled {
+                LibraryAppHandler.relaunchQuitApps()
+            }
         }
     }
 
@@ -920,6 +1017,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 struct ExternalDrive {
     let name: String
     let url: URL
+    /// Volume UUID — Per-disk 설정 (ExcludedVolumes 등) 의 안정적 식별자.
+    /// BSD/이름은 케이블/슬롯 변경에 따라 변하지만 UUID 는 디스크 파일시스템에 박혀있음.
+    let volumeUUID: String?
+    /// Time Machine 백업 디스크인지 여부. 자동 추출 default 제외 대상.
+    let isTimeMachine: Bool
 
     static func list() -> [ExternalDrive] {
         let keys: [URLResourceKey] = [
@@ -945,15 +1047,43 @@ struct ExternalDrive {
             guard !isInternal, isBrowsable, isLocal else { continue }
             // DMG / sparseimage / CoreSimulator 제외 — Chrome.dmg 같은 마운트된 디스크 이미지가
             // 같이 빠지면 사고. DiskArbitration 의 DeviceProtocol 키로 식별 (sandbox 호환).
-            if let disk = backend.disk(forVolumePath: url.path),
-               backend.isVirtualDisk(disk) {
-                log.debug("filter: virtual disk excluded \(url.path, privacy: .public)")
-                continue
+            var volumeUUID: String? = nil
+            if let disk = backend.disk(forVolumePath: url.path) {
+                if backend.isVirtualDisk(disk) {
+                    log.debug("filter: virtual disk excluded \(url.path, privacy: .public)")
+                    continue
+                }
+                if let desc = backend.description(for: disk),
+                   let uuidRef = desc[kDADiskDescriptionVolumeUUIDKey as String] {
+                    // CFUUID → String. unsafeBitCast 안 쓰고 CFUUIDCreateString 사용.
+                    let cfuuid = uuidRef as! CFUUID
+                    volumeUUID = (CFUUIDCreateString(kCFAllocatorDefault, cfuuid) as String?)
+                }
             }
             let name = v.volumeName ?? url.lastPathComponent
-            drives.append(ExternalDrive(name: name, url: url))
+            let isTM = isTimeMachineDisk(volumeURL: url)
+            drives.append(ExternalDrive(name: name, url: url,
+                                        volumeUUID: volumeUUID,
+                                        isTimeMachine: isTM))
         }
         return drives
+    }
+
+    /// Time Machine 백업 디스크 식별 — sandbox 호환 (file 존재 검사만).
+    /// - APFS Time Machine: 루트의 `.com.apple.timemachine.donotpresent` 파일
+    /// - Legacy HFS+: `Backups.backupdb/` 디렉토리
+    private static func isTimeMachineDisk(volumeURL: URL) -> Bool {
+        let fm = FileManager.default
+        // (1) APFS Time Machine marker
+        let marker1 = volumeURL.appendingPathComponent(".com.apple.timemachine.donotpresent")
+        if fm.fileExists(atPath: marker1.path) { return true }
+        // (2) Legacy HFS+ backup folder
+        let marker2 = volumeURL.appendingPathComponent("Backups.backupdb")
+        var isDir: ObjCBool = false
+        if fm.fileExists(atPath: marker2.path, isDirectory: &isDir), isDir.boolValue {
+            return true
+        }
+        return false
     }
 
     /// volume URL → whole disk BSD name. 예: /Volumes/SYSJO → "disk2"
@@ -1072,6 +1202,126 @@ enum DisplaySleepEject {
     static var enabled: Bool {
         get { UserDefaults.standard.object(forKey: key) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
+// MARK: - Per-disk 자동 추출 제외 (Volume UUID 기반)
+
+/// 사용자가 *"이 디스크는 자동 추출 안 함"* 으로 마크한 Volume UUID set.
+/// 자동 (sleep / display sleep) path 에서만 적용 — 명시적 추출 (메뉴 클릭 / 단축키) 은 영향 없음.
+/// Volume UUID 가 BSD/이름보다 안정적 (케이블 슬롯 변경에도 유지).
+enum ExcludedVolumes {
+    private static let key = "excludedVolumeUUIDs"
+
+    static var uuids: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: key) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: key) }
+    }
+
+    static func toggle(_ uuid: String) {
+        var s = uuids
+        if s.contains(uuid) { s.remove(uuid) } else { s.insert(uuid) }
+        uuids = s
+    }
+
+    static func add(_ uuid: String) {
+        var s = uuids
+        s.insert(uuid)
+        uuids = s
+    }
+
+    static func isExcluded(_ uuid: String?) -> Bool {
+        guard let uuid else { return false }
+        return uuids.contains(uuid)
+    }
+}
+
+/// Time Machine 디스크 자동 등록 알림 1회 처리용 — 같은 UUID 에 알림 반복 방지.
+enum TimeMachineNotified {
+    private static let key = "tmAutoExcludeNotified"
+    static var uuids: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: key) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: key) }
+    }
+    static func markNotified(_ uuid: String) {
+        var s = uuids; s.insert(uuid); uuids = s
+    }
+    static func wasNotified(_ uuid: String) -> Bool { uuids.contains(uuid) }
+}
+
+// MARK: - 외장 라이브러리 앱 자동 종료 토글 (Music / Photos)
+
+/// 자동 추출 직전에 Music.app / Photos.app 자동 quit, wake 후 자동 relaunch.
+/// 외장 디스크에 라이브러리 둔 사용자 보호.
+/// **default = false** — `NSRunningApplication.terminate()` 가 다른 앱을 죽이는 동작이라
+/// 사용자 명시 opt-in 필요.
+enum LibraryAppManagement {
+    private static let key = "manageLibraryApps"
+
+    static var enabled: Bool {
+        get { UserDefaults.standard.bool(forKey: key) }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
+// MARK: - Library App Handler (Music / Photos quit & relaunch)
+
+/// 외장 디스크 라이브러리 lock 풀기 위해 sleep 직전 Music/Photos 종료, wake 후 재실행.
+/// `LibraryAppManagement.enabled` 가 true 일 때만 호출됨.
+///
+/// **sandbox 호환성**: `NSRunningApplication.terminate()` 는 graceful terminate 로,
+/// App Store sandbox 안에서도 동작 (Jettison 도 같은 패턴). 사용자가 명시 opt-in 했으니 의도 명확.
+/// 만약 macOS 정책 변경으로 막히면 AppleScript fallback (`scripting-targets` entitlement) 검토.
+enum LibraryAppHandler {
+    private static let bundleIDs = ["com.apple.Music", "com.apple.Photos"]
+
+    /// wake 시 relaunch 대상 — sleep 직전에 종료한 앱들의 bundle ID.
+    /// process 상에 보관 — 앱 자체 재시작에는 살아남지 않지만 sleep/wake 사이엔 유효.
+    private static var quitBundles: [String] = []
+
+    /// 실행 중인 Music / Photos 종료. 종료된 bundle 들은 quitBundles 에 기록.
+    /// background thread 또는 main thread 어디서든 호출 가능 (NSWorkspace 는 thread-safe).
+    static func quitLibraryApps() {
+        let workspace = NSWorkspace.shared
+        var quit: [String] = []
+        for app in workspace.runningApplications {
+            guard let bid = app.bundleIdentifier, bundleIDs.contains(bid) else { continue }
+            log.notice("LibraryAppHandler: terminating \(bid, privacy: .public)")
+            // graceful terminate — 앱이 sleep 진입 전 정리 시간 가짐 (write cache flush 등).
+            // forceTerminate() 는 안 씀 (사용자 데이터 손실 위험).
+            if app.terminate() {
+                quit.append(bid)
+            } else {
+                log.error("LibraryAppHandler: terminate denied for \(bid, privacy: .public)")
+            }
+        }
+        quitBundles = quit
+        log.info("LibraryAppHandler: quit \(quit.count, privacy: .public) apps = \(quit, privacy: .public)")
+    }
+
+    /// 앞서 종료한 앱들 재실행. 없으면 no-op.
+    /// 사용자가 wake 후 즉시 화면 보지 못해도 백그라운드로 라이브러리 다시 마운트되어 있도록.
+    static func relaunchQuitApps() {
+        let toLaunch = quitBundles
+        quitBundles = []   // 즉시 clear (멀티 wake / 재진입 보호)
+        guard !toLaunch.isEmpty else { return }
+        let workspace = NSWorkspace.shared
+        for bid in toLaunch {
+            guard let url = workspace.urlForApplication(withBundleIdentifier: bid) else {
+                log.error("LibraryAppHandler: app URL not found for \(bid, privacy: .public)")
+                continue
+            }
+            let cfg = NSWorkspace.OpenConfiguration()
+            cfg.activates = false   // 사용자 작업 방해 안 함, 백그라운드 실행
+            cfg.hides = true        // dock 클릭 전엔 가려두기
+            workspace.openApplication(at: url, configuration: cfg) { _, error in
+                if let error = error {
+                    log.error("LibraryAppHandler: relaunch failed \(bid, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+                } else {
+                    log.info("LibraryAppHandler: relaunched \(bid, privacy: .public)")
+                }
+            }
+        }
     }
 }
 

@@ -39,7 +39,10 @@
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 | **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 으로 시스템 로그인 항목 등록. 시스템 설정에서 허용 필요한 상태면 자동으로 설정 페이지 열림 |
-| **다국어 (ko + en)** | `Localizable.xcstrings` 36개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
+| **다국어 (ko + en)** | `Localizable.xcstrings` 41개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
+| **Per-disk 자동 추출 제외** | 디스크 메뉴 항목 ▶ submenu 의 *"자동 추출 제외"* 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
+| **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + *(Time Machine)* 표기 |
+| **외장 라이브러리 앱 처리** | 메뉴 토글 (default OFF). ON 이면 sleep 직전 Music / Photos 자동 quit (외장 라이브러리 lock 풀어 추출 가능), wake 후 백그라운드 자동 relaunch |
 
 ## 파일 구성
 
