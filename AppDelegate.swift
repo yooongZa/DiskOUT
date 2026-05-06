@@ -145,28 +145,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             autoExcludeNewTimeMachineDisks(drives)
 
             for drive in drives {
-                let title = drive.isTimeMachine
-                    ? "\(drive.name) (Time Machine)"
-                    : drive.name
-                let item = NSMenuItem(title: title,
+                // 메뉴 항목 라벨 — 상태 suffix 로 한 눈에 파악:
+                //   "업무백업 (Time Machine, 자동 제외)" / "SSD_W (자동 제외)" / "SYSJO"
+                let isExcluded = ExcludedVolumes.isExcluded(drive.volumeUUID)
+                var labels: [String] = []
+                if drive.isTimeMachine { labels.append("Time Machine") }
+                if isExcluded && !drive.isTimeMachine { labels.append(String(localized: "auto-eject excluded")) }
+                let suffix = labels.isEmpty ? "" : " (\(labels.joined(separator: ", ")))"
+
+                let item = NSMenuItem(title: drive.name + suffix,
                                       action: #selector(ejectOne(_:)),
                                       keyEquivalent: "")
                 item.target = self
                 item.representedObject = drive.url
                 item.image = NSImage(systemSymbolName: drive.isTimeMachine ? "clock.arrow.circlepath" : "externaldrive",
                                      accessibilityDescription: nil)
-                // submenu — 자동 추출 제외 토글. UUID 없으면 (네트워크 mount 등 식별 불가) submenu 없음.
-                if let uuid = drive.volumeUUID {
-                    let sub = NSMenu()
-                    let exclude = NSMenuItem(title: String(localized: "Exclude from auto-eject"),
-                                             action: #selector(toggleExcludeVolume(_:)),
-                                             keyEquivalent: "")
-                    exclude.target = self
-                    exclude.representedObject = uuid
-                    exclude.state = ExcludedVolumes.isExcluded(uuid) ? .on : .off
-                    sub.addItem(exclude)
-                    item.submenu = sub
-                }
+                // submenu 폐기 — submenu 가 있으면 macOS 가 클릭 시 action 무시 (추출 안 됨).
+                // 자동 추출 제외 토글은 메뉴 하단의 별도 "자동 추출 제외 디스크" submenu 로 이동.
                 menu.addItem(item)
             }
             menu.addItem(NSMenuItem.separator())
@@ -249,6 +244,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             loginToggle.toolTip = String(localized: "Approve in System Settings → General → Login Items")
         }
         menu.addItem(loginToggle)
+
+        // 자동 추출 제외 디스크 submenu — 식별 가능한 (UUID 있는) 디스크가 1개 이상일 때만 노출.
+        // submenu 안에 디스크 별 토글 — 사용자가 디스크 항목 클릭 = 추출 (1단계) 보장하면서
+        // 토글 기능도 남기는 구조.
+        let togglableDrives = drives.filter { $0.volumeUUID != nil }
+        if !togglableDrives.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            let parent = NSMenuItem(title: String(localized: "Auto-eject excluded disks"),
+                                    action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            for drive in togglableDrives {
+                guard let uuid = drive.volumeUUID else { continue }
+                let toggle = NSMenuItem(title: drive.name,
+                                        action: #selector(toggleExcludeVolume(_:)),
+                                        keyEquivalent: "")
+                toggle.target = self
+                toggle.representedObject = uuid
+                toggle.state = ExcludedVolumes.isExcluded(uuid) ? .on : .off
+                sub.addItem(toggle)
+            }
+            parent.submenu = sub
+            menu.addItem(parent)
+        }
 
         menu.addItem(NSMenuItem.separator())
 
@@ -1144,23 +1162,40 @@ struct UnmountedExternal {
         return result
     }
 
-    /// whole disk 의 child partitions / APFS volumes 중 시스템 partition 아닌 첫 VolumeName.
-    /// EFI / Microsoft Reserved / Apple_Boot / Recovery 같은 시스템 partition 은 무시.
-    /// 모두 시스템이거나 비어있으면 nil (RAID 멤버, EFI-only 디스크 등).
+    /// whole disk 의 child partitions / APFS volumes 중 *사용자가 마운트 의미 있는* 첫 VolumeName.
+    /// 3중 방어: (1) DA Mountable 키 (2) MediaContent blacklist (3) VolumeName blacklist.
+    /// 모두 시스템이거나 mount 불가면 nil (RAID 멤버 디스크 등 → 후보 제외).
     private static func volumeName(forWholeDisk bsd: String) -> String? {
+        // (2) Partition map type fallback — kDADiskDescriptionMediaContentKey
         let systemContents: Set<String> = [
             "EFI", "Microsoft Reserved", "Apple_Boot",
-            "Apple_KernelCoreDump", "Recovery"
+            "Apple_KernelCoreDump", "Recovery",
+            "Apple_RAID", "Apple_RAID_Offline"   // RAID 멤버 디스크 (직접 mount 불가)
         ]
+        // (3) VolumeName fallback blacklist — MediaContent 키가 macOS 26+ 에서 변경/missing 시 보호
+        let systemNames: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
+
         let backend = DiskArbitrationBackend.shared
         let parts = backend.childPartitions(ofWholeDisk: bsd)
         for p in parts {
             guard let disk = backend.disk(forBSDName: p),
                   let desc = backend.description(for: disk)
             else { continue }
+
+            // (1) DA 의 Volume Mountable 키 — user-mountable 로 marking 안 된 volume skip.
+            //     EFI / Apple_Boot / Apple_RAID 모두 false 로 marking 됨 (가장 robust 한 방어).
+            //     키가 missing 이면 fallback 검사로 진행.
+            if let mountable = desc[kDADiskDescriptionVolumeMountableKey as String] as? Bool,
+               !mountable { continue }
+
+            // (2) Partition map type
             if let content = desc[kDADiskDescriptionMediaContentKey as String] as? String,
                systemContents.contains(content) { continue }
-            if let name = desc[kDADiskDescriptionVolumeNameKey as String] as? String, !name.isEmpty {
+
+            // (3) VolumeName
+            if let name = desc[kDADiskDescriptionVolumeNameKey as String] as? String,
+               !name.isEmpty,
+               !systemNames.contains(name) {
                 return name
             }
         }

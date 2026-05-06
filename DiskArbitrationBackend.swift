@@ -71,7 +71,9 @@ final class DiskArbitrationBackend {
         let box = ResultBox()
         let ctx = Unmanaged.passRetained(box).toOpaque()
 
-        let options = DADiskUnmountOptions(kDADiskUnmountOptionWhole)
+        // Default option (0) — single volume unmount. WholeDisk option 은 일부 sandbox 환경에서
+        // unsupported 로 거절되므로 default 로. 단일 volume disk 엔 동일 효과.
+        let options = DADiskUnmountOptions(kDADiskUnmountOptionDefault)
 
         DADiskUnmount(disk, options, { (_, dissenter, ctx) in
             guard let ctx = ctx else { return }
@@ -79,7 +81,9 @@ final class DiskArbitrationBackend {
             if let dissenter = dissenter {
                 let status = DADissenterGetStatus(dissenter)
                 let cfReason = DADissenterGetStatusString(dissenter)
-                let reason = (cfReason as String?) ?? unixDescription(forStatus: status)
+                let reason = (cfReason as String?) ?? daReasonString(forStatus: status)
+                // raw status 도 같이 로그 — 진단 시 정확한 코드 파악용
+                daLog.error("DA unmount declined: status=0x\(String(status, radix: 16, uppercase: true), privacy: .public) reason=\(reason, privacy: .public)")
                 box.result = .failure("unmount declined: \(reason)")
             } else {
                 box.result = .ok
@@ -110,7 +114,8 @@ final class DiskArbitrationBackend {
             if let dissenter = dissenter {
                 let status = DADissenterGetStatus(dissenter)
                 let cfReason = DADissenterGetStatusString(dissenter)
-                let reason = (cfReason as String?) ?? unixDescription(forStatus: status)
+                let reason = (cfReason as String?) ?? daReasonString(forStatus: status)
+                daLog.error("DA mount declined: status=0x\(String(status, radix: 16, uppercase: true), privacy: .public) reason=\(reason, privacy: .public)")
                 box.result = .failure("mount declined: \(reason)")
             } else {
                 box.result = .ok
@@ -285,12 +290,30 @@ private final class ResultBox {
     var semaphore = DispatchSemaphore(value: 0)
 }
 
-/// DADissenter 가 reason 문자열을 안 주는 케이스 — status code 만으로 단서 만들기.
-private func unixDescription(forStatus status: DAReturn) -> String {
-    // DAReturn 은 보통 unix errno (EBUSY=16 등) 또는 framework 정의 코드.
-    let errno = Int32(status & 0xFF)
-    if let cstr = strerror(errno) {
+/// DADissenter 가 reason 문자열을 안 주는 케이스 — status code 의 정확한 의미 변환.
+/// DAReturn 상수 우선 매칭, fallback 으로 unix errno 변환 시도, 최종 fallback 은 raw hex.
+private func daReasonString(forStatus status: DAReturn) -> String {
+    // DA framework 가 정의한 상수 — 가장 흔한 unmount/mount 거절 사유들
+    // DAReturn 은 Int32 (signed). 0xF8DA00xx 는 음수로 표현되므로 UInt32 로 reinterpret.
+    switch UInt32(bitPattern: status) {
+    case 0xF8DA0001: return "internal error"
+    case 0xF8DA0002: return "disk is busy"          // 가장 흔한 unmount 실패
+    case 0xF8DA0003: return "bad argument"
+    case 0xF8DA0004: return "exclusive access"
+    case 0xF8DA0005: return "no resources"
+    case 0xF8DA0006: return "not found"
+    case 0xF8DA0007: return "not mounted"
+    case 0xF8DA0008: return "not permitted"          // sandbox 권한 부족 가능성
+    case 0xF8DA0009: return "not privileged"          // root 권한 필요
+    case 0xF8DA000A: return "not ready"
+    case 0xF8DA000B: return "not writable"
+    case 0xF8DA000C: return "unsupported"             // 옵션 조합 안 받음
+    default: break
+    }
+    // 일부 dissenter 는 unix errno 를 직접 set — 0~255 범위면 시도
+    let raw = Int32(truncatingIfNeeded: status)
+    if raw > 0 && raw < 256, let cstr = strerror(raw) {
         return String(cString: cstr)
     }
-    return "DA status 0x\(String(status, radix: 16))"
+    return "DA status 0x\(String(status, radix: 16, uppercase: true))"
 }

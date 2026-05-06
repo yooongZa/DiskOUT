@@ -43,6 +43,20 @@
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "모든 드라이브 추출 완료" } }
       }
     },
+    "Auto-eject excluded disks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto-eject excluded disks" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "자동 추출 제외 디스크" } }
+      }
+    },
+    "auto-eject excluded" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "auto-eject excluded" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "자동 제외" } }
+      }
+    },
     "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives." : {
       "extractionState" : "manual",
       "localizations" : {
