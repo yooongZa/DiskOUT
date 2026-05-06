@@ -23,6 +23,8 @@ targets:
     sources:
       - path: AppDelegate.swift
       - path: main.swift
+    entitlements:
+      path: EjectDrives.entitlements
     info:
       path: Info.plist
       properties:
@@ -42,4 +44,4 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: YES
-        ENABLE_APP_SANDBOX: NO
+        ENABLE_APP_SANDBOX: YES

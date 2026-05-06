@@ -1,9 +1,9 @@
-# EjectDrives — 혼자 쓰는 초간단 버전
+# EjectDrives — 메뉴바 외장 드라이브 추출 유틸
 
 **v0.4.0** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
 
 맥 외장 드라이브를 한방에 안전하게 추출 / 마운트하는 메뉴바 앱.
-**Swift 1 파일, ~1100줄.** 환경설정 창·다중 단축키 프리셋·로그인 자동실행 코드 없음. 본질만.
+**Mac App Store 출시 준비 중.** 기능은 무료, 캐릭터 애니메이션 등 cosmetic 요소만 IAP (출시 후 2~3개월 뒤 도입 예정).
 
 ## 현재 상태 (2026-05-06 기준)
 
@@ -12,9 +12,10 @@
 | 항목 | 값 |
 |---|---|
 | Bundle ID | `com.yongza.ejectdrives` |
-| 사인 | `Apple Development: sukmack@gmail.com` (자동, Personal Team) |
+| 사인 | `Apple Development: sukmack@gmail.com` (개발 빌드, 자동) |
 | Hardened Runtime | YES |
-| App Sandbox | NO (혼자 쓰는 앱, App Store 무관) |
+| App Sandbox | YES (App Store 출시 요건) |
+| 배포 노선 | **Mac App Store 단일** (한국 1인 개발자 환경 → 결제·세무 부담 최소화) |
 | 빌드 시스템 | Xcodegen + xcodebuild |
 | 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
 
@@ -32,8 +33,8 @@
 | **잠자기 진입 시** 자동 추출 | 메뉴 토글. 노트북·데스크탑·sleep 종류 무관 모든 sleep 에서 동작 |
 | **화면 꺼질 때도 자동 추출** (v0.3.0, 옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. 빈번한 발동 우려로 명시적 opt-in |
 | **wake / 화면 켜질 때 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
-| **DMG / sparseimage 제외** | `hdiutil info` 로 가상 디스크 식별, 자동 추출 대상에서 제외 (Chrome.dmg 같은 마운트 보호) |
-| graceful + force fallback | 1단계 `diskutil eject` 실패 시 2단계 `diskutil unmount force` 자동 재시도 |
+| **DMG / sparseimage 제외** | `hdiutil info` 로 가상 디스크 식별, 자동 추출 대상에서 제외 (Chrome.dmg 같은 마운트 보호) — *App Store 빌드에선 DiskArbitration `kDADiskDescriptionDeviceProtocolKey` 로 대체 예정* |
+| graceful + force fallback | 1단계 `diskutil eject` 실패 시 2단계 `diskutil unmount force` 자동 재시도 — *App Store sandbox 에선 force 작동 X. graceful 만 시도, 실패 시 사용자에게 노출* |
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 
@@ -47,8 +48,6 @@ diskOUT/
 ├── EjectDrives.entitlements     # sandbox + USB + Volumes 권한
 ├── project.yml                  # xcodegen 설정 (버전은 MARKETING_VERSION 변수로 관리)
 ├── EjectDrives.xcodeproj/       # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
-├── Scripts/
-│   └── release.sh               # 배포본 빌드 + 사인 + 노타리 + 스테이플 자동화
 ├── README.md                    # 이 파일
 └── EjectDrives_*.md             # 풀버전 기획 문서들 (보존)
 ```
@@ -108,29 +107,17 @@ open ~/Applications/EjectDrives.app
 
 > Debug 빌드는 `~/Library/Developer/Xcode/DerivedData/EjectDrives-<hash>/Build/Products/Debug/` 에 생성됨. Release 는 `Release/`. xcodebuild 의 `-derivedDataPath` 를 안 줄 때만 default 위치 사용.
 
-### 배포본 빌드 (Developer ID + 노타리)
+### App Store 배포 (계획)
 
-남에게 나눠줄 zip 만들 땐 `Scripts/release.sh` 가 빌드 → Developer ID 서명 → Apple 노타리 → 스테이플 → 압축까지 한 번에 해준다.
+이 앱은 Mac App Store 단일 노선으로 배포한다. 절차는 출시 직전 정리 예정. 참고 흐름:
 
-**최초 1회만** — 앱 암호 등록 (Apple 노타리 서버용):
+1. **Apple Distribution 인증서** 발급 (Apple Developer 계정)
+2. **App Store Connect** 에 앱 + Bundle ID 등록
+3. `xcodebuild archive` → Xcode Organizer 로 업로드
+4. App Store Connect 에서 메타데이터 (스크린샷 5종, 설명 ko/en, 카테고리 = Utilities, 가격 = 무료) 입력
+5. 심사 제출
 
-1. https://appleid.apple.com → "로그인 및 보안" → "앱 암호" → 새로 발급 (`xxxx-xxxx-xxxx-xxxx`)
-2. ```bash
-   xcrun notarytool store-credentials EJECT_NOTARY \
-     --apple-id sukmack@gmail.com \
-     --team-id 495S4FVMCB \
-     --password xxxx-xxxx-xxxx-xxxx
-   ```
-
-**매번 릴리스**:
-
-```bash
-./Scripts/release.sh 1.0.0    # 버전은 자유, project.yml 손댈 필요 없음
-```
-
-5~10분 후 `build/release-out/EjectDrives-v1.0.0.zip` 완성. 다른 Mac 에서 다운로드 → 더블클릭 → 경고 없이 실행되면 OK.
-
-> 빌드번호(`CURRENT_PROJECT_VERSION`)는 git commit 갯수로 자동. 배포 버전(`MARKETING_VERSION`)만 인자로 주면 됨.
+> Developer ID + 노타리 (GitHub Releases 노선) 는 폐기. App Store sandbox 와 동시 운영 부담이 1인 개발자에게 큼.
 
 ## 사용법
 
@@ -164,7 +151,7 @@ open ~/Applications/EjectDrives.app
 ## 알려진 제한
 
 - **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS 가 sleep 자체를 안 들어감 → `willSleep` 노티 발생 X → 자동 추출도 트리거 안 됨. **자동으로 안전하게 보호됨** (어차피 dock 분리 안 일어남).
-- **사용 중 드라이브**: graceful eject 거부 시 force fallback 으로 대부분 처리. 진짜 write 중 file 은 잘릴 수 있음 (sleep 직전 시나리오엔 거의 없음).
+- **사용 중 드라이브**: 현재 코드는 graceful eject 거부 시 force fallback 으로 대부분 처리. **App Store sandbox 환경에선 force 미작동** — graceful 만 시도, 실패 시 사용자가 점유 앱을 직접 닫아야 함. App Store 출시 직전 DiskArbitration 기반으로 재작성 예정.
 - **재마운트 신뢰도**: `diskutil eject` 가 디스크 전원까지 차단해서 wake 시 USB 재인식이 macOS 환경에 따라 들쭉날쭉. 재인식 안 되는 디스크는 알림으로 사용자 행동 유도. 재인식 자체가 안 되면 silent (사용자 분리로 간주).
 - **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
 - **`pmset sleep = 0` 환경에서 화면 꺼짐 ≠ system sleep**: v0.2.x 까지는 화면만 꺼져도 추출 안 됨. v0.3.0 의 "화면 꺼질 때도 자동 추출" 토글로 보완 (명시적 opt-in). 트레이드오프: 자리 잠깐 비울 때마다 추출/재마운트 사이클 발생 가능 — 빈번하면 disk wear / 작업 흐름 끊김.
@@ -247,4 +234,10 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 
 # 풀버전 기획
 
-원래는 마스코트(Tako)·IAP·App Store 출시까지 포함한 풀 제품 계획이었음. 관련 문서 (`EjectDrives_개발기획서.md` 등) 는 보존됨. 이 README 는 그중 코어만 남긴 1인용 버전.
+App Store 출시 + 마스코트(Tako) + cosmetic IAP 까지 포함한 v1.0 계획. 관련 문서:
+
+- [EjectDrives_개발기획서.md](EjectDrives_개발기획서.md) — 기능 명세, 아키텍처, 일정
+- [EjectDrives_분석.md](EjectDrives_분석.md) — 시장 조사, 캐릭터 IAP 전략
+- [EjectDrives_애니메이션_가이드.md](EjectDrives_애니메이션_가이드.md) — 캐릭터 애니메이션 구현 (cosmetic IAP 의 핵심 자산)
+
+이 README 는 그 일부 코어 기능을 먼저 구현한 작업본.

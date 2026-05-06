@@ -1,24 +1,31 @@
 # CHANGELOG
 
-## Unreleased — 배포 인프라
+## Unreleased — 배포 노선 결정: Mac App Store 단일
 
-**목적**: 외부 사용자에게 나눠줄 수 있는 노타리 통과 배포본을 한 줄로 만들 수 있게.
-
-### 추가
-
-- `Scripts/release.sh` — 빌드 → Developer ID 서명 → Apple 노타리 제출 → 스테이플 → zip 패키징을 한 번에. 사용법: `./Scripts/release.sh 1.0.0`. 사전 1회 `xcrun notarytool store-credentials EJECT_NOTARY ...` 필요.
-- `project.yml` 의 `Info.plist` 에서 `CFBundleShortVersionString` / `CFBundleVersion` 을 `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` 로 치환. 릴리스 스크립트가 xcodebuild 인자로 버전을 주입하므로 매 릴리스마다 project.yml 손댈 필요 없음. 빌드번호는 `git rev-list --count HEAD` 로 자동 증가.
+**배경**: 한국 1인 개발자 + 사업자등록 미보유 + 해외 결제 인프라 부재 → Stripe / MoR 식 직접 판매 비현실적. App Store 의 결제·세무 인프라가 가장 합리적. 사용자 신뢰 측면에서도 App Store 라는 울타리가 유리.
 
 ### 결정 사항
 
-- **App Sandbox 는 그대로 ON 유지.** 현재 `EjectDrives.entitlements` 의 `com.apple.security.app-sandbox=true` + `device.usb` + `temporary-exception /Volumes/` 조합이 노타리 통과 + 동작에 충분. 외부 배포 시 sandbox 해제는 권한 추가 정당화 필요해서 보류.
-- **서명 옵션은 Manual + `--timestamp --options=runtime` 강제.** Hardened Runtime 은 이미 `ENABLE_HARDENED_RUNTIME: YES`. Timestamp 누락이 노타리 거절 원인 #1 이므로 스크립트가 강제.
-- **출력 경로는 `build/release-out/`** — `.gitignore` 의 `build/` 룰에 자연스럽게 들어가서 별도 ignore 안 해도 됨.
+- **Mac App Store 단일 노선**. Developer ID + GitHub Releases 노선은 폐기. 이중 SKU 운영 부담 (sandbox ON/OFF 두 빌드, 코드 분기) 이 1인 운영에 큼.
+- **유료화 모델 확정**: 핵심 기능 전부 무료. 유료 = 캐릭터 애니메이션 / 사운드 등 cosmetic IAP. 출시 후 2~3개월 시점에 IAP 도입.
+- **App Sandbox ON 으로 복원**. App Store 가 강제하는 요건. 현재 `EjectDrives.entitlements` = `app-sandbox=true` + `device.usb` + `temporary-exception /Volumes/`.
 
-### 알려진 제약
+### 제거된 것
 
-- 첫 노타리 제출 시 Apple ID 의 *App-Specific Password* 가 필요 (계정 비번 직접 못 씀, 2FA 때문). 1회 키체인 저장 후엔 재입력 불필요.
-- iCloud Drive `~/Documents/` 안에서 빌드하면 `com.apple.provenance` xattr 가 codesign 을 깨뜨릴 수 있음. 스크립트는 빌드 직후 `xattr -cr` 로 한 번 정리.
+- `Scripts/release.sh` (Developer ID + 노타리 자동화 스크립트) — App Store 노선과 무관.
+- `processesUsing()` / `annotateFailure()` 헬퍼 + 4곳 호출 (lsof 점유 프로세스 표기) — sandbox 가 다른 프로세스 fd 들여다보기를 명시적 차단. 우회 불가능. 우리 차별점이었지만 App Store 양립 불가능해 폐기.
+
+### 다음 작업 (App Store 출시 전 처리)
+
+- `diskutil` / `hdiutil` 외부 명령 호출을 **DiskArbitration framework** 직접 호출로 재작성 (`DADiskUnmount`, `DADiskMount`, `DADiskCopyDescription`). sandbox 안에서도 동작.
+- `unmount force` fallback 폐기 — sandbox 에선 작동 X. graceful 만 시도, 실패는 사용자에게 노출.
+- `hdiutil info` 의 DMG 식별을 `kDADiskDescriptionDeviceProtocolKey` (`"Disk Image"` 검사) 로 대체.
+- 단축키 (`⌥⌘E`, `⌃⌘E`) 의 Accessibility 권한 요청 UX 추가.
+
+### 유지된 것 (배포 노선과 무관, 그대로 유효)
+
+- `project.yml` 의 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 변수화 — App Store 빌드에도 동일하게 유용.
+- `Info.plist` 가 `$(MARKETING_VERSION)` 참조하는 구조.
 
 ---
 

@@ -26,8 +26,12 @@
 
 ### 1.4 비즈니스 모델
 
-> **🚧 유료화 전략 미정 (TBD)**
-> 시장 검증 후 결정. 결정 전까지는 코어 기능 개발에 집중.
+**확정 (2026-05-06)**:
+
+- **배포 채널**: Mac App Store **단일**. (한국 1인 개발자 + 사업자등록 미보유 → Stripe / MoR 등 직접 결제 채널 운영 불가)
+- **가격**: 출시는 **무료**. 핵심 기능 (추출, 마운트, 자동 추출, 단축키, 자동 실행 등) 전부 무료.
+- **유료화 (출시 후 2~3개월)**: **cosmetic IAP** — 캐릭터 애니메이션, 사운드 팩 등. 기능 잠금 X.
+- **신뢰**: App Store 라는 울타리 자체가 1인 개발자 인디 앱의 신뢰 도구.
 
 ---
 
@@ -46,7 +50,7 @@
 | 캐릭터 인터랙션 | 없음 | **Tako 마스코트 + 진화 시스템** |
 | 단축키 프리셋 | 1개 | **4개 + 커스텀** |
 | 디자인 | 전통적 | **모던 / 미니멀** |
-| 가격 | TBD | TBD |
+| 가격 | $9.99 | **무료 + cosmetic IAP** |
 
 ---
 
@@ -98,7 +102,7 @@
 
 ### 4.2 v1.0 MVP 전체 기능
 
-> **🚧 무료/유료 분리 미정 (TBD)** — 아래 기능은 모두 v1.0에 포함. Pro 분리 여부는 유료화 전략 결정 후.
+> **무료/유료 분리 (확정)** — 아래 모든 기능 v1.0 무료 포함. **유료 = 캐릭터 애니메이션 / 사운드 팩 등 cosmetic IAP**, 기능 잠금 없음. IAP 도입은 v1.0 출시 후 2~3개월.
 
 **자동화**
 - [P1] 잠자기 진입 시 모든 외장 드라이브 자동 추출
@@ -133,7 +137,7 @@
 - Year in Review (연말 통계 카드)
 - 가능 시 macOS 26 신기능 활용
 
-> **🚧 후속 버전 유료화 모델 미정 (TBD)** — 추가 콘텐츠를 IAP / 번들 / 무료 업데이트 중 어느 형태로 제공할지는 v1.0 출시 후 데이터 기반 결정.
+> **후속 버전 유료화 모델 (확정)** — cosmetic IAP (캐릭터 팩, 사운드 팩) 단일 노선. 기능 IAP 는 도입하지 않음. 가격 / 번들 구성은 첫 IAP 출시 시점에 시장 반응 보고 조정.
 
 ---
 
@@ -222,14 +226,19 @@ EjectDrives/
 
 ### 5.5 권한 / Entitlements
 
-**v1.0 (개인 배포 / 직접 사이닝)**
-- App Sandbox 비활성화 (단순)
+**Mac App Store 단일 노선 (확정)** — v1.0 부터 sandbox 활성:
 
-**App Store 배포**
-- App Sandbox 활성화 필수
-- `com.apple.security.files.user-selected.read-write` (선택적)
-- Disk Arbitration는 별도 권한 불필요 (sandbox 호환)
-- 검증 필수: 샌드박스 환경에서 모든 외장 드라이브 추출 가능 여부
+```xml
+<key>com.apple.security.app-sandbox</key>           <true/>
+<key>com.apple.security.device.usb</key>            <true/>
+<key>com.apple.security.files.user-selected.read-write</key> <true/>
+<key>com.apple.security.temporary-exception.files.absolute-path.read-write</key>
+<array><string>/Volumes/</string></array>
+```
+
+- DiskArbitration framework: 별도 entitlement 불필요 (sandbox 와 호환)
+- 검증 필수: sandbox 환경에서 모든 외장 드라이브 추출 가능 여부 (출시 직전)
+- 단축키 (`⌥⌘E`, `⌃⌘E`): Accessibility 권한 별도 요청 — 첫 실행 시 사용자 안내 다이얼로그
 
 ### 5.6 핵심 알고리즘
 
@@ -239,11 +248,11 @@ EjectDrives/
 가장 까다로움. 너무 보수적이면 짜증, 너무 공격적이면 데이터 손실.
 
 **고려할 신호**
-- 열린 파일 핸들 (`proc_pidfdinfo` API, `lsof` 등가)
-- 백그라운드 서비스: `mds` (Spotlight), `backupd` (Time Machine), `fseventsd`
-- VFS 레벨 락(lock)
-- Finder가 해당 볼륨 열어놓은 상태
-- 디스크 이미지 마운트 체인
+- ~~열린 파일 핸들 (`proc_pidfdinfo` API, `lsof` 등가)~~ ❌ **App Store sandbox 차단** — 다른 프로세스 fd 정보 접근 불가. 폐기.
+- 백그라운드 서비스: `mds` (Spotlight), `backupd` (Time Machine), `fseventsd` — 일부 추론 가능
+- VFS 레벨 락(lock) — sandbox 안에서 제한적
+- Finder가 해당 볼륨 열어놓은 상태 — 직접 검출 불가, 사용자에게 *"Finder 창 닫고 재시도"* 안내로 대체
+- 디스크 이미지 마운트 체인 — `kDADiskDescriptionDeviceProtocolKey` 로 식별 가능
 
 **판단 트리**
 ```
@@ -435,11 +444,9 @@ DISK IMAGES (v1.1, 환경설정 활성화 시)
 
 시스템 메시지 `"one or more programs may be using it"` 모호.
 
-구현: `lsof` 출력 파싱 → 실제 사용 중인 프로세스/파일 표시
-- "Photoshop이 IMG_1234.psd를 사용 중입니다"
-- "Time Machine 백업 중 (잔여 약 2분)"
-
-AI 부분은 선택적 — 룰 기반으로 충분.
+> ⚠️ **App Store sandbox 한계** — `lsof` / `proc_pidfdinfo` 등 다른 프로세스 fd 검사는 sandbox 가 명시적 차단. 직접 점유 프로세스 표시는 불가능.
+>
+> **대체 접근**: 백그라운드 서비스 패턴 추정 (`backupd` 활동 시간대, Spotlight 인덱싱 진행률) + 휴리스틱. 정확도는 떨어지지만 *"Finder 창을 닫아보세요"* / *"Time Machine 백업 끝난 뒤 시도"* 같은 액션 가능한 안내 가능.
 
 **C. 사용 패턴 학습 (v2.0)**
 
@@ -499,14 +506,16 @@ App Intents 통합 시 정당화 가능 카피:
 
 ### 6.3 환경설정 창
 
-**일반 탭**
-- [ ] 로그인 시 자동 실행 (Pro)
-- [ ] 잠자기 시 자동 추출 (Pro)
-- [ ] 추출 알림 표시
-- [ ] Tako 캐릭터 표시
-- 사운드: ⚪ 무음 ⚪ 효과음 ⚪ 방귀 (Pro)
+> **무료/유료 구분**: 모든 기능 무료. IAP 는 캐릭터 / 사운드 팩 등 cosmetic 만.
 
-**단축키 탭** (Pro)
+**일반 탭** (전부 무료)
+- [ ] 로그인 시 자동 실행
+- [ ] 잠자기 시 자동 추출
+- [ ] 추출 알림 표시
+- [ ] Tako 캐릭터 표시 (기본 Tako 무료)
+- 사운드: ⚪ 무음 ⚪ 효과음 — *방귀 등 추가 사운드는 IAP 사운드 팩*
+
+**단축키 탭** (전부 무료)
 - 단축키 프리셋 라디오:
   - ⚪ ⌘⌥E (기본)
   - ⚪ ⌘⌥⇧E
@@ -517,7 +526,7 @@ App Intents 통합 시 정당화 가능 카피:
 **정보 탭**
 - 버전 / 빌드 번호
 - 개발자 / 라이선스
-- Pro 구매 / 복원 버튼
+- IAP 구매 (캐릭터 팩 / 사운드 팩) / 구매 복원 — *v1.0 출시 후 2~3개월에 추가*
 - 피드백 보내기
 
 ### 6.4 알림 디자인
@@ -568,7 +577,7 @@ when you close the lid — silently, automatically, fast.
 ✓ 귀여운 문어 마스코트
 ```
 
-> **🚧 가격·포지셔닝 카피 미정 (TBD)** — Jettison 대비 가격 비교 카피는 유료화 결정 후 추가.
+> **가격·포지셔닝 (확정)** — v1.0 무료 (App Store). 사용자 진입 장벽 0. *"Jettison ($9.99) 의 핵심 기능을 무료로"* 카피 가능. cosmetic IAP 도입 시점 (출시 후 2~3개월) 에 *"개발 응원해주세요"* 톤으로 자연스럽게 추가.
 
 ---
 
@@ -668,8 +677,6 @@ when you close the lid — silently, automatically, fast.
 
 ## 10. KPI / 성공 지표
 
-> **🚧 매출 KPI 미정 (TBD)** — 가격·유료화 결정 후 매출 목표 추가.
-
 ### 10.1 출시 1개월 목표
 - 다운로드: **1,000건**
 - App Store 평점: **4.5+**
@@ -678,11 +685,13 @@ when you close the lid — silently, automatically, fast.
 ### 10.2 출시 3개월 목표
 - 다운로드: **3,000건**
 - 검색 키워드 SEO: "disk not ejected properly" 1페이지 진입
+- IAP 도입 준비 완료 (캐릭터 팩 / 사운드 팩 자산 + StoreKit 2 통합)
 
 ### 10.3 출시 12개월 목표
 - 다운로드: **8,000건**
 - v1.1, v1.2 릴리스 완료
-- 매출 목표: TBD
+- IAP 매출: **$500~$2,000** (보수~낙관 시나리오, App Store 30% 차감 후)
+- IAP 전환율: **1~3%**
 
 ---
 
@@ -692,9 +701,9 @@ when you close the lid — silently, automatically, fast.
 
 다음 조건 충족 시 **다음 프로젝트로 전환**:
 
-- [ ] **3개월 시점**: 다운로드 500건 미만 → 마케팅 전략 재검토
-- [ ] **6개월 시점**: 다운로드 1,500건 미만 → 가격·포지셔닝 피벗 또는 종료
-- [ ] **12개월 시점**: TBD (유료화 결정 후 매출 기준 추가)
+- [ ] **3개월 시점**: 다운로드 500건 미만 → 마케팅 전략 재검토 (App Store 검색 키워드 / 캐릭터 비주얼)
+- [ ] **6개월 시점**: 다운로드 1,500건 미만 → 포지셔닝 피벗 또는 종료
+- [ ] **12개월 시점**: IAP 도입 후 6개월 매출 $100 미만 → IAP 모델 재검토 (캐릭터 vs 사운드 vs 다른 포맷)
 
 **중요**: 종료해도 실패가 아님. 학습·포트폴리오 자산 + 다음 앱 빌드 인 퍼블릭 채널 확보.
 
@@ -724,7 +733,14 @@ when you close the lid — silently, automatically, fast.
 | 랜딩 페이지 (GitHub Pages) | 무료 |
 | **합계** | **약 한화 25~40만 원** |
 
-> **🚧 손익분기 미정 (TBD)** — 가격 결정 후 손익분기점 계산.
+**손익분기 (cosmetic IAP 기준)**:
+
+- 초기 비용 약 30만 원 = 약 $230
+- App Store 30% 수수료 차감 후 객단가 $2 가정
+- 손익분기 = **약 115회 IAP 구매**
+- 다운로드 5,000건 × 전환율 2.3% = 115회. **출시 12개월 내 도달 가능 시나리오**
+
+> 단, 본 프로젝트는 *수익 목적이 아닌 학습 / 포트폴리오 / 자기 사용 도구*. 손익분기 도달은 보너스로 본다.
 
 ---
 
