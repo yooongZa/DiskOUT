@@ -46,6 +46,23 @@
 - `UnmountedExternal.firstVolumeName(in:)` (plist 파싱)
 - 합 ~120줄 삭감
 
+### 실기 검증 (2026-05-06)
+
+sandbox 활성 + entitlements (USB, /Volumes/, user-selected) 채운 상태에서 외장 USB SSD 로 실제 동작 확인:
+
+| 시나리오 | 결과 | 소요 |
+|---|---|---|
+| 외장 디스크 추출 (메뉴 클릭) | ✓ success | ~700ms |
+| 추출된 디스크가 "마운트 안 된 외장" 섹션 등장 | ✓ 즉시 | — |
+| 마운트 클릭 → 다시 마운트 | ✓ success | ~550ms |
+| 마운트 후 해당 항목 섹션에서 사라짐 | ✓ 즉시 | — |
+
+이전 `diskutil eject` (1~2초) 보다 추출 속도 더 빠름 — DA framework 가 process spawn overhead 없이 직접 IOKit 호출.
+
+### entitlements 관리 — xcodegen 함정
+
+`project.yml` 의 `entitlements:` 에 `path:` 만 적고 `properties:` 를 안 적으면, xcodegen 이 매 generate 때 entitlements 파일을 빈 dict 로 reset 시킴. **`properties:` 에 권한 키들을 직접 명시** 해야 매번 그 내용으로 보장됨. 본 commit 부터 [project.yml](project.yml) 에 4개 키 모두 명시.
+
 ### 유지된 것 (배포 노선과 무관, 그대로 유효)
 
 - `project.yml` 의 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 변수화 — App Store 빌드에도 동일하게 유용.

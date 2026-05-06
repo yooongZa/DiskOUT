@@ -7,17 +7,18 @@
 
 ## 현재 상태 (2026-05-06 기준)
 
-✅ **v0.4.0 동작 중**. `~/Applications/EjectDrives.app` 에 설치됨. macOS 26.4.1 (Apple Silicon) 에서 검증.
+✅ **DA framework 재작성 + sandbox 활성 — 실기 검증 완료**. macOS 26.4.1 (Apple Silicon) 에서 외장 USB 로 추출/마운트/재마운트 사이클 정상 동작 확인 (추출 ~700ms, 마운트 ~550ms).
 
 | 항목 | 값 |
 |---|---|
 | Bundle ID | `com.yongza.ejectdrives` |
 | 사인 | `Apple Development: sukmack@gmail.com` (개발 빌드, 자동) |
 | Hardened Runtime | YES |
-| App Sandbox | YES (App Store 출시 요건) |
+| App Sandbox | **YES** (외부 명령 spawn 0개, DA framework + IOKit 만 사용) |
 | 배포 노선 | **Mac App Store 단일** (한국 1인 개발자 환경 → 결제·세무 부담 최소화) |
 | 빌드 시스템 | Xcodegen + xcodebuild |
 | 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
+| 디스크 작업 | `DiskArbitrationBackend.swift` — DADiskUnmount / DADiskMount + IOKit IOMedia enumerate |
 
 ## 기능
 
@@ -33,8 +34,8 @@
 | **잠자기 진입 시** 자동 추출 | 메뉴 토글. 노트북·데스크탑·sleep 종류 무관 모든 sleep 에서 동작 |
 | **화면 꺼질 때도 자동 추출** (v0.3.0, 옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. 빈번한 발동 우려로 명시적 opt-in |
 | **wake / 화면 켜질 때 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
-| **DMG / sparseimage 제외** | `hdiutil info` 로 가상 디스크 식별, 자동 추출 대상에서 제외 (Chrome.dmg 같은 마운트 보호) — *App Store 빌드에선 DiskArbitration `kDADiskDescriptionDeviceProtocolKey` 로 대체 예정* |
-| graceful + force fallback | 1단계 `diskutil eject` 실패 시 2단계 `diskutil unmount force` 자동 재시도 — *App Store sandbox 에선 force 작동 X. graceful 만 시도, 실패 시 사용자에게 노출* |
+| **DMG / sparseimage 제외** | DiskArbitration 의 `kDADiskDescriptionDeviceProtocolKey` 검사 (`"Disk Image"` 등) 로 가상 디스크 식별. Chrome.dmg 같은 마운트된 디스크 이미지가 같이 빠지는 사고 방지. |
+| graceful unmount | `DADiskUnmount` 호출. 실패(점유) 시 사용자에게 *"unmount declined"* 알림. force fallback 폐기 (sandbox + non-root 환경에서 거절). |
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 
@@ -42,14 +43,15 @@
 
 ```
 diskOUT/
-├── AppDelegate.swift            # 메인 로직 (~180줄)
+├── AppDelegate.swift            # 메인 로직 (~915줄)
+├── DiskArbitrationBackend.swift # DA framework + IOKit wrapper (~275줄)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
-├── EjectDrives.entitlements     # sandbox + USB + Volumes 권한
-├── project.yml                  # xcodegen 설정 (버전은 MARKETING_VERSION 변수로 관리)
+├── EjectDrives.entitlements     # sandbox + USB + Volumes 권한 (project.yml 이 자동 생성)
+├── project.yml                  # xcodegen 설정 (버전 + entitlements 한 곳에서 관리)
 ├── EjectDrives.xcodeproj/       # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
 ├── README.md                    # 이 파일
-└── EjectDrives_*.md             # 풀버전 기획 문서들 (보존)
+└── EjectDrives_*.md             # 풀버전 기획 문서들 (App Store 출시 + IAP)
 ```
 
 ## 빌드 + 설치
@@ -151,7 +153,7 @@ open ~/Applications/EjectDrives.app
 ## 알려진 제한
 
 - **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS 가 sleep 자체를 안 들어감 → `willSleep` 노티 발생 X → 자동 추출도 트리거 안 됨. **자동으로 안전하게 보호됨** (어차피 dock 분리 안 일어남).
-- **사용 중 드라이브**: 현재 코드는 graceful eject 거부 시 force fallback 으로 대부분 처리. **App Store sandbox 환경에선 force 미작동** — graceful 만 시도, 실패 시 사용자가 점유 앱을 직접 닫아야 함. App Store 출시 직전 DiskArbitration 기반으로 재작성 예정.
+- **사용 중 드라이브**: graceful unmount 만 시도 (DA framework). 점유 시 *"unmount declined"* 알림으로 사용자가 점유 앱을 직접 닫아야 함. force fallback 은 sandbox 호환성을 위해 폐기.
 - **재마운트 신뢰도**: `diskutil eject` 가 디스크 전원까지 차단해서 wake 시 USB 재인식이 macOS 환경에 따라 들쭉날쭉. 재인식 안 되는 디스크는 알림으로 사용자 행동 유도. 재인식 자체가 안 되면 silent (사용자 분리로 간주).
 - **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
 - **`pmset sleep = 0` 환경에서 화면 꺼짐 ≠ system sleep**: v0.2.x 까지는 화면만 꺼져도 추출 안 됨. v0.3.0 의 "화면 꺼질 때도 자동 추출" 토글로 보완 (명시적 opt-in). 트레이드오프: 자리 잠깐 비울 때마다 추출/재마운트 사이클 발생 가능 — 빈번하면 disk wear / 작업 흐름 끊김.
