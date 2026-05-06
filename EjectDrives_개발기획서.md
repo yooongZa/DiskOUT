@@ -109,6 +109,11 @@
 - [P2] 단축키 — `⌥⌘E` (추출) + `⌃⌘E` (마운트) ✅ 구현됨. 4가지 프리셋은 환경설정 창 도입 시점에 검토.
 - [P3] ✅ 로그인 시 자동 실행 (`SMAppService.mainApp`, 메뉴 토글)
 
+**안전 (Jettison 비교 후 추가)**
+- [P9] ✅ Per-disk 자동 추출 제외 (Volume UUID 기반, 메뉴 submenu)
+- [P10] ✅ Time Machine 디스크 자동 식별 + default 제외 + 1회 알림
+- [P11] ✅ 외장 라이브러리 앱 (Music / Photos) 자동 quit / wake 후 relaunch (옵션, default OFF)
+
 **성능**
 - [P4] ✅ 병렬 추출 (DiskArbitration framework 동시 호출, `DispatchGroup`)
 - [P5] 빠른 실패 처리 (사용 중 드라이브는 즉시 스킵) — graceful unmount 가 dissenter 빨리 반환해서 사실상 동작
@@ -370,7 +375,7 @@ func shouldShowInList(_ disk: DADisk) -> Bool {
 |---|---|---|
 | USB / Thunderbolt SSD | ✓ | 핵심 가치 제안 |
 | DMG (Chrome.dmg 등) | ✗ | 설치 진행 보호 |
-| Time Machine 외장 | 조건부 | 백업 중이면 X |
+| Time Machine 외장 | ✗ default | v0.5.0+ 자동 식별 후 제외. 사용자가 메뉴 토글 OFF 하면 추출 (백업 중 detection 은 v1.1+) |
 | APFS 스냅샷 | ✗ | 시스템 보호 |
 | 가상 머신 디스크 | ✗ | VM 무결성 보호 |
 
@@ -446,7 +451,10 @@ DISK IMAGES (v1.1, 환경설정 활성화 시)
 
 > ⚠️ **App Store sandbox 한계** — `lsof` / `proc_pidfdinfo` 등 다른 프로세스 fd 검사는 sandbox 가 명시적 차단. 직접 점유 프로세스 표시는 불가능.
 >
-> **대체 접근**: 백그라운드 서비스 패턴 추정 (`backupd` 활동 시간대, Spotlight 인덱싱 진행률) + 휴리스틱. 정확도는 떨어지지만 *"Finder 창을 닫아보세요"* / *"Time Machine 백업 끝난 뒤 시도"* 같은 액션 가능한 안내 가능.
+> **대체 접근**:
+> - v0.5.0 부터 *외장 라이브러리 앱 자동 종료* (Music / Photos) 옵션 도입 — lock 의 대표 케이스 자동 우회
+> - Time Machine 디스크는 자동 식별 + default 자동 추출 제외 (백업 사이클 보호)
+> - 그 외 점유 케이스: 백그라운드 서비스 패턴 추정 (`backupd` 활동 시간대, Spotlight 인덱싱 진행률) + 휴리스틱. 정확도는 떨어지지만 *"Finder 창을 닫아보세요"* 같은 액션 가능한 안내 가능 (v1.1+).
 
 **C. 사용 패턴 학습 (v2.0)**
 
@@ -513,6 +521,9 @@ App Intents 통합 시 정당화 가능 카피:
 - ✅ 로그인 시 자동 실행 (`SMAppService.mainApp` + 메뉴 토글, v0.5.0)
 - ✅ 잠자기 시 자동 추출 (v0.2.0+)
 - ✅ 화면 꺼질 때도 자동 추출 (실험, default OFF, v0.3.0+)
+- ✅ 잠자기 전 Music / Photos 자동 종료 (default OFF, v0.5.0) — 외장 라이브러리 lock 풀이용
+- ✅ 디스크별 *"자동 추출 제외"* 토글 — 메뉴 디스크 항목의 submenu (v0.5.0)
+- ✅ Time Machine 디스크 자동 식별 + default 제외 (v0.5.0)
 
 **v1.1+ 환경설정 창 (예정)**
 - [ ] Tako 캐릭터 표시 토글 (기본 Tako 무료)

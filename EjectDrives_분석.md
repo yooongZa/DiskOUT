@@ -23,6 +23,11 @@
 - 마운트 안 된 외장 자동 검출 + 일괄 마운트 ✅
 - App Store sandbox 호환 (`DiskArbitrationBackend` — 외부 명령 0개) ✅
 
+### 안전 기능 (Jettison 비교 후 v0.5.0 추가)
+- 디스크별 *"자동 추출 제외"* 토글 (Volume UUID 기반, 메뉴 submenu) ✅
+- Time Machine 디스크 자동 식별 + default 자동 추출 제외 + 1회 알림 ✅
+- 외장 라이브러리 앱 (Music / Photos) sleep 직전 자동 quit + wake 후 relaunch (옵션) ✅
+
 ### 영감받은 앱들 (개발자 취향)
 - **RunCat** (Kyome, Japan): 무료 + IAP(인앱결제) 모델
 - **Maccy** (Alexey Rodionov): 오픈소스 + Mac App Store 유료 분리
@@ -140,6 +145,7 @@
 - **"맥북 닫을 때마다 뜨는 그 경고, 이제 그만"**
 - **"Tired of macOS yelling at you about ejecting drives?"**
 - **"매일 보는 그 짜증나는 알람 — 무료로 영원히 안녕"** (← Jettison $9.99 대비 가격 우위 카피)
+- **"Time Machine drives stay safe, libraries auto-pause."** (안전 패키지 v0.5.0 어필)
 
 ### 시각 자료
 - App Store 스크린샷 1번: "Disk Not Ejected Properly" 알람에 큼지막한 X자 → "Never see this again"
