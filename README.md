@@ -45,8 +45,10 @@ diskOUT/
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
 ├── EjectDrives.entitlements     # sandbox + USB + Volumes 권한
-├── project.yml                  # xcodegen 설정
+├── project.yml                  # xcodegen 설정 (버전은 MARKETING_VERSION 변수로 관리)
 ├── EjectDrives.xcodeproj/       # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
+├── Scripts/
+│   └── release.sh               # 배포본 빌드 + 사인 + 노타리 + 스테이플 자동화
 ├── README.md                    # 이 파일
 └── EjectDrives_*.md             # 풀버전 기획 문서들 (보존)
 ```
@@ -105,6 +107,30 @@ open ~/Applications/EjectDrives.app
 ```
 
 > Debug 빌드는 `~/Library/Developer/Xcode/DerivedData/EjectDrives-<hash>/Build/Products/Debug/` 에 생성됨. Release 는 `Release/`. xcodebuild 의 `-derivedDataPath` 를 안 줄 때만 default 위치 사용.
+
+### 배포본 빌드 (Developer ID + 노타리)
+
+남에게 나눠줄 zip 만들 땐 `Scripts/release.sh` 가 빌드 → Developer ID 서명 → Apple 노타리 → 스테이플 → 압축까지 한 번에 해준다.
+
+**최초 1회만** — 앱 암호 등록 (Apple 노타리 서버용):
+
+1. https://appleid.apple.com → "로그인 및 보안" → "앱 암호" → 새로 발급 (`xxxx-xxxx-xxxx-xxxx`)
+2. ```bash
+   xcrun notarytool store-credentials EJECT_NOTARY \
+     --apple-id sukmack@gmail.com \
+     --team-id 495S4FVMCB \
+     --password xxxx-xxxx-xxxx-xxxx
+   ```
+
+**매번 릴리스**:
+
+```bash
+./Scripts/release.sh 1.0.0    # 버전은 자유, project.yml 손댈 필요 없음
+```
+
+5~10분 후 `build/release-out/EjectDrives-v1.0.0.zip` 완성. 다른 Mac 에서 다운로드 → 더블클릭 → 경고 없이 실행되면 OK.
+
+> 빌드번호(`CURRENT_PROJECT_VERSION`)는 git commit 갯수로 자동. 배포 버전(`MARKETING_VERSION`)만 인자로 주면 됨.
 
 ## 사용법
 

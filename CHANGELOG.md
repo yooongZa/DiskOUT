@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## Unreleased — 배포 인프라
+
+**목적**: 외부 사용자에게 나눠줄 수 있는 노타리 통과 배포본을 한 줄로 만들 수 있게.
+
+### 추가
+
+- `Scripts/release.sh` — 빌드 → Developer ID 서명 → Apple 노타리 제출 → 스테이플 → zip 패키징을 한 번에. 사용법: `./Scripts/release.sh 1.0.0`. 사전 1회 `xcrun notarytool store-credentials EJECT_NOTARY ...` 필요.
+- `project.yml` 의 `Info.plist` 에서 `CFBundleShortVersionString` / `CFBundleVersion` 을 `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` 로 치환. 릴리스 스크립트가 xcodebuild 인자로 버전을 주입하므로 매 릴리스마다 project.yml 손댈 필요 없음. 빌드번호는 `git rev-list --count HEAD` 로 자동 증가.
+
+### 결정 사항
+
+- **App Sandbox 는 그대로 ON 유지.** 현재 `EjectDrives.entitlements` 의 `com.apple.security.app-sandbox=true` + `device.usb` + `temporary-exception /Volumes/` 조합이 노타리 통과 + 동작에 충분. 외부 배포 시 sandbox 해제는 권한 추가 정당화 필요해서 보류.
+- **서명 옵션은 Manual + `--timestamp --options=runtime` 강제.** Hardened Runtime 은 이미 `ENABLE_HARDENED_RUNTIME: YES`. Timestamp 누락이 노타리 거절 원인 #1 이므로 스크립트가 강제.
+- **출력 경로는 `build/release-out/`** — `.gitignore` 의 `build/` 룰에 자연스럽게 들어가서 별도 ignore 안 해도 됨.
+
+### 알려진 제약
+
+- 첫 노타리 제출 시 Apple ID 의 *App-Specific Password* 가 필요 (계정 비번 직접 못 씀, 2FA 때문). 1회 키체인 저장 후엔 재입력 불필요.
+- iCloud Drive `~/Documents/` 안에서 빌드하면 `com.apple.provenance` xattr 가 codesign 을 깨뜨릴 수 있음. 스크립트는 빌드 직후 `xattr -cr` 로 한 번 정리.
+
+---
+
 ## v0.4.0 — 2026-05-06
 
 **마운트 안 된 외장 디스크 mount 기능 추가.** 경쟁사 (Jettison, MountMate) 둘 다 가진 기능 중 우리만 빠져있던 마지막 갭. 추출 / 마운트가 한 쌍의 자연스러운 동작으로 완성.
