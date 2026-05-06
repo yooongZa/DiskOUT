@@ -14,12 +14,14 @@
 
 **EjectDrives**: 맥북 외장 드라이브를 안전하게 추출하는 메뉴 바 유틸리티
 
-### 핵심 기능
-- 메뉴 바 드롭다운에서 외장 드라이브 개별/전체 추출
-- 잠자기 진입 시 자동 추출 (`NSWorkspace.willSleepNotification`)
-- 전역 단축키 4종 프리셋
-- 로그인 시 자동 실행 (macOS 13+ `SMAppService`)
-- 환경설정 창, 알림
+### 핵심 기능 (v1.0)
+- 메뉴 바 드롭다운에서 외장 드라이브 개별/전체 추출 ✅
+- 잠자기 / 화면 꺼짐 진입 시 자동 추출 (`NSWorkspace.willSleepNotification` / `screensDidSleep`) ✅
+- 전역 단축키 (`⌥⌘E` 추출, `⌃⌘E` 마운트) ✅
+- 로그인 시 자동 실행 (macOS 13+ `SMAppService.mainApp`, 메뉴 토글) ✅
+- 다국어 (ko + en, `Localizable.xcstrings`) ✅
+- 마운트 안 된 외장 자동 검출 + 일괄 마운트 ✅
+- App Store sandbox 호환 (`DiskArbitrationBackend` — 외부 명령 0개) ✅
 
 ### 영감받은 앱들 (개발자 취향)
 - **RunCat** (Kyome, Japan): 무료 + IAP(인앱결제) 모델

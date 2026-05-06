@@ -105,13 +105,13 @@
 > **무료/유료 분리 (확정)** — 아래 모든 기능 v1.0 무료 포함. **유료 = 캐릭터 애니메이션 / 사운드 팩 등 cosmetic IAP**, 기능 잠금 없음. IAP 도입은 v1.0 출시 후 2~3개월.
 
 **자동화**
-- [P1] 잠자기 진입 시 모든 외장 드라이브 자동 추출
-- [P2] 4가지 단축키 프리셋 (`⌘⌥E`, `⌘⌥⇧E`, `⌘⌃E`, `⌃⌥E`)
-- [P3] 로그인 시 자동 실행 (`SMAppService`)
+- [P1] ✅ 잠자기 진입 시 모든 외장 드라이브 자동 추출 (v0.2.0+)
+- [P2] 단축키 — `⌥⌘E` (추출) + `⌃⌘E` (마운트) ✅ 구현됨. 4가지 프리셋은 환경설정 창 도입 시점에 검토.
+- [P3] ✅ 로그인 시 자동 실행 (`SMAppService.mainApp`, 메뉴 토글)
 
 **성능**
-- [P4] 병렬 추출 (DiskArbitration 동시 호출)
-- [P5] 빠른 실패 처리 (사용 중 드라이브는 즉시 스킵)
+- [P4] ✅ 병렬 추출 (DiskArbitration framework 동시 호출, `DispatchGroup`)
+- [P5] 빠른 실패 처리 (사용 중 드라이브는 즉시 스킵) — graceful unmount 가 dissenter 빨리 반환해서 사실상 동작
 
 **캐릭터 인터랙션**
 - [P6] 단축키 발동 시 Tako 흔들림 + 💨 파티클 + 사운드
@@ -122,9 +122,9 @@
 
 **v1.1 (출시 후 3개월)**
 - 추출 카운터 ("이번 달 N번 막음")
-- 추가 캐릭터 (병아리, 기린, 무당벌레 등)
-- 추가 사운드 효과 (방귀 외 다양화)
-- 일본어 / 중국어 로컬라이즈
+- 추가 캐릭터 (병아리, 기린, 무당벌레 등) — cosmetic IAP
+- 추가 사운드 효과 (방귀 외 다양화) — cosmetic IAP
+- 일본어 / 중국어 로컬라이즈 — `Localizable.xcstrings` 에 새 lang key + `CFBundleLocalizations` 갱신만으로 가능 (v1.0 의 ko/en 인프라 그대로 재사용)
 
 **v1.2 (출시 후 6개월)**
 - Shortcuts.app 연동
@@ -507,13 +507,16 @@ App Intents 통합 시 정당화 가능 카피:
 ### 6.3 환경설정 창
 
 > **무료/유료 구분**: 모든 기능 무료. IAP 는 캐릭터 / 사운드 팩 등 cosmetic 만.
+> **v1.0 단계**: 환경설정 창 도입 안 함 — 모든 토글이 메뉴 안에 있음. 환경설정 창은 IAP 도입 (v1.1+) 시점에 검토.
 
-**일반 탭** (전부 무료)
-- [ ] 로그인 시 자동 실행
-- [ ] 잠자기 시 자동 추출
-- [ ] 추출 알림 표시
-- [ ] Tako 캐릭터 표시 (기본 Tako 무료)
-- 사운드: ⚪ 무음 ⚪ 효과음 — *방귀 등 추가 사운드는 IAP 사운드 팩*
+**v1.0 메뉴 토글** (전부 무료, 환경설정 창 없이 메뉴에서 직접)
+- ✅ 로그인 시 자동 실행 (`SMAppService.mainApp` + 메뉴 토글, v0.5.0)
+- ✅ 잠자기 시 자동 추출 (v0.2.0+)
+- ✅ 화면 꺼질 때도 자동 추출 (실험, default OFF, v0.3.0+)
+
+**v1.1+ 환경설정 창 (예정)**
+- [ ] Tako 캐릭터 표시 토글 (기본 Tako 무료)
+- [ ] 사운드: ⚪ 무음 ⚪ 효과음 — *방귀 등 추가 사운드는 IAP 사운드 팩*
 
 **단축키 탭** (전부 무료)
 - 단축키 프리셋 라디오:
@@ -594,19 +597,24 @@ when you close the lid — silently, automatically, fast.
 
 ### 8.1 Week 1-2: 코어 기능
 - [ ] 프로젝트 셋업 (Xcode, 디렉토리 구조)
-- [ ] `DriveManager` 구현 (외장 드라이브 감지)
-- [ ] `EjectService` 구현 (개별/전체 추출)
-- [ ] 메뉴바 아이콘 + 드롭다운 (기본)
-- [ ] 추출 결과 알림
+- [x] ✅ 외장 드라이브 감지 (`ExternalDrive.list()` + `URLResourceValues`)
+- [x] ✅ 개별/전체 추출 (`DiskArbitrationBackend.unmount`)
+- [x] ✅ 메뉴바 아이콘 + 드롭다운
+- [x] ✅ 추출 결과 알림 (banner / 알림 센터 매트릭스)
 
-### 8.2 Week 3-4: Pro 기능
-- [ ] `SleepObserver` (NSWorkspace 감지)
-- [ ] `HotkeyManager` (Carbon API)
-- [ ] `LoginItemManager` (SMAppService)
-- [ ] 환경설정 창 UI
-- [ ] StoreKit 2 IAP 통합
+### 8.2 Week 3-4: 자동화 기능
 
-### 8.3 Week 5: 캐릭터 & 인터랙션
+> 모두 무료 — 기능 IAP 폐기 (cosmetic IAP 만)
+
+- [x] ✅ Sleep / display sleep 감지 (`NSWorkspace` notifications)
+- [x] ✅ 전역 단축키 (`⌥⌘E` 추출, `⌃⌘E` 마운트, Carbon `RegisterEventHotKey` + `NSEvent.addGlobalMonitorForEvents`)
+- [x] ✅ `SMAppService` 로그인 항목 (메뉴 토글, requiresApproval 자동 처리)
+- [ ] StoreKit 2 IAP 통합 — v1.1+ (cosmetic IAP 도입 시점)
+
+### 8.3 Week 5: 캐릭터 & 인터랙션 (v1.1+ 로 미룸)
+
+cosmetic IAP 의 핵심 자산. v1.0 출시 후 데이터 보고 도입 시점 결정.
+
 - [ ] Tako 마스코트 디자인 (외주 또는 직접)
 - [ ] `TakoMascotView` 구현
 - [ ] 캐릭터 애니메이션 (Core Animation)
@@ -614,16 +622,16 @@ when you close the lid — silently, automatically, fast.
 - [ ] 단축키 발동 시 인터랙션 통합
 
 ### 8.4 Week 6: 성능 최적화
-- [ ] 병렬 추출 구현 (DiskArbitration 동시 호출)
-- [ ] 빠른 실패 로직
-- [ ] 측정: 1/3/5개 드라이브 시나리오 벤치마크
-- [ ] 결과 데이터 정리 (마케팅 자료용)
+
+- [x] ✅ 병렬 추출 (DA framework + `DispatchGroup`)
+- [x] ✅ 빠른 실패 — graceful unmount 가 dissenter 즉시 반환
+- [ ] 벤치마크 (1/3/5개 시나리오) — 출시 직전 측정 + 마케팅 자료
 
 ### 8.5 Week 7: 품질
-- [ ] 에러 핸들링 강화 (사용 중 드라이브, Time Machine 등)
-- [ ] 다국어 (한국어/영어) 로컬라이즈
-- [ ] 다크/라이트 모드 점검
-- [ ] Accessibility (VoiceOver 등)
+- [x] ✅ 에러 핸들링 — graceful unmount + 사용자 알림 (force fallback 폐기)
+- [x] ✅ 다국어 (ko + en) — `Localizable.xcstrings`, 36개 키
+- [ ] 다크/라이트 모드 점검 (출시 전)
+- [ ] Accessibility (VoiceOver 등) — 출시 전
 - [ ] Sandbox 호환성 검증
 
 ### 8.6 Week 8: 베타 테스트
