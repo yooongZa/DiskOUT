@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var statusItem: NSStatusItem!
     private var globalKeyMonitor: Any?
     private var lastEjectAt: Date = .distantPast
+    private var lastMountAt: Date = .distantPast
     /// 마지막 추출 결과 symbol (wake 후 복원용). nil 이면 default ⏏ 표시.
     private var lastResultSymbol: String?
     /// flashIcon 의 지연 reset 이 그 사이 set 된 결과 아이콘을 덮어쓰는 race 방지용.
@@ -155,6 +156,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             ejectAllItem.keyEquivalentModifierMask = [.command, .option]
             ejectAllItem.target = self
             menu.addItem(ejectAllItem)
+        }
+
+        // Mount 섹션 — 마운트 안 된 외장이 있을 때만 표시.
+        // 사용자가 추출 후 다시 쓰고 싶거나, macOS 가 wake 후 자동 mount 못 한 케이스 회복용.
+        let unmounted = UnmountedExternal.list()
+        if !unmounted.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            let header = NSMenuItem(title: "마운트 안 된 외장",
+                                    action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+
+            for u in unmounted {
+                let item = NSMenuItem(title: u.displayName,
+                                      action: #selector(mountOne(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                item.representedObject = u.bsdName
+                item.image = NSImage(systemSymbolName: "externaldrive.badge.plus",
+                                     accessibilityDescription: nil)
+                item.toolTip = "클릭 = 마운트.  ⌘+클릭 = 마운트 + Finder 열기."
+                menu.addItem(item)
+            }
+
+            if unmounted.count >= 2 {
+                let mountAllItem = NSMenuItem(title: "모두 마운트  (⌃⌘E)",
+                                              action: #selector(mountAllAction(_:)),
+                                              keyEquivalent: "e")
+                mountAllItem.keyEquivalentModifierMask = [.command, .control]
+                mountAllItem.target = self
+                menu.addItem(mountAllItem)
+            }
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -404,6 +437,120 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 둘 다 실패
         let combined = "graceful: \(r1.errorMessage ?? "?") | force: \(r2.errorMessage ?? "?")"
         return (false, combined)
+    }
+
+    // MARK: - Mount Actions
+
+    /// 메뉴 일괄 마운트 wrapper. caller = "menu".
+    @objc func mountAllAction(_ sender: Any?) {
+        mountAll(caller: "menu")
+    }
+
+    /// 개별 마운트 (메뉴 아이템 클릭). representedObject = whole disk BSD name.
+    /// ⌘+클릭이면 마운트 후 Finder 에서 첫 mount path 열기.
+    @objc private func mountOne(_ sender: NSMenuItem) {
+        guard let bsd = sender.representedObject as? String else { return }
+        let displayName = sender.title
+        let openInFinder = NSApp.currentEvent?.modifierFlags.contains(.command) ?? false
+        log.info("MOUNTONE start: \(displayName, privacy: .public) bsd=\(bsd, privacy: .public) openInFinder=\(openInFinder, privacy: .public)")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let r = self.runDiskutil(["mountDisk", bsd])
+            log.info("MOUNTONE done: \(displayName, privacy: .public) success=\(r.success, privacy: .public)")
+            DispatchQueue.main.async {
+                if r.success {
+                    self.notify(title: "마운트 완료", body: displayName)
+                    if openInFinder {
+                        // mount path 가 보통 /Volumes/<volumeName>. 충돌 시 (2) suffix 가능,
+                        // 그 케이스는 silent 처리 (열기 실패해도 mount 자체는 성공).
+                        let url = URL(fileURLWithPath: "/Volumes/\(displayName)")
+                        if FileManager.default.fileExists(atPath: url.path) {
+                            NSWorkspace.shared.open(url)
+                        } else {
+                            log.notice("openInFinder: /Volumes/\(displayName, privacy: .public) not found")
+                        }
+                    }
+                } else {
+                    self.notify(title: "마운트 실패: \(displayName)",
+                                body: r.errorMessage ?? "알 수 없는 오류",
+                                archived: true)
+                }
+            }
+        }
+    }
+
+    /// 모든 마운트 안 된 외장 일괄 마운트. 디바운스 1.5s.
+    private func mountAll(caller: String) {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastMountAt)
+        if elapsed < 1.5 {
+            log.info("MOUNT(\(caller, privacy: .public)) DEBOUNCED — last fired \(String(format: "%.2f", elapsed), privacy: .public)s ago")
+            flashIcon(symbol: "circle.dashed", duration: 0.3)
+            return
+        }
+        lastMountAt = now
+        log.info("MOUNT(\(caller, privacy: .public)) START")
+        flashIcon(symbol: "arrow.down.circle", duration: 0.6)
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let unmounted = UnmountedExternal.list()
+            guard !unmounted.isEmpty else {
+                log.info("MOUNT(\(caller, privacy: .public)) — no candidates")
+                DispatchQueue.main.async { [weak self] in
+                    self?.notify(title: "마운트할 외장 없음",
+                                 body: "꽂혀있고 마운트 안 된 외장이 없습니다")
+                }
+                return
+            }
+
+            let lock = NSLock()
+            var success: [String] = []
+            var failure: [(String, String)] = []
+            let group = DispatchGroup()
+            let pq = DispatchQueue(label: "com.yongza.ejectdrives.mountall", attributes: .concurrent)
+
+            for u in unmounted {
+                group.enter()
+                pq.async {
+                    let r = self.runDiskutil(["mountDisk", u.bsdName])
+                    if r.success {
+                        log.info("✓ mount OK:    \(u.displayName, privacy: .public) (\(u.bsdName, privacy: .public))")
+                    } else {
+                        log.error("✗ mount FAIL:  \(u.displayName, privacy: .public) — \(r.errorMessage ?? "?", privacy: .public)")
+                    }
+                    lock.lock()
+                    if r.success { success.append(u.displayName) }
+                    else { failure.append((u.displayName, r.errorMessage ?? "알 수 없는 오류")) }
+                    lock.unlock()
+                    group.leave()
+                }
+            }
+            group.wait()
+            log.info("MOUNT(\(caller, privacy: .public)) DONE — success=\(success.count, privacy: .public) failure=\(failure.count, privacy: .public)")
+            DispatchQueue.main.async { [weak self] in
+                self?.notifyMountResult(success: success, failure: failure)
+            }
+        }
+    }
+
+    private func notifyMountResult(success: [String], failure: [(String, String)]) {
+        if failure.isEmpty {
+            // 모두 성공 — 성공이 본인 trigger 결과이므로 banner 만 (archived 안 함).
+            notify(title: "모두 마운트 완료",
+                   body: success.joined(separator: ", "))
+            return
+        }
+        let title: String
+        if success.isEmpty { title = "마운트 실패" }
+        else { title = "일부 마운트 실패" }
+        var lines: [String] = []
+        if !success.isEmpty {
+            lines.append("성공: " + success.joined(separator: ", "))
+        }
+        lines.append("실패: " + failure.map { $0.0 }.joined(separator: ", "))
+        notify(title: title, body: lines.joined(separator: "\n"), archived: true)
     }
 
     /// diskutil 외부 명령 실행 helper.
@@ -672,7 +819,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         completionHandler(archived ? [.banner, .list] : [.banner])
     }
 
-    // MARK: - Global Hotkey (⌥⌘E)
+    // MARK: - Global Hotkey (⌥⌘E 추출, ⌃⌘E 마운트)
     // NSEvent.addGlobalMonitorForEvents 만 사용. Accessibility 권한 필요.
     // 우클릭 monitor 는 제거 — false positive 위험. 우클릭은 button.sendAction 으로 받음.
 
@@ -682,32 +829,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         ] as CFDictionary)
         log.notice("Accessibility trusted = \(trusted, privacy: .public)")
 
-        let requiredFlags: NSEvent.ModifierFlags = [.command, .option]
+        let ejectFlags: NSEvent.ModifierFlags = [.command, .option]    // ⌥⌘E 추출
+        let mountFlags: NSEvent.ModifierFlags = [.command, .control]   // ⌃⌘E 마운트
         let eKeyCode: UInt16 = 14   // kVK_ANSI_E — 물리 키 코드, IME 무관
 
         // GLOBAL monitor — 다른 앱이 활성일 때 잡음 (Accessibility 권한 필요)
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == eKeyCode else { return }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 .subtracting([.numericPad, .function, .help, .capsLock])
-            guard flags == requiredFlags, event.keyCode == eKeyCode else { return }
-            log.info("HOTKEY GLOBAL fired (isARepeat=\(event.isARepeat, privacy: .public))")
-            self?.flashIcon(symbol: "bolt.fill", duration: 0.3)
-            DispatchQueue.main.async {
-                self?.ejectAll(caller: "hotkey-global")
+            if flags == ejectFlags {
+                log.info("HOTKEY GLOBAL eject fired (isARepeat=\(event.isARepeat, privacy: .public))")
+                self?.flashIcon(symbol: "bolt.fill", duration: 0.3)
+                DispatchQueue.main.async { self?.ejectAll(caller: "hotkey-global") }
+            } else if flags == mountFlags {
+                log.info("HOTKEY GLOBAL mount fired (isARepeat=\(event.isARepeat, privacy: .public))")
+                self?.flashIcon(symbol: "arrow.down.circle", duration: 0.3)
+                DispatchQueue.main.async { self?.mountAll(caller: "hotkey-global") }
             }
         }
         log.notice("globalKeyMonitor = \(self.globalKeyMonitor != nil ? "REGISTERED" : "NIL — failed!", privacy: .public)")
 
         // LOCAL monitor — 우리 앱 활성일 때
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == eKeyCode else { return event }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 .subtracting([.numericPad, .function, .help, .capsLock])
-            if flags == requiredFlags && event.keyCode == eKeyCode {
-                log.info("HOTKEY LOCAL fired (isARepeat=\(event.isARepeat, privacy: .public))")
+            if flags == ejectFlags {
+                log.info("HOTKEY LOCAL eject fired (isARepeat=\(event.isARepeat, privacy: .public))")
                 self?.flashIcon(symbol: "bolt.fill", duration: 0.3)
-                DispatchQueue.main.async {
-                    self?.ejectAll(caller: "hotkey-local")
-                }
+                DispatchQueue.main.async { self?.ejectAll(caller: "hotkey-local") }
+                return nil
+            } else if flags == mountFlags {
+                log.info("HOTKEY LOCAL mount fired (isARepeat=\(event.isARepeat, privacy: .public))")
+                self?.flashIcon(symbol: "arrow.down.circle", duration: 0.3)
+                DispatchQueue.main.async { self?.mountAll(caller: "hotkey-local") }
                 return nil
             }
             return event
@@ -819,6 +975,112 @@ struct ExternalDrive {
         guard let match = bsd.range(of: #"^disk\d+"#, options: .regularExpression)
         else { return nil }
         return String(bsd[match])
+    }
+}
+
+// MARK: - Unmounted External Detection
+
+/// 꽂혀있는데 마운트 안 된 외장 디스크.
+/// 사용자가 추출 후 케이블 그대로 두거나, macOS 가 wake 후 자동 mount 못 한 경우.
+struct UnmountedExternal {
+    /// whole disk BSD name. 예: "disk2"
+    let bsdName: String
+    /// 표시용 이름. VolumeName 이 있으면 그것, 없으면 BSD.
+    let displayName: String
+
+    /// `diskutil list -plist external` + `ExternalDrive.list()` 비교로 unmounted 외장 검출.
+    ///
+    /// **로직**:
+    /// 1. 현재 마운트된 외장의 whole disk BSD set 수집 (`ExternalDrive.list()` 의 wholeDiskBSDName)
+    /// 2. `diskutil list -plist external` 의 모든 OSInternal=false whole disk entry 검사
+    /// 3. mountedBSDs 에 없는 entry 중 mountable sub-volume(VolumeName 있는 partition/APFSVolume) 가
+    ///    하나라도 있는 것만 후보. RAID 멤버 디스크 같은 건 자동 제외.
+    static func list() -> [UnmountedExternal] {
+        let mountedBSDs: Set<String> = Set(
+            ExternalDrive.list().compactMap { $0.wholeDiskBSDName }
+        )
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+        task.arguments = ["list", "-plist", "external"]
+        let outPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = Pipe()
+        do {
+            try task.run()
+            task.waitUntilExit()
+            guard task.terminationStatus == 0 else { return [] }
+            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            guard let plist = try PropertyListSerialization
+                    .propertyList(from: data, format: nil) as? [String: Any],
+                  let entries = plist["AllDisksAndPartitions"] as? [[String: Any]]
+            else { return [] }
+
+            var result: [UnmountedExternal] = []
+            for entry in entries {
+                guard let bsd = entry["DeviceIdentifier"] as? String else { continue }
+                if let internalFlag = entry["OSInternal"] as? Bool, internalFlag { continue }
+                if mountedBSDs.contains(bsd) { continue }
+                // 사용자 데이터 partition 의 VolumeName 추출 (EFI / 시스템 partition 자동 제외).
+                // 없으면 RAID 멤버 / EFI-only 디스크 — skip.
+                guard let name = firstVolumeName(in: entry) else { continue }
+                // BusProtocol 추가 검증 — Xcode CoreSimulator DMG 같은 가상 디스크 차단.
+                // ExternalDrive.list() 의 DMG 필터는 hdiutil 의 mounted DMG 에만 적용되므로
+                // unmounted 후보엔 다시 체크 필요.
+                if busProtocol(for: bsd) == "Disk Image" {
+                    log.debug("UnmountedExternal: skip disk image bsd=\(bsd, privacy: .public)")
+                    continue
+                }
+                result.append(UnmountedExternal(bsdName: bsd, displayName: name))
+            }
+            log.info("UnmountedExternal.list: found \(result.count, privacy: .public) candidates = \(result.map { "\($0.displayName)(\($0.bsdName))" }, privacy: .public)")
+            return result
+        } catch {
+            log.error("diskutil list failed: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+    }
+
+    /// entry 의 Partitions / APFSVolumes 에서 사용자 데이터 partition 의 VolumeName 반환.
+    /// EFI / Microsoft Reserved / Apple_Boot 같은 시스템 partition 의 VolumeName 은 무시.
+    /// 모두 시스템이거나 비어있으면 nil — 즉 mount 대상 아님 (RAID 멤버, EFI-only 디스크 등).
+    private static func firstVolumeName(in entry: [String: Any]) -> String? {
+        let systemContents: Set<String> = ["EFI", "Microsoft Reserved", "Apple_Boot",
+                                            "Apple_KernelCoreDump", "Recovery"]
+        if let parts = entry["Partitions"] as? [[String: Any]] {
+            for p in parts {
+                if let content = p["Content"] as? String, systemContents.contains(content) { continue }
+                if let name = p["VolumeName"] as? String, !name.isEmpty { return name }
+            }
+        }
+        if let vols = entry["APFSVolumes"] as? [[String: Any]] {
+            for v in vols {
+                if let name = v["VolumeName"] as? String, !name.isEmpty { return name }
+            }
+        }
+        return nil
+    }
+
+    /// `diskutil info -plist <bsd>` 의 BusProtocol 키 조회.
+    /// "USB" / "Thunderbolt" = 진짜 외장. "Disk Image" = DMG / sparseimage / CoreSimulator. nil = 알 수 없음.
+    private static func busProtocol(for bsd: String) -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+        task.arguments = ["info", "-plist", bsd]
+        let outPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = Pipe()
+        do {
+            try task.run()
+            task.waitUntilExit()
+            guard task.terminationStatus == 0 else { return nil }
+            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let plist = try PropertyListSerialization
+                .propertyList(from: data, format: nil) as? [String: Any]
+            return plist?["BusProtocol"] as? String
+        } catch {
+            return nil
+        }
     }
 }
 

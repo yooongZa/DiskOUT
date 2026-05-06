@@ -1,5 +1,133 @@
 # CHANGELOG
 
+## v0.4.0 — 2026-05-06
+
+**마운트 안 된 외장 디스크 mount 기능 추가.** 경쟁사 (Jettison, MountMate) 둘 다 가진 기능 중 우리만 빠져있던 마지막 갭. 추출 / 마운트가 한 쌍의 자연스러운 동작으로 완성.
+
+---
+
+### 한 줄 요약
+
+> "꽂혀있는데 마운트 안 된 외장도 메뉴에서 한 번에 마운트 — `⌘+클릭` 으로 Finder 까지 자동."
+
+---
+
+### 배경 — 경쟁사 비교
+
+| 앱 | 마운트 안 된 외장 표시 | 개별 mount | 일괄 mount | 추가 |
+|---|---|---|---|---|
+| **Jettison** ($6.95) | ✓ | ✓ | ✓ | ⌘+클릭 = "Mount and Open" — Finder 열기까지 |
+| **MountMate** (무료, OSS) | ✓ | ✓ | (불명) | 단축키 `⌘⇧M` / `⌘⇧U` |
+| Ejectify (€6.99, OSS) | ✗ | ✗ | ✗ | 자동 unmount + auto remount on wake 만 |
+| EjectBar (무료) | ✗ | ✗ | ✗ | 추출 위주 |
+| **EjectDrives v0.3.0** | ✗ | ✗ | ✗ | 우리만 빠져있던 갭 |
+
+→ Jettison 패턴 (별도 MOUNT 섹션 + ⌘+클릭 Finder) 채택.
+
+---
+
+### 추가된 기능
+
+| # | 기능 | 동작 |
+|---|---|---|
+| 1 | **마운트 안 된 외장 자동 감지** | `diskutil list -plist external` 파싱 + `ExternalDrive.list()` 의 마운트된 외장 BSD 와 비교. 차집합이 후보 |
+| 2 | **메뉴 MOUNT 섹션 자동 노출** | 후보 있을 때만 표시. "마운트 안 된 외장" 헤더 + 디스크 별 항목 |
+| 3 | **개별 마운트** | 메뉴 항목 클릭 → `diskutil mountDisk <bsd>` |
+| 4 | **⌘+클릭 = 마운트 + Finder 열기** | Jettison 의 "Mount and Open" 동등. mount path (`/Volumes/<displayName>`) 가 존재하면 Finder 로 open |
+| 5 | **일괄 마운트 — ⌃⌘E 단축키** | 후보 2개 이상이면 메뉴에 "모두 마운트 (⌃⌘E)" 항목. 단축키는 항상 동작 (후보 없으면 *"마운트할 외장 없음"* 알림) |
+| 6 | **시스템 partition / DMG 자동 제외** | 두 단계 필터: (1) `Content` 가 EFI/Microsoft Reserved/Apple_Boot/Apple_KernelCoreDump/Recovery 이면 skip (2) `BusProtocol == "Disk Image"` (Xcode CoreSimulator 등) skip |
+| 7 | **결과 알림** | 일괄 마운트 성공: banner 만. 실패: banner + 알림 센터 보관 (negative event 매트릭스 일관성) |
+
+---
+
+### 단축키 매핑
+
+| 단축키 | 동작 |
+|---|---|
+| `⌥⌘E` | 모든 외장 **추출** (v0.1.0 부터) |
+| `⌃⌘E` (신규) | 마운트 안 된 외장 **일괄 마운트** |
+
+같은 `E` 키 + 다른 modifier — 외우기 쉬운 대칭. `⌘⌥W` 가 시스템 "Close All Windows" 와 충돌 위험이 있어 `⌃⌘E` 채택.
+
+---
+
+### 동작 변경 (v0.3.0 → v0.4.0)
+
+| 항목 | v0.3.0 | v0.4.0 |
+|---|---|---|
+| 메뉴 항목 | 추출만 | 추출 + (조건부) 마운트 섹션 |
+| 전역 단축키 | `⌥⌘E` 만 | `⌥⌘E` + `⌃⌘E` |
+| `UnmountedExternal` struct | 없음 | 추가 (~80줄) |
+| `UnmountedExternal.busProtocol(for:)` 추가 호출 | 없음 | 후보 별 ~30ms (메뉴 열 때) |
+
+---
+
+### 발생했던 이슈와 해결
+
+#### 1. CoreSimulator DMG 가 unmounted 후보로 잡힘
+
+**증상**: `disk6: "WatchOS 26.4 Simulator"`, `disk8: "iOS 26.4.1 Simulator"` 가 *마운트 안 된 외장* 으로 분류됨.
+**원인**: `ExternalDrive.list()` 의 DMG 필터는 hdiutil 의 *마운트된* DMG 에만 적용. Unmounted 후보 검출엔 hdiutil 정보가 없음.
+**해결**: 후보 별 `diskutil info -plist <bsd>` 추가 호출 → `BusProtocol == "Disk Image"` 이면 skip. CoreSim / DMG / sparseimage 모두 차단.
+
+#### 2. EFI partition 만 있는 RAID 멤버 디스크
+
+**증상**: `disk9`, `disk10` 의 VolumeName 이 *"EFI"* 로 잡혀 mount 후보로 노출 위험.
+**원인**: APFS RAID 멤버 디스크는 보통 `[EFI partition, RAID member]` 구조. RAID member partition 은 VolumeName 없고, EFI 만 VolumeName 가짐.
+**해결**: `firstVolumeName(in:)` 에서 `Content` 가 `["EFI", "Microsoft Reserved", "Apple_Boot", "Apple_KernelCoreDump", "Recovery"]` 인 partition 은 skip. → 결과적으로 RAID 멤버 디스크가 자동으로 후보에서 제외 (사용자 데이터 partition 없음).
+
+#### 3. 단축키 `⌘⌥W` vs `⌃⌘E` 결정
+
+처음 사용자가 `⌘⌥W` 제안. 검토 결과:
+- macOS 표준 "Close All Windows" 와 충돌 (Finder, Safari, Mail, Pages 등)
+- 우리 코드 `NSEvent.addGlobalMonitorForEvents` 는 이벤트 *소비 안 함* — 충돌이 아니라 **공동 발화**. 시스템상 동작은 OK.
+- 단 사용자 경험상 짜증 (Safari 작업 중 실수로 누르면 윈도우 다 닫힘 + mount 시도)
+
+대안 비교:
+- `⌘⌥M` — "Minimize All Windows" 와 동일 충돌
+- `⌘⌥⇧E` — 의미 매칭 좋지만 4-키
+- **`⌃⌘E`** — 자유롭고 추출 단축키와 같은 키 (E)
+
+→ `⌃⌘E` 채택. "E 키는 외장 디스크 — modifier 가 동작 결정" 일관성.
+
+---
+
+### 메뉴 UI
+
+```
+🟢 연결된 외장 (마운트됨)
+  📦 SYSJO
+  📦 SSD_W
+─────
+모두 추출  (⌥⌘E · 또는 메뉴바 우클릭)
+─────  마운트 안 된 외장  ─────  ← 후보 있을 때만 노출
+  ⊕ Backup_HDD          [클릭 = 마운트.  ⌘+클릭 = 마운트 + Finder 열기]
+  ⊕ ARCHIVE
+  모두 마운트  (⌃⌘E)            ← 후보 2개 이상일 때만
+─────
+잠자기 시 자동 추출 ✓
+화면 꺼질 때도 자동 추출 (실험)
+종료
+```
+
+---
+
+### 코드 라인 변화
+
+| 파일 | v0.3.0 | v0.4.0 | 변화 |
+|---|---|---|---|
+| `AppDelegate.swift` | ~860줄 | ~1095줄 | **+235줄** (UnmountedExternal struct, mountOne / mountAll / mountAllAction / notifyMountResult, 단축키 분기 확장, 메뉴 섹션) |
+
+---
+
+### 알려진 갭 (v0.5.0 검토)
+
+- **mount path 정확도**: 현재는 `/Volumes/<displayName>` 추측. macOS 가 `(2)` suffix 붙이는 케이스 등에선 Finder 열기 silent fail. `diskutil mountDisk` 의 stdout 파싱하면 정확히 알 수 있음.
+- **APFS encrypted volume 비밀번호**: macOS 가 GUI prompt 자동 띄우지만 우리 알림과 race 가능. 검증 필요.
+- **mount 진행 상태 아이콘**: 현재 0.6s 짧은 flash 만. 일괄 마운트가 길어지면 (2~3 디스크) 진행 표시 약함.
+
+---
+
 ## v0.3.0 — 2026-05-05
 
 **화면 꺼짐 시 자동 추출 (display sleep eject) 추가.** `pmset sleep = 0` 환경의 도킹 분리 사고 보호. Jettison 1.9.1 의 동등 기능.
