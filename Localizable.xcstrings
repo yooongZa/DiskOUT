@@ -1,0 +1,265 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@\nDisks detected but won't mount. Try Disk Utility." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@\nDisks detected but won't mount. Try Disk Utility." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "%@\n디스크는 인식되는데 mount 안 됨 — 디스크 검사 필요할 수 있음" } }
+      }
+    },
+    "%@\nDisks still mounted. Disconnect risk. Wake screen and eject manually." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@\nDisks still mounted. Disconnect risk. Wake screen and eject manually." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "%@\n디스크가 unmount 안 된 채 — 분리 시 손상 위험. 화면 켜고 메뉴에서 수동 추출 권장." } }
+      }
+    },
+    "%@\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "%@\n디스크가 unmount 안 된 채 sleep — 분리 시 손상 위험. wake 후 메뉴에서 수동 추출 권장." } }
+      }
+    },
+    "%lld drive(s) didn't eject at display sleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld drive(s) didn't eject at display sleep" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "화면 꺼짐 시 %lld개 디스크 추출 실패" } }
+      }
+    },
+    "%lld drive(s) didn't eject before sleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld drive(s) didn't eject before sleep" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "Sleep 시 %lld개 디스크 추출 실패" } }
+      }
+    },
+    "All drives ejected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All drives ejected" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모든 드라이브 추출 완료" } }
+      }
+    },
+    "All drives mounted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All drives mounted" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트 완료" } }
+      }
+    },
+    "Approve in System Settings → General → Login Items" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Approve in System Settings → General → Login Items" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정 → 일반 → 로그인 항목 에서 허용 필요" } }
+      }
+    },
+    "Click to mount.  ⌘+click to also open in Finder." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Click to mount.  ⌘+click to also open in Finder." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "클릭 = 마운트.  ⌘+클릭 = 마운트 + Finder 열기." } }
+      }
+    },
+    "Couldn't eject %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't eject %@" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 실패: %@" } }
+      }
+    },
+    "Couldn't mount %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't mount %@" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 실패: %@" } }
+      }
+    },
+    "Couldn't update launch-at-login" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't update launch-at-login" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "자동 실행 설정 실패" } }
+      }
+    },
+    "Eject all  (⌥⌘E · or right-click)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all  (⌥⌘E · or right-click)" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 추출  (⌥⌘E · 또는 우클릭)" } }
+      }
+    },
+    "Eject failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject failed" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 실패" } }
+      }
+    },
+    "Eject on display sleep (experimental)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject on display sleep (experimental)" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "화면 꺼질 때도 자동 추출 (실험)" } }
+      }
+    },
+    "Eject on display sleep tooltip" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "For pmset sleep=0 setups. May trigger frequent eject/remount." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "pmset sleep=0 환경에서 화면 꺼질 때 추출. 자리 잠깐 비울 때 잦은 추출/재마운트 가능." } }
+      }
+    },
+    "Eject on sleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject on sleep" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 시 자동 추출" } }
+      }
+    },
+    "Ejected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ejected" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 완료" } }
+      }
+    },
+    "Failed: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed: %@" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "실패: %@" } }
+      }
+    },
+    "Launch at login" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Launch at login" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 시 자동 실행" } }
+      }
+    },
+    "Login item needs approval" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Login item needs approval" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 항목 허용 필요" } }
+      }
+    },
+    "Mount all  (⌃⌘E)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount all  (⌃⌘E)" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트  (⌃⌘E)" } }
+      }
+    },
+    "Mount failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount failed" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 실패" } }
+      }
+    },
+    "Mounted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mounted" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 완료" } }
+      }
+    },
+    "No drives to eject" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No drives to eject" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출할 드라이브 없음" } }
+      }
+    },
+    "No external drives" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No external drives" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "연결된 외장 드라이브 없음" } }
+      }
+    },
+    "No external drives connected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No external drives connected." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "연결된 외장 드라이브가 없습니다." } }
+      }
+    },
+    "No unmounted external drives connected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No unmounted external drives connected." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "꽂혀있고 마운트 안 된 외장이 없습니다." } }
+      }
+    },
+    "Nothing to mount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Nothing to mount" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트할 외장 없음" } }
+      }
+    },
+    "Quit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "종료" } }
+      }
+    },
+    "Remount failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remount failed" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "재마운트 실패" } }
+      }
+    },
+    "Some drives didn't eject" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Some drives didn't eject" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "일부 추출 실패" } }
+      }
+    },
+    "Some drives didn't mount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Some drives didn't mount" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "일부 마운트 실패" } }
+      }
+    },
+    "Succeeded: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Succeeded: %@" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "성공: %@" } }
+      }
+    },
+    "Toggle EjectDrives on in System Settings → Login Items." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Toggle EjectDrives on in System Settings → Login Items." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정에서 EjectDrives 의 로그인 항목 토글을 켜주세요." } }
+      }
+    },
+    "Unknown error" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown error" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "알 수 없는 오류" } }
+      }
+    },
+    "Unmounted drives" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unmounted drives" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 안 된 외장" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

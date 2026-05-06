@@ -63,6 +63,47 @@ sandbox 활성 + entitlements (USB, /Volumes/, user-selected) 채운 상태에�
 
 `project.yml` 의 `entitlements:` 에 `path:` 만 적고 `properties:` 를 안 적으면, xcodegen 이 매 generate 때 entitlements 파일을 빈 dict 로 reset 시킴. **`properties:` 에 권한 키들을 직접 명시** 해야 매번 그 내용으로 보장됨. 본 commit 부터 [project.yml](project.yml) 에 4개 키 모두 명시.
 
+---
+
+## SMAppService 자동 실행 + 다국어 (ko + en) — 추가 (Unreleased)
+
+### SMAppService — 로그인 시 자동 실행 토글
+
+[AppDelegate.swift](AppDelegate.swift) 에 `LoginItem` enum 추가 (`SleepEject` 옆 패턴). 메뉴에 "로그인 시 자동 실행" 토글 노출.
+
+- macOS 13+ `SMAppService.mainApp` 사용. 시스템 설정 → 일반 → 로그인 항목 에 자동 등록.
+- `status == .requiresApproval` 케이스 (사용자가 시스템 설정에서 허용 안 한 상태) 처리:
+  - 토글 상태에 따라 toolTip 으로 *"시스템 설정에서 허용 필요"* 안내
+  - register 직후 status 가 requiresApproval 이면 알림 + `SMAppService.openSystemSettingsLoginItems()` 로 시스템 설정 자동 오픈
+- **이전 README 의 수동 안내 폐기** — 사용자가 `~/Applications/EjectDrives.app` 을 직접 시스템 설정에 추가하던 절차 → 메뉴 토글 한 번으로 끝.
+
+### 다국어 — `Localizable.xcstrings` (Xcode 15+ String Catalog)
+
+신규 파일 [Localizable.xcstrings](Localizable.xcstrings) — 36개 사용자 텍스트의 영어 source + 한국어 번역. 메뉴 / 알림 / 토글 / tooltip 모든 표면.
+
+- **Source 언어 영어** (`developmentLanguage: en` + `CFBundleDevelopmentRegion: en`)
+- **지원 언어**: en, ko (`CFBundleLocalizations`)
+- **API**: `String(localized: "...")` + string interpolation (`"Couldn't eject \(name)"`)
+- **영어 톤**: 미니멀. *"Eject all"* / *"Mounted"* / *"Couldn't eject %@"* — 메뉴바 너비 의식.
+- **한국어 톤**: 기존 어투 보존. *"모두 추출"* / *"마운트 완료"* / *"추출 실패: %@"*
+
+빌드 결과:
+- `EjectDrives.app/Contents/Resources/{en,ko}.lproj/Localizable.strings` 자동 컴파일
+- `Info.plist` 의 `CFBundleLocalizations = [en, ko]` 박힘
+- 시스템 언어 한국어/영어 자동 전환 (사용자가 시스템 설정 → 언어 및 지역 변경 시)
+
+### 코드 변화
+
+- 사용자에게 보이는 모든 텍스트 35+개를 `String(localized: ...)` 로 치환
+- 로그 출력의 fallback 문자열 ("알 수 없는 오류") 도 일관성 위해 영어 ("unknown") 로 통일 (사용자엔 노출 안 됨)
+- `LoginItem` enum + `toggleLoginItem(_:)` 메서드 추가 (~50줄)
+
+### 알려진 제약 / 다음 작업
+
+- **단축키 기호 `⌥⌘E` / `⌃⌘E`** — 메뉴 라벨에 그대로 노출. macOS 시스템 표기와 일치.
+- **App Store 메타데이터 다국어화** — App Store Connect 의 앱 이름 / 부제 / 설명 / 키워드 / 스크린샷 ko/en 따로 입력 필요. 출시 직전 작업.
+- **추가 언어 (일본어 / 중국어 등)** — `Localizable.xcstrings` 에 새 lang key 추가 + `CFBundleLocalizations` 갱신만으로 가능. v1.1+ 검토.
+
 ### 유지된 것 (배포 노선과 무관, 그대로 유효)
 
 - `project.yml` 의 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 변수화 — App Store 빌드에도 동일하게 유용.

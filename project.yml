@@ -24,6 +24,7 @@ targets:
       - path: AppDelegate.swift
       - path: main.swift
       - path: DiskArbitrationBackend.swift
+      - path: Localizable.xcstrings
     entitlements:
       path: EjectDrives.entitlements
       properties:
@@ -49,6 +50,10 @@ targets:
         NSPrincipalClass: NSApplication
         LSApplicationCategoryType: public.app-category.utilities
         NSHumanReadableCopyright: "EjectDrives by yongZa"
+        CFBundleLocalizations:
+          - en
+          - ko
+        CFBundleDevelopmentRegion: en
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yongza.ejectdrives

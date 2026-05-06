@@ -38,6 +38,8 @@
 | graceful unmount | `DADiskUnmount` 호출. 실패(점유) 시 사용자에게 *"unmount declined"* 알림. force fallback 폐기 (sandbox + non-root 환경에서 거절). |
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
+| **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 으로 시스템 로그인 항목 등록. 시스템 설정에서 허용 필요한 상태면 자동으로 설정 페이지 열림 |
+| **다국어 (ko + en)** | `Localizable.xcstrings` 36개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
 
 ## 파일 구성
 
@@ -45,6 +47,7 @@
 diskOUT/
 ├── AppDelegate.swift            # 메인 로직 (~915줄)
 ├── DiskArbitrationBackend.swift # DA framework + IOKit wrapper (~275줄)
+├── Localizable.xcstrings        # ko + en 번역 (36개 키, Xcode String Catalog)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
 ├── EjectDrives.entitlements     # sandbox + USB + Volumes 권한 (project.yml 이 자동 생성)
@@ -135,7 +138,7 @@ open ~/Applications/EjectDrives.app
 
 ## 로그인 시 자동 실행
 
-시스템 설정 → 일반 → 로그인 항목 → `+` → `~/Applications/EjectDrives.app` 추가.
+메뉴에서 **"로그인 시 자동 실행"** 토글 → 시스템 자동 등록. 첫 토글 시 시스템 설정에서 허용 요청이 뜨면 거기서 EjectDrives 토글을 켜주면 됨 (앱이 시스템 설정 페이지를 자동으로 열어줌).
 
 ## 옵션 바꾸고 싶을 때
 

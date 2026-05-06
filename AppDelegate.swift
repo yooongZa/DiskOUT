@@ -136,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let drives = ExternalDrive.list()
 
         if drives.isEmpty {
-            let empty = NSMenuItem(title: "연결된 외장 드라이브 없음", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: String(localized: "No external drives"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
         } else {
@@ -150,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 menu.addItem(item)
             }
             menu.addItem(NSMenuItem.separator())
-            let ejectAllItem = NSMenuItem(title: "모두 추출  (⌥⌘E · 또는 메뉴바 우클릭)",
+            let ejectAllItem = NSMenuItem(title: String(localized: "Eject all  (⌥⌘E · or right-click)"),
                                           action: #selector(ejectAllAction(_:)),
                                           keyEquivalent: "e")
             ejectAllItem.keyEquivalentModifierMask = [.command, .option]
@@ -163,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let unmounted = UnmountedExternal.list()
         if !unmounted.isEmpty {
             menu.addItem(NSMenuItem.separator())
-            let header = NSMenuItem(title: "마운트 안 된 외장",
+            let header = NSMenuItem(title: String(localized: "Unmounted drives"),
                                     action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
@@ -176,12 +176,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 item.representedObject = u.bsdName
                 item.image = NSImage(systemSymbolName: "externaldrive.badge.plus",
                                      accessibilityDescription: nil)
-                item.toolTip = "클릭 = 마운트.  ⌘+클릭 = 마운트 + Finder 열기."
+                item.toolTip = String(localized: "Click to mount.  ⌘+click to also open in Finder.")
                 menu.addItem(item)
             }
 
             if unmounted.count >= 2 {
-                let mountAllItem = NSMenuItem(title: "모두 마운트  (⌃⌘E)",
+                let mountAllItem = NSMenuItem(title: String(localized: "Mount all  (⌃⌘E)"),
                                               action: #selector(mountAllAction(_:)),
                                               keyEquivalent: "e")
                 mountAllItem.keyEquivalentModifierMask = [.command, .control]
@@ -192,24 +192,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         menu.addItem(NSMenuItem.separator())
 
-        let toggle = NSMenuItem(title: "잠자기 시 자동 추출",
+        let toggle = NSMenuItem(title: String(localized: "Eject on sleep"),
                                 action: #selector(toggleSleepEject),
                                 keyEquivalent: "")
         toggle.target = self
         toggle.state = SleepEject.enabled ? .on : .off
         menu.addItem(toggle)
 
-        let toggleDisp = NSMenuItem(title: "화면 꺼질 때도 자동 추출 (실험)",
+        let toggleDisp = NSMenuItem(title: String(localized: "Eject on display sleep (experimental)"),
                                     action: #selector(toggleDisplaySleepEject),
                                     keyEquivalent: "")
         toggleDisp.target = self
         toggleDisp.state = DisplaySleepEject.enabled ? .on : .off
-        toggleDisp.toolTip = "pmset sleep=0 환경에서 화면 꺼질 때 추출. 자리 잠깐 비울 때 잦은 추출/재마운트 가능."
+        toggleDisp.toolTip = String(localized: "Eject on display sleep tooltip")
         menu.addItem(toggleDisp)
+
+        // 로그인 시 자동 실행 — SMAppService.mainApp 으로 시스템 로그인 항목 등록.
+        // status 가 .requiresApproval 이면 시스템 설정에서 사용자가 직접 허용해야 함.
+        let loginItemStatus = LoginItem.status
+        let loginToggle = NSMenuItem(title: String(localized: "Launch at login"),
+                                     action: #selector(toggleLoginItem),
+                                     keyEquivalent: "")
+        loginToggle.target = self
+        loginToggle.state = (loginItemStatus == .enabled) ? .on : .off
+        if loginItemStatus == .requiresApproval {
+            loginToggle.toolTip = String(localized: "Approve in System Settings → General → Login Items")
+        }
+        menu.addItem(loginToggle)
 
         menu.addItem(NSMenuItem.separator())
 
-        let quit = NSMenuItem(title: "종료",
+        let quit = NSMenuItem(title: String(localized: "Quit"),
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
         menu.addItem(quit)
@@ -223,6 +236,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     @objc private func toggleDisplaySleepEject() {
         DisplaySleepEject.enabled.toggle()
         log.info("DisplaySleepEject toggled → \(DisplaySleepEject.enabled, privacy: .public)")
+    }
+
+    /// 로그인 항목 등록/해제 토글. requiresApproval 상태면 시스템 설정 직접 열어줌.
+    @objc private func toggleLoginItem() {
+        let before = LoginItem.status
+        log.info("LoginItem toggle: status before = \(before.rawValue, privacy: .public)")
+
+        // 사용자가 시스템 설정에서 허용 안 한 상태에서 토글하면 → 시스템 설정 열어줌
+        if before == .requiresApproval {
+            LoginItem.openSystemSettings()
+            log.notice("LoginItem: opened System Settings (requiresApproval)")
+            return
+        }
+
+        do {
+            if before == .enabled {
+                try LoginItem.unregister()
+                log.notice("LoginItem: unregistered")
+            } else {
+                try LoginItem.register()
+                log.notice("LoginItem: registered (status now = \(LoginItem.status.rawValue, privacy: .public))")
+                // register 직후 status 가 requiresApproval 이면 시스템 설정 안내
+                if LoginItem.status == .requiresApproval {
+                    notify(title: String(localized: "Login item needs approval"),
+                           body: String(localized: "Toggle EjectDrives on in System Settings → Login Items."),
+                           archived: true)
+                    LoginItem.openSystemSettings()
+                }
+            }
+        } catch {
+            log.error("LoginItem toggle failed: \(error.localizedDescription, privacy: .public)")
+            notify(title: String(localized: "Couldn't update launch-at-login"),
+                   body: error.localizedDescription,
+                   archived: true)
+        }
     }
 
     // MARK: - Status Icon Feedback (단축키/추출 시각 피드백)
@@ -297,10 +345,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.info("EJECTONE done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
             DispatchQueue.main.async {
                 if result.success {
-                    self.notify(title: "추출 완료", body: name)
+                    self.notify(title: String(localized: "Ejected"), body: name)
                 } else {
-                    self.notify(title: "추출 실패: \(name)",
-                                body: result.errorMessage ?? "알 수 없는 오류",
+                    self.notify(title: String(localized: "Couldn't eject \(name)"),
+                                body: result.errorMessage ?? String(localized: "Unknown error"),
                                 archived: true)
                 }
             }
@@ -346,27 +394,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private func notifyResult(_ result: (attempted: [String], success: [String], failure: [(String, String)])) {
         guard !result.attempted.isEmpty else {
-            notify(title: "추출할 드라이브 없음", body: "연결된 외장 드라이브가 없습니다")
+            notify(title: String(localized: "No drives to eject"),
+                   body: String(localized: "No external drives connected."))
             return
         }
         let title: String
         let archived: Bool
         if result.failure.isEmpty {
-            title = "모든 드라이브 추출 완료"
+            title = String(localized: "All drives ejected")
             archived = false   // 성공 — 결과 아이콘 ✓ 으로 즉시 피드백 충분
         } else if result.success.isEmpty {
-            title = "추출 실패"
+            title = String(localized: "Eject failed")
             archived = true    // 실패 — 어떤 디스크인지 사후 확인 가치
         } else {
-            title = "일부 추출 실패"
+            title = String(localized: "Some drives didn't eject")
             archived = true
         }
         var lines: [String] = []
         if !result.success.isEmpty {
-            lines.append("성공: " + result.success.joined(separator: ", "))
+            lines.append(String(localized: "Succeeded: \(result.success.joined(separator: ", "))"))
         }
         if !result.failure.isEmpty {
-            lines.append("실패: " + result.failure.map { $0.0 }.joined(separator: ", "))
+            lines.append(String(localized: "Failed: \(result.failure.map { $0.0 }.joined(separator: ", "))"))
         }
         notify(title: title, body: lines.joined(separator: "\n"), archived: archived)
     }
@@ -394,13 +443,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 if result.success {
                     log.info("✓ eject OK:    \(drive.name, privacy: .public) in \(String(format: "%.2f", elapsed), privacy: .public)s")
                 } else {
-                    log.error("✗ eject FAIL:  \(drive.name, privacy: .public) in \(String(format: "%.2f", elapsed), privacy: .public)s — \(result.errorMessage ?? "알 수 없는 오류", privacy: .public)")
+                    log.error("✗ eject FAIL:  \(drive.name, privacy: .public) in \(String(format: "%.2f", elapsed), privacy: .public)s — \(result.errorMessage ?? "unknown", privacy: .public)")
                 }
                 lock.lock()
                 if result.success {
                     success.append(drive.name)
                 } else {
-                    failure.append((drive.name, result.errorMessage ?? "알 수 없는 오류"))
+                    failure.append((drive.name, result.errorMessage ?? String(localized: "Unknown error")))
                 }
                 lock.unlock()
                 group.leave()
@@ -480,7 +529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.info("MOUNTONE done: \(displayName, privacy: .public) success=\(r.success, privacy: .public)")
             DispatchQueue.main.async {
                 if r.success {
-                    self.notify(title: "마운트 완료", body: displayName)
+                    self.notify(title: String(localized: "Mounted"), body: displayName)
                     if openInFinder {
                         // mount path 가 보통 /Volumes/<volumeName>. 충돌 시 (2) suffix 가능,
                         // 그 케이스는 silent 처리 (열기 실패해도 mount 자체는 성공).
@@ -492,8 +541,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                         }
                     }
                 } else {
-                    self.notify(title: "마운트 실패: \(displayName)",
-                                body: r.errorMessage ?? "알 수 없는 오류",
+                    self.notify(title: String(localized: "Couldn't mount \(displayName)"),
+                                body: r.errorMessage ?? String(localized: "Unknown error"),
                                 archived: true)
                 }
             }
@@ -519,8 +568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             guard !unmounted.isEmpty else {
                 log.info("MOUNT(\(caller, privacy: .public)) — no candidates")
                 DispatchQueue.main.async { [weak self] in
-                    self?.notify(title: "마운트할 외장 없음",
-                                 body: "꽂혀있고 마운트 안 된 외장이 없습니다")
+                    self?.notify(title: String(localized: "Nothing to mount"),
+                                 body: String(localized: "No unmounted external drives connected."))
                 }
                 return
             }
@@ -542,7 +591,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     }
                     lock.lock()
                     if r.success { success.append(u.displayName) }
-                    else { failure.append((u.displayName, r.errorMessage ?? "알 수 없는 오류")) }
+                    else { failure.append((u.displayName, r.errorMessage ?? String(localized: "Unknown error"))) }
                     lock.unlock()
                     group.leave()
                 }
@@ -558,18 +607,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func notifyMountResult(success: [String], failure: [(String, String)]) {
         if failure.isEmpty {
             // 모두 성공 — 성공이 본인 trigger 결과이므로 banner 만 (archived 안 함).
-            notify(title: "모두 마운트 완료",
+            notify(title: String(localized: "All drives mounted"),
                    body: success.joined(separator: ", "))
             return
         }
         let title: String
-        if success.isEmpty { title = "마운트 실패" }
-        else { title = "일부 마운트 실패" }
+        if success.isEmpty { title = String(localized: "Mount failed") }
+        else { title = String(localized: "Some drives didn't mount") }
         var lines: [String] = []
         if !success.isEmpty {
-            lines.append("성공: " + success.joined(separator: ", "))
+            lines.append(String(localized: "Succeeded: \(success.joined(separator: ", "))"))
         }
-        lines.append("실패: " + failure.map { $0.0 }.joined(separator: ", "))
+        lines.append(String(localized: "Failed: \(failure.map { $0.0 }.joined(separator: ", "))"))
         notify(title: title, body: lines.joined(separator: "\n"), archived: true)
     }
 
@@ -639,8 +688,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // sleep 진입 직전이지만 UNUserNotificationCenter 는 OS-level 이라 등록만 되면 OS 가 처리.
         if !r.failure.isEmpty {
             let failedNames = r.failure.map { $0.0 }.joined(separator: ", ")
-            notify(title: "Sleep 시 \(r.failure.count)개 디스크 추출 실패",
-                   body: "\(failedNames)\n디스크가 unmount 안 된 채 sleep — 분리 시 손상 위험. wake 후 메뉴에서 수동 추출 권장.",
+            notify(title: String(localized: "\(r.failure.count) drive(s) didn't eject before sleep"),
+                   body: String(localized: "\(failedNames)\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake."),
                    archived: true)
         }
     }
@@ -678,8 +727,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         if !r.failure.isEmpty {
             let failedNames = r.failure.map { $0.0 }.joined(separator: ", ")
-            notify(title: "화면 꺼짐 시 \(r.failure.count)개 디스크 추출 실패",
-                   body: "\(failedNames)\n디스크가 unmount 안 된 채 — 분리 시 손상 위험. 화면 켜고 메뉴에서 수동 추출 권장.",
+            notify(title: String(localized: "\(r.failure.count) drive(s) didn't eject at display sleep"),
+                   body: String(localized: "\(failedNames)\nDisks still mounted. Disconnect risk. Wake screen and eject manually."),
                    archived: true)
         }
     }
@@ -745,8 +794,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let list = mountFailed.sorted().joined(separator: ", ")
         log.error("remount: mount FAILED = \(list, privacy: .public)")
         DispatchQueue.main.async { [weak self] in
-            self?.notify(title: "재마운트 실패",
-                         body: "\(list)\n디스크는 인식되는데 mount 안 됨 — 디스크 검사 필요할 수 있음",
+            self?.notify(title: String(localized: "Remount failed"),
+                         body: String(localized: "\(list)\nDisks detected but won't mount. Try Disk Utility."),
                          archived: true)
         }
     }
@@ -1023,5 +1072,37 @@ enum DisplaySleepEject {
     static var enabled: Bool {
         get { UserDefaults.standard.object(forKey: key) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
+// MARK: - Login Item (SMAppService)
+
+import ServiceManagement
+
+/// 로그인 시 자동 실행 — `SMAppService.mainApp` (macOS 13+).
+/// 사용자가 메뉴 토글로 ON/OFF, 시스템 설정 → 일반 → 로그인 항목 에 등록됨.
+///
+/// **status 의미**:
+/// - `.notRegistered` — 미등록 (default)
+/// - `.enabled` — 등록 + 시스템 설정에서 허용 → 자동 실행됨
+/// - `.requiresApproval` — 등록 했으나 시스템 설정에서 사용자가 허용 안 함 → 자동 실행 안 됨
+/// - `.notFound` — `Contents/Library/LoginItems/` 안 가짜 helper 못 찾음 (mainApp 모드는 무관)
+enum LoginItem {
+    static var status: SMAppService.Status {
+        SMAppService.mainApp.status
+    }
+
+    static func register() throws {
+        try SMAppService.mainApp.register()
+    }
+
+    static func unregister() throws {
+        try SMAppService.mainApp.unregister()
+    }
+
+    /// 시스템 설정 → 일반 → 로그인 항목 페이지 직접 열기.
+    /// 사용자가 requiresApproval 상태인 우리 앱을 거기서 토글 켤 수 있도록.
+    static func openSystemSettings() {
+        SMAppService.openSystemSettingsLoginItems()
     }
 }
