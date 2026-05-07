@@ -35,6 +35,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 자동(lid-close) 추출된 disk BSD names — wake 시 재마운트 대상.
     /// 수동 추출(단축키/메뉴)은 여기 안 들어감 — 사용자 의도 존중.
     private var autoEjectedDisks: Set<String> = []
+    /// `Eject and Sleep` 이 이미 추출한 직후 들어오는 willSleep 중복 자동 추출 방지.
+    private var skipSleepAutoEjectUntil: Date?
+    /// logout/restart/shutdown 전 자동 추출은 현재 제품 가치가 낮아 기본 비활성화.
+    private let powerOffAutoEjectEnabled = false
+    /// logout/restart/shutdown 직전 자동 추출 상태.
+    private var powerOffEjectInProgress = false
+    private var powerOffEjectCompleted = false
+    private var shouldEjectBeforeTerminate = false
+    private var pendingTerminateReplyApp: NSApplication?
     private lazy var cachedDefaultIcon: NSImage? = {
         let img = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: "Eject Drives")
         img?.isTemplate = true
@@ -174,6 +183,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             ejectAllItem.keyEquivalentModifierMask = [.command, .option]
             ejectAllItem.target = self
             menu.addItem(ejectAllItem)
+
+            let ejectAndSleepItem = NSMenuItem(title: String(localized: "Eject and Sleep"),
+                                               action: #selector(ejectAndSleepAction(_:)),
+                                               keyEquivalent: "")
+            ejectAndSleepItem.target = self
+            menu.addItem(ejectAndSleepItem)
         }
 
         // Mount 섹션 — 마운트 안 된 외장이 있을 때만 표시.
@@ -420,6 +435,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         ejectAll(caller: "menu")
     }
 
+    /// 추출 완료 후 시스템 sleep 진입. 실패가 있으면 sleep 은 시작하지 않는다.
+    @objc func ejectAndSleepAction(_ sender: Any?) {
+        ejectAndSleep(caller: "menu")
+    }
+
     /// 개별 드라이브 추출 (메뉴 아이템 클릭).
     @objc private func ejectOne(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
@@ -481,6 +501,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
+    private func ejectAndSleep(caller: String) {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastEjectAt)
+        if elapsed < 1.5 {
+            log.info("EJECT_AND_SLEEP(\(caller, privacy: .public)) DEBOUNCED — last fired \(String(format: "%.2f", elapsed), privacy: .public)s ago")
+            flashIcon(symbol: "circle.dashed", duration: 0.3)
+            return
+        }
+        lastEjectAt = now
+        log.info("EJECT_AND_SLEEP(\(caller, privacy: .public)) START")
+        flashIcon(symbol: "moon.zzz.fill", duration: 1.0)
+
+        let remountTargets = remountTargetsForCurrentExternalDrives(applyExcludeFilter: false)
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let result = self.ejectAllSilently()
+            log.info("EJECT_AND_SLEEP(\(caller, privacy: .public)) eject done — attempted=\(result.attempted.count, privacy: .public) success=\(result.success.count, privacy: .public) failure=\(result.failure.count, privacy: .public)")
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.notifyResult(result)
+
+                guard result.failure.isEmpty else {
+                    log.notice("EJECT_AND_SLEEP(\(caller, privacy: .public)) sleep canceled because eject failed")
+                    self.notify(title: String(localized: "Sleep canceled"),
+                                body: String(localized: "Some drives didn't eject. Sleep was not started."),
+                                archived: true)
+                    self.setPersistentIcon(symbol: result.success.isEmpty ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                    return
+                }
+
+                self.autoEjectedDisks = remountTargets
+                self.skipSleepAutoEjectUntil = Date().addingTimeInterval(15)
+                log.info("EJECT_AND_SLEEP(\(caller, privacy: .public)) recorded BSDs: \(remountTargets.sorted(), privacy: .public)")
+
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    guard let self = self else { return }
+                    let sleep = self.requestSystemSleep()
+                    guard !sleep.success else { return }
+                    DispatchQueue.main.async { [weak self] in
+                        self?.skipSleepAutoEjectUntil = nil
+                        self?.notify(title: String(localized: "Couldn't start sleep"),
+                                     body: sleep.errorMessage ?? String(localized: "Unknown error"),
+                                     archived: true)
+                    }
+                }
+            }
+        }
+    }
+
     private func notifyResult(_ result: (attempted: [String], success: [String], failure: [(String, String)])) {
         guard !result.attempted.isEmpty else {
             notify(title: String(localized: "No drives to eject"),
@@ -505,6 +576,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         if !result.failure.isEmpty {
             lines.append(String(localized: "Failed: \(result.failure.map { $0.0 }.joined(separator: ", "))"))
+            for (name, message) in result.failure.prefix(2) {
+                lines.append("\(name): \(message)")
+            }
         }
         notify(title: title, body: lines.joined(separator: "\n"), archived: archived)
     }
@@ -589,7 +663,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         let ejectMessage = eject.errorMessage ?? "diskutil eject failed"
         let forceMessage = force.errorMessage ?? "diskutil unmount force failed"
-        return (false, "\(ejectMessage)\nforce fallback: \(forceMessage)")
+        var details = [ejectMessage, "force fallback: \(forceMessage)"]
+        if let blockers = LsofInspector.diagnosticMessage(forVolumePath: volumePath) {
+            details.append(blockers)
+        }
+        return (false, details.joined(separator: "\n"))
     }
 
     /// diskutil 외부 명령 실행 helper.
@@ -598,6 +676,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if result.success {
             return (true, nil)
         }
+        return (false, result.errorMessage)
+    }
+
+    private func remountTargetsForCurrentExternalDrives(applyExcludeFilter: Bool) -> Set<String> {
+        var drives = ExternalDrive.list()
+        if applyExcludeFilter {
+            drives = drives.filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
+        }
+        return Set(drives.compactMap { $0.wholeDiskBSDName })
+    }
+
+    private func requestSystemSleep() -> (success: Bool, errorMessage: String?) {
+        let result = ProcessRunner.run(executable: "/usr/bin/pmset",
+                                       arguments: ["sleepnow"],
+                                       timeout: 5)
+        if result.success {
+            log.notice("pmset sleepnow requested")
+            return (true, nil)
+        }
+        log.error("pmset sleepnow failed: \(result.errorMessage ?? "unknown", privacy: .public)")
         return (false, result.errorMessage)
     }
 
@@ -733,6 +831,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                        name: NSWorkspace.screensDidSleepNotification, object: nil)
         nc.addObserver(self, selector: #selector(screensDidWake),
                        name: NSWorkspace.screensDidWakeNotification, object: nil)
+        nc.addObserver(self, selector: #selector(systemWillPowerOff),
+                       name: NSWorkspace.willPowerOffNotification, object: nil)
+        nc.addObserver(self, selector: #selector(sessionDidBecomeActive),
+                       name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
         nc.addObserver(self, selector: #selector(volumesDidChange(_:)),
                        name: NSWorkspace.didMountNotification, object: nil)
         nc.addObserver(self, selector: #selector(volumesDidChange(_:)),
@@ -783,6 +885,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     @objc private func systemWillSleep() {
         log.info("willSleep notification received")
+        if let until = skipSleepAutoEjectUntil, Date() < until {
+            skipSleepAutoEjectUntil = nil
+            log.info("EJECT(sleep) SKIPPED — already handled by Eject and Sleep")
+            return
+        }
+        skipSleepAutoEjectUntil = nil
+
         guard SleepEject.enabled else {
             log.info("EJECT(sleep) SKIPPED — SleepEject disabled")
             return
@@ -794,8 +903,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 짧은 sleep 후 wake → 자동 재마운트로 사용자 무감각.
         // 긴 sleep 후 분리 → 재마운트 시도하지만 silent (분리 의도 감지).
         // 자동 추출 제외 디스크 (Time Machine 등) 는 BSD 기록도 안 함 (재마운트 대상 아님).
-        let drives = ExternalDrive.list().filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
-        autoEjectedDisks = Set(drives.compactMap { $0.wholeDiskBSDName })
+        autoEjectedDisks = remountTargetsForCurrentExternalDrives(applyExcludeFilter: true)
         log.info("EJECT(sleep) recorded BSDs: \(self.autoEjectedDisks.sorted(), privacy: .public)")
 
         // 외장 라이브러리 앱 자동 종료 (Music / Photos) — 옵션 ON 시 추출 직전.
@@ -815,6 +923,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                    body: String(localized: "\(failedNames)\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake."),
                    archived: true)
         }
+    }
+
+    @objc private func systemWillPowerOff() {
+        log.notice("willPowerOff notification received")
+        guard powerOffAutoEjectEnabled else {
+            log.info("EJECT(poweroff) SKIPPED — power-off auto eject disabled")
+            return
+        }
+        shouldEjectBeforeTerminate = true
+        startPowerOffEjectIfNeeded()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard powerOffAutoEjectEnabled else {
+            return .terminateNow
+        }
+        guard shouldEjectBeforeTerminate || powerOffEjectInProgress else {
+            return .terminateNow
+        }
+
+        if powerOffEjectCompleted {
+            return .terminateNow
+        }
+
+        pendingTerminateReplyApp = sender
+        startPowerOffEjectIfNeeded()
+        return .terminateLater
+    }
+
+    private func startPowerOffEjectIfNeeded() {
+        guard !powerOffEjectCompleted, !powerOffEjectInProgress else { return }
+        powerOffEjectInProgress = true
+        log.notice("EJECT(poweroff) START")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            if LibraryAppManagement.enabled {
+                LibraryAppHandler.quitLibraryApps()
+            }
+
+            let r = self.ejectAllSilently(applyExcludeFilter: true)
+            log.notice("EJECT(poweroff) DONE — success=\(r.success.count, privacy: .public) failure=\(r.failure.count, privacy: .public)")
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.powerOffEjectCompleted = true
+                self.powerOffEjectInProgress = false
+
+                if !r.failure.isEmpty {
+                    let failedNames = r.failure.map { $0.0 }.joined(separator: ", ")
+                    self.notify(title: String(localized: "\(r.failure.count) drive(s) didn't eject before power off"),
+                                body: String(localized: "\(failedNames)\nLogout, restart, or shutdown is continuing. Eject manually if you stay logged in."),
+                                archived: true)
+                }
+
+                if let app = self.pendingTerminateReplyApp {
+                    self.pendingTerminateReplyApp = nil
+                    app.reply(toApplicationShouldTerminate: true)
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                    self?.resetPowerOffEjectStateIfStillRunning()
+                }
+            }
+        }
+    }
+
+    @objc private func sessionDidBecomeActive() {
+        log.info("sessionDidBecomeActive notification received")
+        resetPowerOffEjectStateIfStillRunning()
+    }
+
+    private func resetPowerOffEjectStateIfStillRunning() {
+        guard pendingTerminateReplyApp == nil else { return }
+        if shouldEjectBeforeTerminate || powerOffEjectInProgress || powerOffEjectCompleted {
+            log.info("reset power-off eject state")
+        }
+        shouldEjectBeforeTerminate = false
+        powerOffEjectInProgress = false
+        powerOffEjectCompleted = false
     }
 
     // MARK: - Display Sleep (`pmset sleep = 0` 환경 보호용)
@@ -842,8 +1030,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("EJECT(displaysleep) START")
 
         // 자동 추출 제외 디스크 (Time Machine 등) 는 BSD 기록도 안 함.
-        let drives = ExternalDrive.list().filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
-        autoEjectedDisks = Set(drives.compactMap { $0.wholeDiskBSDName })
+        autoEjectedDisks = remountTargetsForCurrentExternalDrives(applyExcludeFilter: true)
         log.info("EJECT(displaysleep) recorded BSDs: \(self.autoEjectedDisks.sorted(), privacy: .public)")
 
         // 외장 라이브러리 앱 자동 종료 (옵션 ON 시).
@@ -1056,10 +1243,18 @@ private struct ProcessResult {
     let success: Bool
     let stdout: Data
     let errorMessage: String?
+    let timedOut: Bool
+
+    init(success: Bool, stdout: Data, errorMessage: String?, timedOut: Bool = false) {
+        self.success = success
+        self.stdout = stdout
+        self.errorMessage = errorMessage
+        self.timedOut = timedOut
+    }
 }
 
 private enum ProcessRunner {
-    static func run(executable: String, arguments: [String]) -> ProcessResult {
+    static func run(executable: String, arguments: [String], timeout: TimeInterval? = nil) -> ProcessResult {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: executable)
         task.arguments = arguments
@@ -1069,24 +1264,208 @@ private enum ProcessRunner {
         task.standardOutput = outPipe
         task.standardError = errPipe
 
+        let lock = NSLock()
+        var stdout = Data()
+        var stderr = Data()
+
+        outPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            lock.lock()
+            stdout.append(data)
+            lock.unlock()
+        }
+        errPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            lock.lock()
+            stderr.append(data)
+            lock.unlock()
+        }
+
         do {
             try task.run()
-            task.waitUntilExit()
 
-            let stdout = outPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderr = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            let finished = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .utility).async {
+                task.waitUntilExit()
+                finished.signal()
+            }
+
+            var didTimeout = false
+            if let timeout {
+                didTimeout = finished.wait(timeout: .now() + timeout) == .timedOut
+                if didTimeout {
+                    task.terminate()
+                    if finished.wait(timeout: .now() + 0.5) == .timedOut {
+                        kill(task.processIdentifier, SIGKILL)
+                        _ = finished.wait(timeout: .now() + 1.0)
+                    }
+                }
+            } else {
+                finished.wait()
+            }
+
+            outPipe.fileHandleForReading.readabilityHandler = nil
+            errPipe.fileHandleForReading.readabilityHandler = nil
+
+            let remainingStdout = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let remainingStderr = errPipe.fileHandleForReading.readDataToEndOfFile()
+            lock.lock()
+            stdout.append(remainingStdout)
+            stderr.append(remainingStderr)
+            let finalStdout = stdout
+            let finalStderr = stderr
+            lock.unlock()
+
+            let executableName = URL(fileURLWithPath: executable).lastPathComponent
+            if didTimeout {
+                return ProcessResult(success: false,
+                                     stdout: finalStdout,
+                                     errorMessage: "\(executableName) timed out",
+                                     timedOut: true)
+            }
+
+            let stderrText = String(data: finalStderr, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
             if task.terminationStatus == 0 {
-                return ProcessResult(success: true, stdout: stdout, errorMessage: nil)
+                return ProcessResult(success: true, stdout: finalStdout, errorMessage: nil)
             }
 
-            let executableName = URL(fileURLWithPath: executable).lastPathComponent
-            let message = stderr.isEmpty ? "\(executableName) exit code \(task.terminationStatus)" : stderr
-            return ProcessResult(success: false, stdout: stdout, errorMessage: message)
+            let message = stderrText.isEmpty ? "\(executableName) exit code \(task.terminationStatus)" : stderrText
+            return ProcessResult(success: false, stdout: finalStdout, errorMessage: message)
         } catch {
             return ProcessResult(success: false, stdout: Data(), errorMessage: error.localizedDescription)
         }
+    }
+}
+
+private struct BlockingProcess {
+    let pid: pid_t
+    let command: String
+    let openFiles: [String]
+
+    var displayName: String {
+        NSRunningApplication(processIdentifier: pid)?.localizedName ?? command
+    }
+
+    var processSummary: String {
+        "\(displayName)(\(pid))"
+    }
+}
+
+private enum LsofInspector {
+    private static let maxProcesses = 5
+    private static let maxFiles = 5
+
+    static func diagnosticMessage(forVolumePath volumePath: String) -> String? {
+        let result = ProcessRunner.run(executable: "/usr/sbin/lsof",
+                                       arguments: ["-nP", "-w", "-Fpcfn", "--", volumePath],
+                                       timeout: 3.0)
+        if result.timedOut {
+            return String(localized: "lsof timed out")
+        }
+
+        let processes = parse(result.stdout, volumePath: volumePath)
+        if !processes.isEmpty {
+            let processText = processes
+                .prefix(maxProcesses)
+                .map { $0.processSummary }
+                .joined(separator: ", ")
+            var lines = [String(localized: "Blocking processes: \(processText)")]
+
+            let files = uniqueFiles(from: processes, volumePath: volumePath)
+                .prefix(maxFiles)
+                .joined(separator: ", ")
+            if !files.isEmpty {
+                lines.append(String(localized: "Open files: \(files)"))
+            }
+            return lines.joined(separator: "\n")
+        }
+
+        if result.success || isNoMatchResult(result) {
+            return String(localized: "No blocking process found")
+        }
+
+        return "\(String(localized: "Could not inspect blocking processes"))\n\(String(localized: "Full Disk Access may be needed"))"
+    }
+
+    private static func parse(_ data: Data, volumePath: String) -> [BlockingProcess] {
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
+
+        var currentPID: pid_t?
+        var currentCommand = ""
+        var commands: [pid_t: String] = [:]
+        var pathsByPID: [pid_t: [String]] = [:]
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let key = line.first else { continue }
+            let value = String(line.dropFirst())
+
+            switch key {
+            case "p":
+                currentPID = pid_t(value) ?? 0
+                currentCommand = commands[currentPID ?? 0] ?? ""
+            case "c":
+                guard let pid = currentPID else { continue }
+                currentCommand = value
+                commands[pid] = value
+            case "n":
+                guard let pid = currentPID, isRelevant(path: value, volumePath: volumePath) else { continue }
+                var paths = pathsByPID[pid] ?? []
+                if !paths.contains(value) {
+                    paths.append(value)
+                }
+                pathsByPID[pid] = paths
+                if commands[pid] == nil {
+                    commands[pid] = currentCommand
+                }
+            default:
+                continue
+            }
+        }
+
+        return pathsByPID
+            .map { pid, paths in
+                BlockingProcess(pid: pid,
+                                command: commands[pid]?.isEmpty == false ? commands[pid]! : "pid \(pid)",
+                                openFiles: paths)
+            }
+            .sorted { lhs, rhs in
+                lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+    }
+
+    private static func isRelevant(path: String, volumePath: String) -> Bool {
+        path == volumePath || path.hasPrefix(volumePath + "/") || path.contains(volumePath)
+    }
+
+    private static func uniqueFiles(from processes: [BlockingProcess], volumePath: String) -> [String] {
+        var seen = Set<String>()
+        var files: [String] = []
+
+        for process in processes {
+            for path in process.openFiles {
+                let display = displayPath(path, volumePath: volumePath)
+                guard !seen.contains(display) else { continue }
+                seen.insert(display)
+                files.append(display)
+            }
+        }
+        return files
+    }
+
+    private static func displayPath(_ path: String, volumePath: String) -> String {
+        if path == volumePath { return "/" }
+        if path.hasPrefix(volumePath + "/") {
+            return String(path.dropFirst(volumePath.count + 1))
+        }
+        return path
+    }
+
+    private static func isNoMatchResult(_ result: ProcessResult) -> Bool {
+        result.stdout.isEmpty && (result.errorMessage?.contains("exit code 1") ?? false)
     }
 }
 

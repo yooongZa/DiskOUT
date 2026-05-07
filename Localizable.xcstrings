@@ -302,6 +302,90 @@
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "알 수 없는 오류" } }
       }
     },
+    "Eject and Sleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject and Sleep" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출하고 잠자기" } }
+      }
+    },
+    "Sleep canceled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sleep canceled" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 취소" } }
+      }
+    },
+    "Some drives didn't eject. Sleep was not started." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Some drives didn't eject. Sleep was not started." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "일부 드라이브 추출 실패. 잠자기를 시작하지 않았습니다." } }
+      }
+    },
+    "Couldn't start sleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't start sleep" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 시작 실패" } }
+      }
+    },
+    "%lld drive(s) didn't eject before power off" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld drive(s) didn't eject before power off" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "종료 전 %lld개 디스크 추출 실패" } }
+      }
+    },
+    "%@\nLogout, restart, or shutdown is continuing. Eject manually if you stay logged in." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@\nLogout, restart, or shutdown is continuing. Eject manually if you stay logged in." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "%@\n로그아웃/재시동/종료는 계속 진행 중. 취소해서 로그인 상태로 남으면 수동 추출 권장." } }
+      }
+    },
+    "Blocking processes: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Blocking processes: %@" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "사용 중인 프로세스: %@" } }
+      }
+    },
+    "Could not inspect blocking processes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not inspect blocking processes" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "사용 중인 프로세스를 확인하지 못함" } }
+      }
+    },
+    "Full Disk Access may be needed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Full Disk Access may be needed" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "Full Disk Access 권한이 필요할 수 있음" } }
+      }
+    },
+    "No blocking process found" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No blocking process found" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "차단 중인 프로세스를 찾지 못함" } }
+      }
+    },
+    "Open files: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open files: %@" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "열린 파일: %@" } }
+      }
+    },
+    "lsof timed out" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "lsof timed out" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "lsof 진단 시간 초과" } }
+      }
+    },
     "Unmounted drives" : {
       "extractionState" : "manual",
       "localizations" : {

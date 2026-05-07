@@ -20,8 +20,9 @@
 - 메뉴 바 드롭다운에서 외장 드라이브 개별/전체 추출 ✅
 - 잠자기 / 화면 꺼짐 진입 시 자동 추출 (`NSWorkspace.willSleepNotification` / `screensDidSleep`) ✅
 - 전역 단축키 (`⌥⌘E` 추출, `⌃⌘E` 마운트) ✅
+- "추출하고 잠자기" 메뉴 명령 — 전체 추출 성공 시에만 `pmset sleepnow` ✅
 - 로그인 시 자동 실행 (macOS 13+ `SMAppService.mainApp`, 메뉴 토글) ✅
-- 다국어 (ko + en, `Localizable.xcstrings`) ✅
+- 다국어 (ko + en, `Localizable.xcstrings` 56개 키) ✅
 - 마운트 안 된 외장 자동 검출 + 일괄 마운트 ✅
 - App Store sandbox 호환 (`DiskArbitrationBackend` — 외부 명령 0개) ❌ 보류. 현재는 sandbox OFF + `diskutil` 직접 실행
 
@@ -29,6 +30,8 @@
 - 디스크별 *"자동 추출 제외"* 토글 (Volume UUID 기반, 메뉴 submenu) ✅
 - Time Machine 디스크 자동 식별 + default 자동 추출 제외 + 1회 알림 ✅
 - 외장 라이브러리 앱 (Music / Photos) sleep 직전 자동 quit + wake 후 relaunch (옵션) ✅
+- 최종 추출 실패 시 `lsof` 기반 점유 process(프로세스) / open file(열린 파일) 진단 ✅
+- logout/restart/shutdown 전 자동 추출은 default OFF. macOS 기본 종료 흐름과 기능 가치 판단 때문에 현재 코어 기능에서 제외
 
 ### 영감받은 앱들 (개발자 취향)
 - **RunCat** (Kyome, Japan): 무료 + IAP(인앱결제) 모델
@@ -270,7 +273,7 @@ EjectDrives는 페인 포인트를 **"데이터 손실 보험"이 아닌 "경고
 ### 여전히 유효한 경고
 - 생계용 비즈니스 X
 - 마케팅 없으면 출시해도 묻힘 (코드 < 마케팅)
-- 기능 비대화 금지 — 단일 목적 유지
+- 기능 비대화 금지 — 단일 목적 유지. logout/restart/shutdown 전 자동 추출은 검토 후 default OFF 로 유지
 - 검증 4단계 거치고 갈지 결정
 
 **최종 한 줄**: "데이터 보호 앱"이 아니라 **"맥OS의 가장 짜증나는 UX를 죽이는 앱"**으로 시작하면, 같은 코드로 시장이 3~5배 커진다.

@@ -97,7 +97,7 @@
 **드라이브 식별**
 - [F6] 외장 드라이브만 필터링 (내장 디스크 제외)
 - [F7] 드라이브 이름·아이콘·용량 표시
-- [F8] 사용 중 상태 감지 (Finder 열림, 백업 중 등)
+- [F8] 사용 중 상태 감지 (최종 추출 실패 후 `lsof` 기반 best-effort 진단)
 
 **환경설정 창**
 - [F9] 일반 / 단축키 / 정보 탭 구성
@@ -110,14 +110,17 @@
 - [P1] ✅ 잠자기 진입 시 모든 외장 드라이브 자동 추출 (v0.2.0+)
 - [P2] 단축키 — `⌥⌘E` (추출) + `⌃⌘E` (마운트) ✅ 구현됨. 4가지 프리셋은 환경설정 창 도입 시점에 검토.
 - [P3] ✅ 로그인 시 자동 실행 (`SMAppService.mainApp`, 메뉴 토글)
+- [P12] ✅ "추출하고 잠자기" 메뉴 항목 — 전체 추출 성공 시에만 `pmset sleepnow`
+- [P13] 보류: logout/restart/shutdown 전 자동 추출 — 구현 코드 존재, 현재 `powerOffAutoEjectEnabled = false`
 
 **안전 (Jettison 비교 후 추가)**
 - [P9] ✅ Per-disk 자동 추출 제외 (Volume UUID 기반, 메뉴 submenu)
 - [P10] ✅ Time Machine 디스크 자동 식별 + default 제외 + 1회 알림
 - [P11] ✅ 외장 라이브러리 앱 (Music / Photos) 자동 quit / wake 후 relaunch (옵션, default OFF)
+- [P14] ✅ 추출 실패 원인 표시 — `lsof -nP -w -Fpcfn -- <volumePath>` 로 점유 process(프로세스) / open file(열린 파일) 알림
 
 **성능**
-- [P4] ✅ 병렬 추출 (DiskArbitration framework 동시 호출, `DispatchGroup`)
+- [P4] ✅ 병렬 추출 (`diskutil` 직접 호출 + `DispatchGroup`)
 - [P5] 빠른 실패 처리 (사용 중 드라이브는 즉시 스킵) — graceful unmount 가 dissenter 빨리 반환해서 사실상 동작
 
 **캐릭터 인터랙션**
@@ -160,7 +163,7 @@
 
 | 기능 | API/프레임워크 |
 |---|---|
-| 드라이브 감지·추출 | `DiskArbitration.framework` |
+| 드라이브 감지·추출 | 현재 구현: `diskutil` / `hdiutil` / `lsof` 직접 실행. App Store 재도전 후보: `DiskArbitration.framework` |
 | 잠자기 감지 | `NSWorkspace.willSleepNotification` |
 | 전역 단축키 | `Carbon.HIToolbox` (RegisterEventHotKey) |
 | 로그인 자동 실행 | `ServiceManagement.SMAppService` (macOS 13+) |
@@ -224,7 +227,7 @@ EjectDrives/
    ↓
 [EjectService.ejectAll()]
    ↓
-[DriveManager] → DiskArbitration 병렬 호출
+[DriveManager] → diskutil 병렬 호출
    ↓
 [NotificationCenter] → 사용자 알림
    ↓
@@ -255,7 +258,7 @@ EjectDrives/
 가장 까다로움. 너무 보수적이면 짜증, 너무 공격적이면 데이터 손실.
 
 **고려할 신호**
-- ~~열린 파일 핸들 (`proc_pidfdinfo` API, `lsof` 등가)~~ ❌ **App Store sandbox 차단** — 다른 프로세스 fd 정보 접근 불가. 폐기.
+- 열린 파일 핸들: 현재 sandbox OFF 경로에서는 `lsof -nP -w -Fpcfn -- <volumePath>` 로 최종 실패 후 best-effort 진단을 표시한다. App Store sandbox 재도전 시에는 다시 비활성화하거나 휴리스틱(heuristic = 경험적 추정)으로 대체해야 한다.
 - 백그라운드 서비스: `mds` (Spotlight), `backupd` (Time Machine), `fseventsd` — 일부 추론 가능
 - VFS 레벨 락(lock) — sandbox 안에서 제한적
 - Finder가 해당 볼륨 열어놓은 상태 — 직접 검출 불가, 사용자에게 *"Finder 창 닫고 재시도"* 안내로 대체
@@ -449,14 +452,14 @@ DISK IMAGES (v1.1, 환경설정 활성화 시)
 
 **B. 추출 실패 진단 메시지 개선**
 
-시스템 메시지 `"one or more programs may be using it"` 모호.
+시스템 메시지 `"one or more programs may be using it"` 는 모호하다.
 
-> ⚠️ **App Store sandbox 한계** — `lsof` / `proc_pidfdinfo` 등 다른 프로세스 fd 검사는 sandbox 가 명시적 차단. 직접 점유 프로세스 표시는 불가능.
->
-> **대체 접근**:
-> - v0.5.0 부터 *외장 라이브러리 앱 자동 종료* (Music / Photos) 옵션 도입 — lock 의 대표 케이스 자동 우회
-> - Time Machine 디스크는 자동 식별 + default 자동 추출 제외 (백업 사이클 보호)
-> - 그 외 점유 케이스: 백그라운드 서비스 패턴 추정 (`backupd` 활동 시간대, Spotlight 인덱싱 진행률) + 휴리스틱. 정확도는 떨어지지만 *"Finder 창을 닫아보세요"* 같은 액션 가능한 안내 가능 (v1.1+).
+현재 sandbox OFF 경로에서는 `diskutil eject` 와 `diskutil unmount force` 가 모두 실패한 뒤 `lsof -nP -w -Fpcfn -- <volumePath>` 를 3초 timeout(타임아웃)으로 실행해 점유 process / open file 을 알림에 붙인다. macOS privacy(개인정보 보호) 제한 때문에 Full Disk Access(전체 디스크 접근)가 필요할 수 있다.
+
+App Store sandbox 재도전 시에는 `lsof` / `proc_pidfdinfo` 등 다른 프로세스 fd 검사가 다시 차단된다. 그 경우 대체 접근은 다음으로 제한한다:
+- *외장 라이브러리 앱 자동 종료* (Music / Photos) 옵션 — lock 의 대표 케이스 자동 우회
+- Time Machine 디스크 자동 식별 + default 자동 추출 제외
+- 백그라운드 서비스 패턴 추정 (`backupd`, Spotlight 등) + 액션 가능한 안내
 
 **C. 사용 패턴 학습 (v2.0)**
 
@@ -523,9 +526,11 @@ App Intents 통합 시 정당화 가능 카피:
 - ✅ 로그인 시 자동 실행 (`SMAppService.mainApp` + 메뉴 토글, v0.5.0)
 - ✅ 잠자기 시 자동 추출 (v0.2.0+)
 - ✅ 화면 꺼질 때도 자동 추출 (실험, default OFF, v0.3.0+)
+- ✅ "추출하고 잠자기" 메뉴 명령 (2026-05-07) — 전체 추출 성공 시에만 sleep 시작
 - ✅ 잠자기 전 Music / Photos 자동 종료 (default OFF, v0.5.0) — 외장 라이브러리 lock 풀이용
 - ✅ 디스크별 *"자동 추출 제외"* 토글 — 메뉴 디스크 항목의 submenu (v0.5.0)
 - ✅ Time Machine 디스크 자동 식별 + default 제외 (v0.5.0)
+- ❌ logout/restart/shutdown 전 자동 추출 — 현재 default OFF, UI 노출 없음
 
 **v1.1+ 환경설정 창 (예정)**
 - [ ] Tako 캐릭터 표시 토글 (기본 Tako 무료)
@@ -620,6 +625,7 @@ when you close the lid — silently, automatically, fast.
 > 모두 무료 — 기능 IAP 폐기 (cosmetic IAP 만)
 
 - [x] ✅ Sleep / display sleep 감지 (`NSWorkspace` notifications)
+- [x] ✅ "추출하고 잠자기" (`pmset sleepnow`, 실패 시 sleep 취소)
 - [x] ✅ 전역 단축키 (`⌥⌘E` 추출, `⌃⌘E` 마운트, Carbon `RegisterEventHotKey` + `NSEvent.addGlobalMonitorForEvents`)
 - [x] ✅ `SMAppService` 로그인 항목 (메뉴 토글, requiresApproval 자동 처리)
 - [ ] StoreKit 2 IAP 통합 — v1.1+ (cosmetic IAP 도입 시점)
@@ -638,11 +644,12 @@ cosmetic IAP 의 핵심 자산. v1.0 출시 후 데이터 보고 도입 시점 �
 
 - [x] ✅ 병렬 추출 (`diskutil` + `DispatchGroup`)
 - [x] ✅ 빠른 실패 — `diskutil eject` 실패 시 force fallback 으로 마무리
+- [x] ✅ `ProcessRunner` stdout/stderr drain + timeout 옵션 (`lsof` 3초, `pmset` 5초)
 - [ ] 벤치마크 (1/3/5개 시나리오) — 출시 직전 측정 + 마케팅 자료
 
 ### 8.5 Week 7: 품질
-- [x] ✅ 에러 핸들링 — `diskutil eject` 실패 시 `diskutil unmount force` fallback + 사용자 알림
-- [x] ✅ 다국어 (ko + en) — `Localizable.xcstrings`, 36개 키
+- [x] ✅ 에러 핸들링 — `diskutil eject` 실패 시 `diskutil unmount force` fallback + `lsof` 진단 + 사용자 알림
+- [x] ✅ 다국어 (ko + en) — `Localizable.xcstrings`, 56개 키
 - [ ] 다크/라이트 모드 점검 (출시 전)
 - [ ] Accessibility (VoiceOver 등) — 출시 전
 - [ ] Sandbox 호환성 검증 — 2026-05-07 기준 보류/포기
