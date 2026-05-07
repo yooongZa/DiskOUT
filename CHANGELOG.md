@@ -16,15 +16,22 @@
   - enumerate 확인 / BusProtocol / VolumeUUID: `diskutil info -plist`
   - mounted DMG 필터: `hdiutil info -plist`
 - **로그인 항목 UX 수정**: `SMAppService.mainApp.status == .requiresApproval` 인 경우에도 메뉴 체크 표시를 켜고, 제목에 "로그인 항목 허용 필요"를 붙인다.
-- **메뉴 열림 지연 개선**: `DiskMenuSnapshotCache` 추가. 앱 시작 및 mount/unmount 변경 시 background 에서 snapshot 을 미리 만들고, `menuWillOpen` 은 캐시를 사용한다.
+- **메뉴 열림 지연 개선**: `DiskMenuSnapshotCache` 추가. 앱 시작 및 mount/unmount 변경 시 background 에서 snapshot 을 미리 만들고, `menuWillOpen` 은 cache(캐시)를 즉시 표시한 뒤 stale(오래된) 상태면 background refresh(백그라운드 갱신) 완료 후 열린 메뉴를 다시 채운다.
+- **mounted/unmounted 정합성 개선**: mounted(마운트됨) 목록과 unmounted(마운트 안 됨) 후보를 `diskutil list -plist external` 한 snapshot(스냅샷)에서 같이 계산한다. 이전처럼 `FileManager.mountedVolumeURLs` 와 `diskutil list` 를 따로 읽으며 생기던 stale state(오래된 상태) 가능성을 줄였다.
+- **Developer ID 배포 상태 기록**: `Developer ID Application: roh yongwook (495S4FVMCB)` 인증서로 서명 가능한 것까지 확인했다. Notarization(공증)은 `notarytool` profile(프로필) / credential(자격 증명) 미설정으로 보류 상태다.
 
 ### 추가된 기능 / 변경
 
+- **환경설정 창 추가**: 메뉴의 "환경설정..." 또는 `⌘,` 로 `SettingsWindowController` 를 열어 로그인 실행, sleep/display sleep 자동 추출, Music/Photos 자동 종료, 단축키, 알림, force fallback(강제 fallback)을 조정한다.
+- **단축키 preset(프리셋) 설정 추가**: 추출/마운트 단축키를 E 키 기반 preset 중에서 선택한다. 기본값은 추출 `⌥⌘E`, 마운트 `⌃⌘E`.
+- **알림 설정 분리**: 전체 알림, 성공 알림, 실패 알림을 `SettingsStore` 에서 따로 제어한다. 성공/실패 결과는 `AppNotificationKind` 로 분류한다.
+- **force fallback toggle(강제 fallback 토글)**: `diskutil eject` 실패 후 `diskutil unmount force` 를 시도할지 환경설정에서 끌 수 있다. 기본값은 기존 동작 보존을 위해 ON.
+- **디스크 종류 아이콘 적용**: SD card(카드) 로 판단되는 볼륨은 `sdcard`, 일반 외장은 `externaldrive` 계열 SF Symbol(시스템 심볼)을 사용한다.
 - **`lsof` 실패 진단 복원**: App Store sandbox(샌드박스) 노선을 끄면서 `diskutil eject` 와 `unmount force` 가 모두 실패한 경우 `/usr/sbin/lsof -nP -w -Fpcfn -- <volumePath>` 로 점유 process(프로세스) / open file(열린 파일)을 알림에 붙인다. macOS privacy(개인정보 보호) 제한으로 Full Disk Access(전체 디스크 접근)가 필요할 수 있다.
 - **`ProcessRunner` 개선**: stdout/stderr 를 `readabilityHandler` 로 drain(비우기)하고, timeout(타임아웃) 옵션을 추가했다. `lsof` 는 3초, `pmset sleepnow` 는 5초 timeout 을 사용한다.
 - **"추출하고 잠자기" 추가**: 메뉴에서 전체 추출 후 실패가 없을 때만 `/usr/bin/pmset sleepnow` 로 sleep(잠자기)을 요청한다. 추출 실패가 있으면 sleep 은 시작하지 않고 알림을 남긴다.
 - **logout/restart/shutdown 전 자동 추출은 default OFF**: 구현 코드는 남겨두되 `powerOffAutoEjectEnabled = false` 로 게이트(gate = 차단 조건)를 닫았다. macOS 종료 과정이 원래 볼륨 정리를 시도하고, 현재 제품 가치가 낮아 사용자 노출 기능으로 켜지 않는다.
-- **다국어 키 증가**: `Localizable.xcstrings` 는 41개에서 56개 키로 증가했다.
+- **다국어 키 증가**: `Localizable.xcstrings` 는 41개에서 71개 키로 증가했다.
 
 ### 검증
 
@@ -34,14 +41,17 @@
 | Debug build (`/tmp/EjectDrives-lsof-build`) | 성공 |
 | Debug build (`/tmp/EjectDrives-sleep-build`) | 성공 |
 | Debug build (`/tmp/EjectDrives-docs-build`) | 성공 |
+| Debug build (`/tmp/EjectDrives-async-menu`) | 성공 |
+| Release build (`/tmp/EjectDrives-async-menu-release`) | 성공 |
 | `codesign -d --entitlements` | sandbox entitlement 없음 (`get-task-allow` 만 존재) |
+| Developer ID signing(개발자 ID 서명) | timestamp 포함 서명 zip 생성 가능 확인. `spctl` 은 notarization 미완료 상태라 `Unnotarized Developer ID` 로 reject |
 | `diskutil list -plist external` | 정상 |
 | `hdiutil info -plist` | 정상 |
 | `diskutil mountDisk disk7/disk8` | 이미 마운트된 상태에서 success |
 | `lsof -Fpcfn` 출력 형태 | parser(파서) 입력 형식 확인 |
 | `jq empty Localizable.xcstrings` | 성공 |
 | `git diff --check -- AppDelegate.swift Localizable.xcstrings README.md CHANGELOG.md EjectDrives_*.md` | 성공 |
-| 메뉴 생성 시간 | 기존 체감 1초+ → 앱 로그 기준 `0.007s` |
+| 메뉴 생성 시간 | stale cache 상태에서도 먼저 `0.013s` 에 메뉴 표시, background refresh 완료 후 `0.008s` 로 재구성 |
 | 로그인 항목 메뉴 상태 | `.requiresApproval` 상태에서 `✓ 로그인 시 자동 실행 (로그인 항목 허용 필요)` 표시 |
 
 ### 남은 이슈
@@ -51,6 +61,7 @@
 - "추출하고 잠자기"는 빌드 검증까지 완료. 실제 sleep 진입은 현재 작업 세션 보호를 위해 수동 검증하지 않았다.
 - logout/restart/shutdown 전 자동 추출은 default OFF. 사용자 증거가 쌓일 때만 다시 켠다.
 - App Store 재도전은 `diskutil` 없이 동등한 mount/eject 안정성을 확보할 때만 검토한다.
+- Notarization(공증)은 Apple notary credential(공증 자격 증명) 등록 전까지 완료할 수 없다.
 - `Helper/`, `HelperClient.swift`, `Shared/` 는 미추적 파일로 남아있다. 현재 빌드에는 포함되지 않는다.
 
 ---

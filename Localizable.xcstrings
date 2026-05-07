@@ -386,6 +386,111 @@
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "lsof 진단 시간 초과" } }
       }
     },
+    "Eject all  (%@ · or right-click)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all  (%@ · or right-click)" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 추출  (%@ · 또는 우클릭)" } }
+      }
+    },
+    "Mount all  (%@)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount all  (%@)" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트  (%@)" } }
+      }
+    },
+    "Settings..." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings..." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "환경설정..." } }
+      }
+    },
+    "Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "환경설정" } }
+      }
+    },
+    "General" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "General" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "일반" } }
+      }
+    },
+    "Hotkeys" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hotkeys" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "단축키" } }
+      }
+    },
+    "Notifications" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Notifications" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "알림" } }
+      }
+    },
+    "Eject Behavior" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject Behavior" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 동작" } }
+      }
+    },
+    "Eject all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 추출" } }
+      }
+    },
+    "Mount all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount all" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트" } }
+      }
+    },
+    "Success notifications" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Success notifications" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "성공 알림" } }
+      }
+    },
+    "Failure notifications" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failure notifications" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "실패 알림" } }
+      }
+    },
+    "Force fallback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Force fallback" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "강제 fallback" } }
+      }
+    },
+    "Launch at login (needs approval)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Launch at login (needs approval)" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 시 자동 실행 (허용 필요)" } }
+      }
+    },
+    "Settings update failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings update failed" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "환경설정 변경 실패" } }
+      }
+    },
     "Unmounted drives" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -15,6 +15,7 @@ import UserNotifications
 import Carbon.HIToolbox
 import Darwin
 import os
+import ServiceManagement
 
 /// 통합 로깅 (unified logging) — Console.app 에서 다음 명령으로 확인:
 ///   log stream --predicate 'subsystem == "com.yongza.ejectdrives"' --info
@@ -24,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private var statusItem: NSStatusItem!
     private var globalKeyMonitor: Any?
+    private var localKeyMonitor: Any?
+    private var settingsWindowController: SettingsWindowController?
     private var lastEjectAt: Date = .distantPast
     private var lastMountAt: Date = .distantPast
     /// 마지막 추출 결과 symbol (wake 후 복원용). nil 이면 default ⏏ 표시.
@@ -57,15 +60,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            log.notice("requestAuthorization: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
-        }
+        if SettingsStore.notificationsEnabled {
+            center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+                log.notice("requestAuthorization: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
+            }
 
-        // 권한 상태 진단
-        center.getNotificationSettings { settings in
-            log.notice("notif settings: authStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alert=\(settings.alertSetting.rawValue, privacy: .public) center=\(settings.notificationCenterSetting.rawValue, privacy: .public)")
-            // authStatus: 0=notDetermined 1=denied 2=authorized 3=provisional 4=ephemeral
-            // alert/center: 0=notSupported 1=disabled 2=enabled
+            // 권한 상태 진단
+            center.getNotificationSettings { settings in
+                log.notice("notif settings: authStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alert=\(settings.alertSetting.rawValue, privacy: .public) center=\(settings.notificationCenterSetting.rawValue, privacy: .public)")
+                // authStatus: 0=notDetermined 1=denied 2=authorized 3=provisional 4=ephemeral
+                // alert/center: 0=notSupported 1=disabled 2=enabled
+            }
         }
 
         setupStatusItem()
@@ -138,14 +143,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // MARK: - Menu
 
     func menuWillOpen(_ menu: NSMenu) {
+        let state = DiskMenuSnapshotCache.currentForMenu { [weak self, weak menu] snapshot in
+            DispatchQueue.main.async {
+                guard let self, let menu else { return }
+                self.populateMenu(menu, snapshot: snapshot, isRefreshing: false)
+            }
+        }
+        populateMenu(menu, snapshot: state.snapshot, isRefreshing: state.isRefreshing)
+    }
+
+    private func populateMenu(_ menu: NSMenu, snapshot: DiskMenuSnapshot, isRefreshing: Bool) {
         let started = Date()
         // 메뉴 열면 추출 결과 아이콘 reset — 사용자가 결과 확인했다고 간주
         resetIcon()
 
         menu.removeAllItems()
 
-        let snapshot = DiskMenuSnapshotCache.current()
         let drives = snapshot.drives
+
+        if isRefreshing {
+            let updating = NSMenuItem(title: String(localized: "Updating disk status..."),
+                                      action: nil, keyEquivalent: "")
+            updating.isEnabled = false
+            menu.addItem(updating)
+            menu.addItem(NSMenuItem.separator())
+        }
 
         if drives.isEmpty {
             let empty = NSMenuItem(title: String(localized: "No external drives"), action: nil, keyEquivalent: "")
@@ -170,24 +192,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                       keyEquivalent: "")
                 item.target = self
                 item.representedObject = drive.url
-                item.image = NSImage(systemSymbolName: drive.isTimeMachine ? "clock.arrow.circlepath" : "externaldrive",
-                                     accessibilityDescription: nil)
+                item.isEnabled = !isRefreshing
+                item.image = menuSymbol(drive.isTimeMachine ? "clock.arrow.circlepath" : drive.kind.symbolName,
+                                        fallback: "externaldrive")
                 // submenu 폐기 — submenu 가 있으면 macOS 가 클릭 시 action 무시 (추출 안 됨).
                 // 자동 추출 제외 토글은 메뉴 하단의 별도 "자동 추출 제외 디스크" submenu 로 이동.
                 menu.addItem(item)
             }
             menu.addItem(NSMenuItem.separator())
-            let ejectAllItem = NSMenuItem(title: String(localized: "Eject all  (⌥⌘E · or right-click)"),
+            let ejectHotkey = SettingsStore.ejectHotkey
+            let ejectAllItem = NSMenuItem(title: String(localized: "Eject all  (\(ejectHotkey.title) · or right-click)"),
                                           action: #selector(ejectAllAction(_:)),
                                           keyEquivalent: "e")
-            ejectAllItem.keyEquivalentModifierMask = [.command, .option]
+            ejectAllItem.keyEquivalentModifierMask = ejectHotkey.flags
             ejectAllItem.target = self
+            ejectAllItem.isEnabled = !isRefreshing
             menu.addItem(ejectAllItem)
 
             let ejectAndSleepItem = NSMenuItem(title: String(localized: "Eject and Sleep"),
                                                action: #selector(ejectAndSleepAction(_:)),
                                                keyEquivalent: "")
             ejectAndSleepItem.target = self
+            ejectAndSleepItem.isEnabled = !isRefreshing
             menu.addItem(ejectAndSleepItem)
         }
 
@@ -207,18 +233,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                       keyEquivalent: "")
                 item.target = self
                 item.representedObject = u.bsdName
-                item.image = NSImage(systemSymbolName: "externaldrive.badge.plus",
-                                     accessibilityDescription: nil)
+                item.isEnabled = !isRefreshing
+                item.image = menuSymbol(u.kind.unmountedSymbolName, fallback: "externaldrive.badge.plus")
                 item.toolTip = String(localized: "Click to mount.  ⌘+click to also open in Finder.")
                 menu.addItem(item)
             }
 
             if unmounted.count >= 2 {
-                let mountAllItem = NSMenuItem(title: String(localized: "Mount all  (⌃⌘E)"),
+                let mountHotkey = SettingsStore.mountHotkey
+                let mountAllItem = NSMenuItem(title: String(localized: "Mount all  (\(mountHotkey.title))"),
                                               action: #selector(mountAllAction(_:)),
                                               keyEquivalent: "e")
-                mountAllItem.keyEquivalentModifierMask = [.command, .control]
+                mountAllItem.keyEquivalentModifierMask = mountHotkey.flags
                 mountAllItem.target = self
+                mountAllItem.isEnabled = !isRefreshing
                 menu.addItem(mountAllItem)
             }
         }
@@ -292,13 +320,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         menu.addItem(NSMenuItem.separator())
 
+        let settings = NSMenuItem(title: String(localized: "Settings..."),
+                                  action: #selector(showSettingsWindow(_:)),
+                                  keyEquivalent: ",")
+        settings.keyEquivalentModifierMask = [.command]
+        settings.target = self
+        settings.image = menuSymbol("gearshape", fallback: "gear")
+        menu.addItem(settings)
+
         let quit = NSMenuItem(title: String(localized: "Quit"),
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
         menu.addItem(quit)
 
         let elapsed = Date().timeIntervalSince(started)
-        log.info("menuWillOpen: built in \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.count, privacy: .public) unmounted=\(unmounted.count, privacy: .public)")
+        log.info("menuWillOpen: built in \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.count, privacy: .public) unmounted=\(unmounted.count, privacy: .public) refreshing=\(isRefreshing, privacy: .public)")
     }
 
     @objc private func toggleSleepEject() {
@@ -322,6 +358,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     @objc private func toggleLibraryAppManagement() {
         LibraryAppManagement.enabled.toggle()
         log.info("LibraryAppManagement toggled → \(LibraryAppManagement.enabled, privacy: .public)")
+    }
+
+    @objc private func showSettingsWindow(_ sender: Any?) {
+        if settingsWindowController == nil {
+            settingsWindowController = SettingsWindowController(onHotkeyChanged: { [weak self] in
+                self?.installHotkey()
+            })
+        }
+        settingsWindowController?.show()
     }
 
     /// Time Machine 디스크 처음 등장 시 자동으로 ExcludedVolumes 에 등록 + 1회 알림.
@@ -363,7 +408,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 if LoginItem.status == .requiresApproval {
                     notify(title: String(localized: "Login item needs approval"),
                            body: String(localized: "Toggle EjectDrives on in System Settings → Login Items."),
-                           archived: true)
+                           archived: true,
+                           kind: .failure)
                     LoginItem.openSystemSettings()
                 }
             }
@@ -371,7 +417,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.error("LoginItem toggle failed: \(error.localizedDescription, privacy: .public)")
             notify(title: String(localized: "Couldn't update launch-at-login"),
                    body: error.localizedDescription,
-                   archived: true)
+                   archived: true,
+                   kind: .failure)
         }
     }
 
@@ -454,11 +501,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.info("EJECTONE done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
             DispatchQueue.main.async {
                 if result.success {
-                    self.notify(title: String(localized: "Ejected"), body: name)
+                    self.notify(title: String(localized: "Ejected"), body: name, kind: .success)
                 } else {
                     self.notify(title: String(localized: "Couldn't eject \(name)"),
                                 body: result.errorMessage ?? String(localized: "Unknown error"),
-                                archived: true)
+                                archived: true,
+                                kind: .failure)
                 }
             }
         }
@@ -528,7 +576,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     log.notice("EJECT_AND_SLEEP(\(caller, privacy: .public)) sleep canceled because eject failed")
                     self.notify(title: String(localized: "Sleep canceled"),
                                 body: String(localized: "Some drives didn't eject. Sleep was not started."),
-                                archived: true)
+                                archived: true,
+                                kind: .failure)
                     self.setPersistentIcon(symbol: result.success.isEmpty ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
                     return
                 }
@@ -545,7 +594,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                         self?.skipSleepAutoEjectUntil = nil
                         self?.notify(title: String(localized: "Couldn't start sleep"),
                                      body: sleep.errorMessage ?? String(localized: "Unknown error"),
-                                     archived: true)
+                                     archived: true,
+                                     kind: .failure)
                     }
                 }
             }
@@ -560,15 +610,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         let title: String
         let archived: Bool
+        let kind: AppNotificationKind
         if result.failure.isEmpty {
             title = String(localized: "All drives ejected")
             archived = false   // 성공 — 결과 아이콘 ✓ 으로 즉시 피드백 충분
+            kind = .success
         } else if result.success.isEmpty {
             title = String(localized: "Eject failed")
             archived = true    // 실패 — 어떤 디스크인지 사후 확인 가치
+            kind = .failure
         } else {
             title = String(localized: "Some drives didn't eject")
             archived = true
+            kind = .failure
         }
         var lines: [String] = []
         if !result.success.isEmpty {
@@ -580,7 +634,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 lines.append("\(name): \(message)")
             }
         }
-        notify(title: title, body: lines.joined(separator: "\n"), archived: archived)
+        notify(title: title, body: lines.joined(separator: "\n"), archived: archived, kind: kind)
     }
 
     /// 병렬 추출. background thread 에서 호출하라.
@@ -655,6 +709,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return eject
         }
 
+        guard SettingsStore.forceFallbackEnabled else {
+            log.notice("force fallback disabled for \(volumePath, privacy: .public)")
+            return eject
+        }
         log.notice("diskutil eject failed for \(volumePath, privacy: .public), fallback to unmount force — \(eject.errorMessage ?? "?", privacy: .public)")
         let force = runDiskutil(["unmount", "force", volumePath])
         if force.success {
@@ -722,7 +780,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.info("MOUNTONE done: \(displayName, privacy: .public) success=\(r.success, privacy: .public)")
             DispatchQueue.main.async {
                 if r.success {
-                    self.notify(title: String(localized: "Mounted"), body: displayName)
+                    self.notify(title: String(localized: "Mounted"), body: displayName, kind: .success)
                     if openInFinder {
                         // mount path 가 보통 /Volumes/<volumeName>. 충돌 시 (2) suffix 가능,
                         // 그 케이스는 silent 처리 (열기 실패해도 mount 자체는 성공).
@@ -736,7 +794,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 } else {
                     self.notify(title: String(localized: "Couldn't mount \(displayName)"),
                                 body: r.errorMessage ?? String(localized: "Unknown error"),
-                                archived: true)
+                                archived: true,
+                                kind: .failure)
                 }
             }
         }
@@ -803,7 +862,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if failure.isEmpty {
             // 모두 성공 — 성공이 본인 trigger 결과이므로 banner 만 (archived 안 함).
             notify(title: String(localized: "All drives mounted"),
-                   body: success.joined(separator: ", "))
+                   body: success.joined(separator: ", "),
+                   kind: .success)
             return
         }
         let title: String
@@ -814,7 +874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             lines.append(String(localized: "Succeeded: \(success.joined(separator: ", "))"))
         }
         lines.append(String(localized: "Failed: \(failure.map { $0.0 }.joined(separator: ", "))"))
-        notify(title: title, body: lines.joined(separator: "\n"), archived: true)
+        notify(title: title, body: lines.joined(separator: "\n"), archived: true, kind: .failure)
     }
 
     // MARK: - Sleep
@@ -921,7 +981,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             let failedNames = r.failure.map { $0.0 }.joined(separator: ", ")
             notify(title: String(localized: "\(r.failure.count) drive(s) didn't eject before sleep"),
                    body: String(localized: "\(failedNames)\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake."),
-                   archived: true)
+                   archived: true,
+                   kind: .failure)
         }
     }
 
@@ -975,7 +1036,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     let failedNames = r.failure.map { $0.0 }.joined(separator: ", ")
                     self.notify(title: String(localized: "\(r.failure.count) drive(s) didn't eject before power off"),
                                 body: String(localized: "\(failedNames)\nLogout, restart, or shutdown is continuing. Eject manually if you stay logged in."),
-                                archived: true)
+                                archived: true,
+                                kind: .failure)
                 }
 
                 if let app = self.pendingTerminateReplyApp {
@@ -1045,7 +1107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             let failedNames = r.failure.map { $0.0 }.joined(separator: ", ")
             notify(title: String(localized: "\(r.failure.count) drive(s) didn't eject at display sleep"),
                    body: String(localized: "\(failedNames)\nDisks still mounted. Disconnect risk. Wake screen and eject manually."),
-                   archived: true)
+                   archived: true,
+                   kind: .failure)
         }
     }
 
@@ -1118,7 +1181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         DispatchQueue.main.async { [weak self] in
             self?.notify(title: String(localized: "Remount failed"),
                          body: String(localized: "\(list)\nDisks detected but won't mount. Try Disk Utility."),
-                         archived: true)
+                         archived: true,
+                         kind: .failure)
         }
     }
 
@@ -1164,7 +1228,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// archived=true 면 알림 센터에 보관 (사후 확인 가치 있는 negative event 등),
     /// false 면 banner 만 잠깐 표시되고 사라짐 (즉시 인지 가능한 positive event 등).
     /// userInfo 에 flag 를 박아 willPresent 콜백에서 옵션 분기.
-    private func notify(title: String, body: String, archived: Bool = false) {
+    private func notify(title: String, body: String, archived: Bool = false, kind: AppNotificationKind = .info) {
+        guard SettingsStore.notificationsEnabled else {
+            log.info("notification skipped: notifications disabled")
+            return
+        }
+        switch kind {
+        case .info:
+            break
+        case .success:
+            guard SettingsStore.successNotificationsEnabled else {
+                log.info("notification skipped: success notifications disabled")
+                return
+            }
+        case .failure:
+            guard SettingsStore.failureNotificationsEnabled else {
+                log.info("notification skipped: failure notifications disabled")
+                return
+            }
+        }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -1185,56 +1267,409 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         completionHandler(archived ? [.banner, .list] : [.banner])
     }
 
-    // MARK: - Global Hotkey (⌥⌘E 추출, ⌃⌘E 마운트)
+    // MARK: - Global Hotkey (설정된 E 기반 preset)
     // NSEvent.addGlobalMonitorForEvents 만 사용. Accessibility 권한 필요.
     // 우클릭 monitor 는 제거 — false positive 위험. 우클릭은 button.sendAction 으로 받음.
 
     private func installHotkey() {
+        if let globalKeyMonitor {
+            NSEvent.removeMonitor(globalKeyMonitor)
+            self.globalKeyMonitor = nil
+        }
+        if let localKeyMonitor {
+            NSEvent.removeMonitor(localKeyMonitor)
+            self.localKeyMonitor = nil
+        }
+
         let trusted = AXIsProcessTrustedWithOptions([
             kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
         ] as CFDictionary)
         log.notice("Accessibility trusted = \(trusted, privacy: .public)")
 
-        let ejectFlags: NSEvent.ModifierFlags = [.command, .option]    // ⌥⌘E 추출
-        let mountFlags: NSEvent.ModifierFlags = [.command, .control]   // ⌃⌘E 마운트
-        let eKeyCode: UInt16 = 14   // kVK_ANSI_E — 물리 키 코드, IME 무관
+        let ejectHotkey = SettingsStore.ejectHotkey
+        let mountHotkey = SettingsStore.mountHotkey
+        log.notice("hotkeys: eject=\(ejectHotkey.title, privacy: .public) mount=\(mountHotkey.title, privacy: .public)")
 
         // GLOBAL monitor — 다른 앱이 활성일 때 잡음 (Accessibility 권한 필요)
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == eKeyCode else { return }
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                .subtracting([.numericPad, .function, .help, .capsLock])
-            if flags == ejectFlags {
-                log.info("HOTKEY GLOBAL eject fired (isARepeat=\(event.isARepeat, privacy: .public))")
-                self?.flashIcon(symbol: "bolt.fill", duration: 0.3)
-                DispatchQueue.main.async { self?.ejectAll(caller: "hotkey-global") }
-            } else if flags == mountFlags {
-                log.info("HOTKEY GLOBAL mount fired (isARepeat=\(event.isARepeat, privacy: .public))")
-                self?.flashIcon(symbol: "arrow.down.circle", duration: 0.3)
-                DispatchQueue.main.async { self?.mountAll(caller: "hotkey-global") }
-            }
+            _ = self?.handleHotkey(event, scope: "GLOBAL")
         }
         log.notice("globalKeyMonitor = \(self.globalKeyMonitor != nil ? "REGISTERED" : "NIL — failed!", privacy: .public)")
 
         // LOCAL monitor — 우리 앱 활성일 때
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == eKeyCode else { return event }
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                .subtracting([.numericPad, .function, .help, .capsLock])
-            if flags == ejectFlags {
-                log.info("HOTKEY LOCAL eject fired (isARepeat=\(event.isARepeat, privacy: .public))")
-                self?.flashIcon(symbol: "bolt.fill", duration: 0.3)
-                DispatchQueue.main.async { self?.ejectAll(caller: "hotkey-local") }
-                return nil
-            } else if flags == mountFlags {
-                log.info("HOTKEY LOCAL mount fired (isARepeat=\(event.isARepeat, privacy: .public))")
-                self?.flashIcon(symbol: "arrow.down.circle", duration: 0.3)
-                DispatchQueue.main.async { self?.mountAll(caller: "hotkey-local") }
-                return nil
-            }
-            return event
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            return self.handleHotkey(event, scope: "LOCAL") ? nil : event
         }
     }
+
+    private func handleHotkey(_ event: NSEvent, scope: String) -> Bool {
+        guard event.keyCode == SettingsStore.ejectHotkey.keyCode else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .help, .capsLock])
+
+        if flags == SettingsStore.ejectHotkey.flags {
+            log.info("HOTKEY \(scope, privacy: .public) eject fired (isARepeat=\(event.isARepeat, privacy: .public))")
+            flashIcon(symbol: "bolt.fill", duration: 0.3)
+            DispatchQueue.main.async { [weak self] in self?.ejectAll(caller: "hotkey-\(scope.lowercased())") }
+            return true
+        }
+
+        if flags == SettingsStore.mountHotkey.flags {
+            log.info("HOTKEY \(scope, privacy: .public) mount fired (isARepeat=\(event.isARepeat, privacy: .public))")
+            flashIcon(symbol: "arrow.down.circle", duration: 0.3)
+            DispatchQueue.main.async { [weak self] in self?.mountAll(caller: "hotkey-\(scope.lowercased())") }
+            return true
+        }
+
+        return false
+    }
+}
+
+private enum AppNotificationKind {
+    case info
+    case success
+    case failure
+}
+
+private enum SettingsHotkeyPreset: String, CaseIterable {
+    case optionCommandE
+    case optionShiftCommandE
+    case controlCommandE
+    case controlOptionE
+
+    var title: String {
+        switch self {
+        case .optionCommandE: return "⌥⌘E"
+        case .optionShiftCommandE: return "⌥⇧⌘E"
+        case .controlCommandE: return "⌃⌘E"
+        case .controlOptionE: return "⌃⌥E"
+        }
+    }
+
+    var flags: NSEvent.ModifierFlags {
+        switch self {
+        case .optionCommandE: return [.option, .command]
+        case .optionShiftCommandE: return [.option, .shift, .command]
+        case .controlCommandE: return [.control, .command]
+        case .controlOptionE: return [.control, .option]
+        }
+    }
+
+    var keyCode: UInt16 { UInt16(kVK_ANSI_E) }
+}
+
+private enum SettingsStore {
+    private enum Key {
+        static let notificationsEnabled = "settings.notifications.enabled"
+        static let successNotificationsEnabled = "settings.notifications.success.enabled"
+        static let failureNotificationsEnabled = "settings.notifications.failure.enabled"
+        static let forceFallbackEnabled = "settings.eject.forceFallback.enabled"
+        static let ejectHotkey = "settings.hotkey.eject"
+        static let mountHotkey = "settings.hotkey.mount"
+    }
+
+    private static func bool(for key: String, default defaultValue: Bool) -> Bool {
+        if let value = UserDefaults.standard.object(forKey: key) as? Bool { return value }
+        return defaultValue
+    }
+
+    static var notificationsEnabled: Bool {
+        get { bool(for: Key.notificationsEnabled, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.notificationsEnabled) }
+    }
+
+    static var successNotificationsEnabled: Bool {
+        get { bool(for: Key.successNotificationsEnabled, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.successNotificationsEnabled) }
+    }
+
+    static var failureNotificationsEnabled: Bool {
+        get { bool(for: Key.failureNotificationsEnabled, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.failureNotificationsEnabled) }
+    }
+
+    static var forceFallbackEnabled: Bool {
+        get { bool(for: Key.forceFallbackEnabled, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.forceFallbackEnabled) }
+    }
+
+    static var ejectHotkey: SettingsHotkeyPreset {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: Key.ejectHotkey),
+                  let value = SettingsHotkeyPreset(rawValue: raw) else {
+                return .optionCommandE
+            }
+            return value
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: Key.ejectHotkey) }
+    }
+
+    static var mountHotkey: SettingsHotkeyPreset {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: Key.mountHotkey),
+                  let value = SettingsHotkeyPreset(rawValue: raw) else {
+                return .controlCommandE
+            }
+            return value
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: Key.mountHotkey) }
+    }
+}
+
+private final class SettingsWindowController: NSWindowController {
+    private let onHotkeyChanged: () -> Void
+
+    private var loginToggle: NSButton!
+    private var sleepToggle: NSButton!
+    private var displaySleepToggle: NSButton!
+    private var libraryAppToggle: NSButton!
+    private var notificationsToggle: NSButton!
+    private var successNotificationsToggle: NSButton!
+    private var failureNotificationsToggle: NSButton!
+    private var forceFallbackToggle: NSButton!
+    private var ejectHotkeyPopup: NSPopUpButton!
+    private var mountHotkeyPopup: NSPopUpButton!
+
+    init(onHotkeyChanged: @escaping () -> Void) {
+        self.onHotkeyChanged = onHotkeyChanged
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 360),
+                              styleMask: [.titled, .closable],
+                              backing: .buffered,
+                              defer: false)
+        window.title = String(localized: "Settings")
+        window.isReleasedWhenClosed = false
+        super.init(window: window)
+        window.contentView = makeContentView()
+        window.center()
+        refreshControls()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        refreshControls()
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func makeContentView() -> NSView {
+        let tabView = NSTabView()
+        tabView.translatesAutoresizingMaskIntoConstraints = false
+        tabView.addTabViewItem(tab(label: String(localized: "General"), view: makeGeneralView()))
+        tabView.addTabViewItem(tab(label: String(localized: "Hotkeys"), view: makeHotkeysView()))
+        tabView.addTabViewItem(tab(label: String(localized: "Notifications"), view: makeNotificationsView()))
+        tabView.addTabViewItem(tab(label: String(localized: "Eject Behavior"), view: makeEjectBehaviorView()))
+
+        let container = NSView()
+        container.addSubview(tabView)
+        NSLayoutConstraint.activate([
+            tabView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            tabView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            tabView.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            tabView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16)
+        ])
+        return container
+    }
+
+    private func tab(label: String, view: NSView) -> NSTabViewItem {
+        let item = NSTabViewItem(identifier: label)
+        item.label = label
+        item.view = view
+        return item
+    }
+
+    private func makeGeneralView() -> NSView {
+        loginToggle = checkbox(title: String(localized: "Launch at login"), action: #selector(toggleLoginItem(_:)))
+        sleepToggle = checkbox(title: String(localized: "Eject on sleep"), action: #selector(toggleSleepEject(_:)))
+        displaySleepToggle = checkbox(title: String(localized: "Eject on display sleep (experimental)"), action: #selector(toggleDisplaySleepEject(_:)))
+        libraryAppToggle = checkbox(title: String(localized: "Quit Music/Photos before sleep"), action: #selector(toggleLibraryAppManagement(_:)))
+        return tabStack([loginToggle, sleepToggle, displaySleepToggle, libraryAppToggle])
+    }
+
+    private func makeHotkeysView() -> NSView {
+        ejectHotkeyPopup = hotkeyPopup(action: #selector(ejectHotkeyChanged(_:)))
+        mountHotkeyPopup = hotkeyPopup(action: #selector(mountHotkeyChanged(_:)))
+        return tabStack([
+            formRow(label: String(localized: "Eject all"), control: ejectHotkeyPopup),
+            formRow(label: String(localized: "Mount all"), control: mountHotkeyPopup)
+        ])
+    }
+
+    private func makeNotificationsView() -> NSView {
+        notificationsToggle = checkbox(title: String(localized: "Notifications"), action: #selector(toggleNotifications(_:)))
+        successNotificationsToggle = checkbox(title: String(localized: "Success notifications"), action: #selector(toggleSuccessNotifications(_:)))
+        failureNotificationsToggle = checkbox(title: String(localized: "Failure notifications"), action: #selector(toggleFailureNotifications(_:)))
+        return tabStack([notificationsToggle, successNotificationsToggle, failureNotificationsToggle])
+    }
+
+    private func makeEjectBehaviorView() -> NSView {
+        forceFallbackToggle = checkbox(title: String(localized: "Force fallback"), action: #selector(toggleForceFallback(_:)))
+        return tabStack([forceFallbackToggle])
+    }
+
+    private func checkbox(title: String, action: Selector) -> NSButton {
+        NSButton(checkboxWithTitle: title, target: self, action: action)
+    }
+
+    private func hotkeyPopup(action: Selector) -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for preset in SettingsHotkeyPreset.allCases {
+            popup.addItem(withTitle: preset.title)
+        }
+        popup.target = self
+        popup.action = action
+        popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+        return popup
+    }
+
+    private func formRow(label: String, control: NSView) -> NSView {
+        let text = NSTextField(labelWithString: label)
+        text.widthAnchor.constraint(equalToConstant: 130).isActive = true
+
+        let row = NSStackView(views: [text, control])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 14
+        return row
+    }
+
+    private func tabStack(_ views: [NSView]) -> NSView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = NSView()
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 24),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -24)
+        ])
+        return container
+    }
+
+    private func refreshControls() {
+        let loginStatus = LoginItem.status
+        loginToggle.title = loginStatus == .requiresApproval
+            ? String(localized: "Launch at login (needs approval)")
+            : String(localized: "Launch at login")
+        loginToggle.state = (loginStatus == .enabled || loginStatus == .requiresApproval) ? .on : .off
+        sleepToggle.state = SleepEject.enabled ? .on : .off
+        displaySleepToggle.state = DisplaySleepEject.enabled ? .on : .off
+        libraryAppToggle.state = LibraryAppManagement.enabled ? .on : .off
+        notificationsToggle.state = SettingsStore.notificationsEnabled ? .on : .off
+        successNotificationsToggle.state = SettingsStore.successNotificationsEnabled ? .on : .off
+        failureNotificationsToggle.state = SettingsStore.failureNotificationsEnabled ? .on : .off
+        forceFallbackToggle.state = SettingsStore.forceFallbackEnabled ? .on : .off
+        selectHotkey(SettingsStore.ejectHotkey, in: ejectHotkeyPopup)
+        selectHotkey(SettingsStore.mountHotkey, in: mountHotkeyPopup)
+        refreshNotificationControlState()
+    }
+
+    private func refreshNotificationControlState() {
+        let enabled = SettingsStore.notificationsEnabled
+        successNotificationsToggle.isEnabled = enabled
+        failureNotificationsToggle.isEnabled = enabled
+    }
+
+    private func selectHotkey(_ preset: SettingsHotkeyPreset, in popup: NSPopUpButton) {
+        if let index = SettingsHotkeyPreset.allCases.firstIndex(of: preset) {
+            popup.selectItem(at: index)
+        }
+    }
+
+    @objc private func toggleLoginItem(_ sender: NSButton) {
+        let before = LoginItem.status
+        if before == .requiresApproval {
+            LoginItem.openSystemSettings()
+            refreshControls()
+            return
+        }
+
+        do {
+            if before == .enabled {
+                try LoginItem.unregister()
+            } else {
+                try LoginItem.register()
+                if LoginItem.status == .requiresApproval {
+                    LoginItem.openSystemSettings()
+                }
+            }
+        } catch {
+            showError(error.localizedDescription)
+        }
+        refreshControls()
+    }
+
+    @objc private func toggleSleepEject(_ sender: NSButton) {
+        SleepEject.enabled = sender.state == .on
+    }
+
+    @objc private func toggleDisplaySleepEject(_ sender: NSButton) {
+        DisplaySleepEject.enabled = sender.state == .on
+    }
+
+    @objc private func toggleLibraryAppManagement(_ sender: NSButton) {
+        LibraryAppManagement.enabled = sender.state == .on
+    }
+
+    @objc private func toggleNotifications(_ sender: NSButton) {
+        SettingsStore.notificationsEnabled = sender.state == .on
+        if SettingsStore.notificationsEnabled {
+            requestNotificationAuthorization()
+        }
+        refreshNotificationControlState()
+    }
+
+    @objc private func toggleSuccessNotifications(_ sender: NSButton) {
+        SettingsStore.successNotificationsEnabled = sender.state == .on
+    }
+
+    @objc private func toggleFailureNotifications(_ sender: NSButton) {
+        SettingsStore.failureNotificationsEnabled = sender.state == .on
+    }
+
+    @objc private func toggleForceFallback(_ sender: NSButton) {
+        SettingsStore.forceFallbackEnabled = sender.state == .on
+    }
+
+    @objc private func ejectHotkeyChanged(_ sender: NSPopUpButton) {
+        SettingsStore.ejectHotkey = SettingsHotkeyPreset.allCases[sender.indexOfSelectedItem]
+        onHotkeyChanged()
+    }
+
+    @objc private func mountHotkeyChanged(_ sender: NSPopUpButton) {
+        SettingsStore.mountHotkey = SettingsHotkeyPreset.allCases[sender.indexOfSelectedItem]
+        onHotkeyChanged()
+    }
+
+    private func requestNotificationAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            log.notice("settings requestAuthorization: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
+        }
+    }
+
+    private func showError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Settings update failed")
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
+}
+
+private func menuSymbol(_ name: String, fallback: String) -> NSImage? {
+    let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        ?? NSImage(systemSymbolName: fallback, accessibilityDescription: nil)
+    image?.isTemplate = true
+    return image
 }
 
 // MARK: - Process / Disk Utilities
@@ -1482,11 +1917,45 @@ private enum DiskUtilInfo {
     }
 
     static func volumeUUID(forVolumePath path: String) -> String? {
-        plist(for: path)?["VolumeUUID"] as? String
+        volumeUUID(in: plist(for: path))
+    }
+
+    static func volumeUUID(in info: [String: Any]?) -> String? {
+        info?["VolumeUUID"] as? String
     }
 
     static func busProtocol(forBSDName bsd: String) -> String? {
-        plist(for: bsd)?["BusProtocol"] as? String
+        busProtocol(in: plist(for: bsd))
+    }
+
+    static func busProtocol(in info: [String: Any]?) -> String? {
+        info?["BusProtocol"] as? String
+    }
+
+    static func isSDCard(forVolumePath path: String) -> Bool {
+        isSDCard(info: plist(for: path))
+    }
+
+    static func isSDCard(forBSDName bsd: String) -> Bool {
+        isSDCard(info: plist(for: bsd))
+    }
+
+    static func isSDCard(info: [String: Any]?) -> Bool {
+        guard let info else { return false }
+        let values = [
+            info["BusProtocol"] as? String,
+            info["MediaName"] as? String,
+            info["IORegistryEntryName"] as? String,
+            info["DeviceTreePath"] as? String
+        ].compactMap { $0?.lowercased() }
+
+        return values.contains { value in
+            value.contains("secure digital")
+                || value.contains("sd card")
+                || value.contains("sdxc")
+                || value.contains("sd/mmc")
+                || value.contains("card reader")
+        }
     }
 }
 
@@ -1519,6 +1988,84 @@ private enum DiskImages {
     }
 }
 
+private struct DiskUtilExternalVolume {
+    let deviceIdentifier: String?
+    let name: String
+    let mountPoint: String?
+    let volumeUUID: String?
+}
+
+private struct DiskUtilExternalList {
+    let entries: [[String: Any]]
+
+    private static let systemContents: Set<String> = [
+        "EFI", "Microsoft Reserved", "Apple_Boot",
+        "Apple_KernelCoreDump", "Recovery",
+        "Apple_RAID", "Apple_RAID_Offline"
+    ]
+    private static let systemNames: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
+
+    static func load() -> DiskUtilExternalList? {
+        let result = ProcessRunner.run(executable: "/usr/sbin/diskutil",
+                                       arguments: ["list", "-plist", "external"])
+        guard result.success else {
+            log.error("diskutil list -plist external failed: \(result.errorMessage ?? "?", privacy: .public)")
+            return nil
+        }
+        guard let plist = try? PropertyListSerialization
+                .propertyList(from: result.stdout, format: nil) as? [String: Any],
+              let entries = plist["AllDisksAndPartitions"] as? [[String: Any]]
+        else { return nil }
+        return DiskUtilExternalList(entries: entries)
+    }
+
+    static func userVolumes(in entry: [String: Any]) -> [DiskUtilExternalVolume] {
+        var volumes: [DiskUtilExternalVolume] = []
+        appendVolume(from: entry, to: &volumes)
+
+        if let parts = entry["Partitions"] as? [[String: Any]] {
+            for part in parts {
+                appendVolume(from: part, to: &volumes)
+            }
+        }
+
+        if let apfsVolumes = entry["APFSVolumes"] as? [[String: Any]] {
+            for volume in apfsVolumes {
+                appendVolume(from: volume, to: &volumes)
+            }
+        }
+
+        return volumes
+    }
+
+    static func info(for bsd: String, cache: inout [String: [String: Any]]) -> [String: Any]? {
+        if let cached = cache[bsd] { return cached }
+        guard let info = DiskUtilInfo.plist(for: bsd) else { return nil }
+        cache[bsd] = info
+        return info
+    }
+
+    static func isDiskImage(entry: [String: Any], cache: inout [String: [String: Any]]) -> Bool {
+        guard let bsd = entry["DeviceIdentifier"] as? String,
+              let info = info(for: bsd, cache: &cache)
+        else { return false }
+        return DiskUtilInfo.busProtocol(in: info) == "Disk Image"
+    }
+
+    private static func appendVolume(from dict: [String: Any], to volumes: inout [DiskUtilExternalVolume]) {
+        if let content = dict["Content"] as? String, systemContents.contains(content) { return }
+        guard let name = dict["VolumeName"] as? String,
+              !name.isEmpty,
+              !systemNames.contains(name)
+        else { return }
+
+        volumes.append(DiskUtilExternalVolume(deviceIdentifier: dict["DeviceIdentifier"] as? String,
+                                              name: name,
+                                              mountPoint: dict["MountPoint"] as? String,
+                                              volumeUUID: dict["VolumeUUID"] as? String))
+    }
+}
+
 private struct DiskMenuSnapshot {
     let drives: [ExternalDrive]
     let unmounted: [UnmountedExternal]
@@ -1526,38 +2073,115 @@ private struct DiskMenuSnapshot {
 
     static func load() -> DiskMenuSnapshot {
         let started = Date()
-        let drives = ExternalDrive.list()
-        let mountedBSDs = Set(drives.compactMap { $0.wholeDiskBSDName })
-        let unmounted = UnmountedExternal.list(knownMountedBSDs: mountedBSDs)
+        let diskList = DiskUtilExternalList.load()
+        let drives: [ExternalDrive]
+        let unmounted: [UnmountedExternal]
+
+        if let diskList {
+            let mounted = ExternalDrive.list(fromExternalDiskList: diskList)
+            drives = mounted.drives
+            unmounted = UnmountedExternal.list(fromExternalDiskList: diskList,
+                                               knownMountedBSDs: mounted.mountedWholeDiskBSDs)
+        } else {
+            drives = ExternalDrive.list()
+            let mountedBSDs = Set(drives.compactMap { $0.wholeDiskBSDName })
+            unmounted = UnmountedExternal.list(knownMountedBSDs: mountedBSDs)
+        }
+
         let elapsed = Date().timeIntervalSince(started)
-        log.info("DiskMenuSnapshot.load: \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.count, privacy: .public) unmounted=\(unmounted.count, privacy: .public)")
+        log.info("DiskMenuSnapshot.load: \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.map { $0.name }, privacy: .public) unmounted=\(unmounted.map { $0.displayName }, privacy: .public)")
         return DiskMenuSnapshot(drives: drives, unmounted: unmounted, createdAt: Date())
     }
+}
+
+private struct DiskMenuSnapshotCacheState {
+    let snapshot: DiskMenuSnapshot
+    let isRefreshing: Bool
 }
 
 private enum DiskMenuSnapshotCache {
     private static let lock = NSLock()
     private static var cached: DiskMenuSnapshot?
     private static var refreshing = false
+    private static var refreshRequested = false
+    private static var refreshCompletions: [(DiskMenuSnapshot) -> Void] = []
     private static let maxAge: TimeInterval = 5.0
 
-    static func current() -> DiskMenuSnapshot {
+    static func currentForMenu(onRefresh: @escaping (DiskMenuSnapshot) -> Void) -> DiskMenuSnapshotCacheState {
         lock.lock()
         if let snapshot = cached {
-            let stale = Date().timeIntervalSince(snapshot.createdAt) > maxAge
-            let shouldRefresh = stale && !refreshing
-            if shouldRefresh { refreshing = true }
+            let stale = refreshRequested || Date().timeIntervalSince(snapshot.createdAt) > maxAge
+            guard stale else {
+                lock.unlock()
+                return DiskMenuSnapshotCacheState(snapshot: snapshot, isRefreshing: false)
+            }
+
+            refreshCompletions.append(onRefresh)
+            let shouldRefresh = !refreshing
+            if shouldRefresh {
+                refreshing = true
+                refreshRequested = false
+            }
             lock.unlock()
 
             if shouldRefresh {
                 refreshAsyncAlreadyMarked()
             }
-            return snapshot
+            return DiskMenuSnapshotCacheState(snapshot: snapshot, isRefreshing: true)
+        }
+
+        refreshCompletions.append(onRefresh)
+        let shouldRefresh = !refreshing
+        if shouldRefresh {
+            refreshing = true
+            refreshRequested = false
+        }
+        lock.unlock()
+
+        if shouldRefresh {
+            refreshAsyncAlreadyMarked()
+        }
+        return DiskMenuSnapshotCacheState(snapshot: DiskMenuSnapshot(drives: [], unmounted: [], createdAt: Date()),
+                                          isRefreshing: true)
+    }
+
+    static func current() -> DiskMenuSnapshot {
+        lock.lock()
+        if let snapshot = cached {
+            let stale = refreshRequested || Date().timeIntervalSince(snapshot.createdAt) > maxAge
+            guard stale else {
+                lock.unlock()
+                return snapshot
+            }
+
+            let ownsRefresh = !refreshing
+            if ownsRefresh {
+                refreshing = true
+                refreshRequested = false
+            }
+            lock.unlock()
+
+            log.info("DiskMenuSnapshotCache.current: cached snapshot stale, refreshing synchronously")
+            let fresh = DiskMenuSnapshot.load()
+            lock.lock()
+            cached = fresh
+            refreshRequested = false
+            if ownsRefresh {
+                refreshing = false
+            }
+            lock.unlock()
+            return fresh
         }
 
         if refreshing {
             lock.unlock()
-            return DiskMenuSnapshot.load()
+            log.info("DiskMenuSnapshotCache.current: initial refresh in progress, loading synchronously")
+            let fresh = DiskMenuSnapshot.load()
+            lock.lock()
+            cached = fresh
+            refreshRequested = false
+            lock.unlock()
+            return fresh
         }
         refreshing = true
         lock.unlock()
@@ -1566,6 +2190,7 @@ private enum DiskMenuSnapshotCache {
         lock.lock()
         cached = snapshot
         refreshing = false
+        refreshRequested = false
         lock.unlock()
         return snapshot
     }
@@ -1583,31 +2208,99 @@ private enum DiskMenuSnapshotCache {
 
     static func invalidate() {
         lock.lock()
-        cached = nil
+        refreshRequested = true
         lock.unlock()
     }
 
     private static func refreshAsyncAlreadyMarked() {
         DispatchQueue.global(qos: .utility).async {
             let snapshot = DiskMenuSnapshot.load()
+            let completions: [(DiskMenuSnapshot) -> Void]
             lock.lock()
             cached = snapshot
             refreshing = false
+            refreshRequested = false
+            completions = refreshCompletions
+            refreshCompletions = []
             lock.unlock()
+            for completion in completions {
+                DispatchQueue.main.async {
+                    completion(snapshot)
+                }
+            }
         }
     }
 }
 
 // MARK: - External Drive Detection
 
+enum ExternalDeviceKind {
+    case disk
+    case sdCard
+
+    var symbolName: String {
+        switch self {
+        case .disk: return "externaldrive"
+        case .sdCard: return "sdcard"
+        }
+    }
+
+    var unmountedSymbolName: String {
+        switch self {
+        case .disk: return "externaldrive.badge.plus"
+        case .sdCard: return "sdcard"
+        }
+    }
+}
+
+private struct MountedExternalDrives {
+    let drives: [ExternalDrive]
+    let mountedWholeDiskBSDs: Set<String>
+}
+
 struct ExternalDrive {
     let name: String
     let url: URL
+    let kind: ExternalDeviceKind
     /// Volume UUID — Per-disk 설정 (ExcludedVolumes 등) 의 안정적 식별자.
     /// BSD/이름은 케이블/슬롯 변경에 따라 변하지만 UUID 는 디스크 파일시스템에 박혀있음.
     let volumeUUID: String?
     /// Time Machine 백업 디스크인지 여부. 자동 추출 default 제외 대상.
     let isTimeMachine: Bool
+
+    fileprivate static func list(fromExternalDiskList diskList: DiskUtilExternalList) -> MountedExternalDrives {
+        let fm = FileManager.default
+        var infoCache: [String: [String: Any]] = [:]
+        var drives: [ExternalDrive] = []
+        var mountedWholeDiskBSDs = Set<String>()
+
+        for entry in diskList.entries {
+            guard let bsd = entry["DeviceIdentifier"] as? String else { continue }
+            if let internalFlag = entry["OSInternal"] as? Bool, internalFlag { continue }
+            if DiskUtilExternalList.isDiskImage(entry: entry, cache: &infoCache) { continue }
+
+            let diskInfo = DiskUtilExternalList.info(for: bsd, cache: &infoCache)
+            for volume in DiskUtilExternalList.userVolumes(in: entry) {
+                guard let mountPoint = volume.mountPoint, !mountPoint.isEmpty else { continue }
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: mountPoint, isDirectory: &isDir), isDir.boolValue else { continue }
+
+                let url = URL(fileURLWithPath: mountPoint)
+                let volumeInfo = volume.deviceIdentifier.flatMap {
+                    DiskUtilExternalList.info(for: $0, cache: &infoCache)
+                }
+                let kind: ExternalDeviceKind = (DiskUtilInfo.isSDCard(info: volumeInfo) || DiskUtilInfo.isSDCard(info: diskInfo)) ? .sdCard : .disk
+                drives.append(ExternalDrive(name: volume.name,
+                                            url: url,
+                                            kind: kind,
+                                            volumeUUID: volume.volumeUUID ?? DiskUtilInfo.volumeUUID(in: volumeInfo),
+                                            isTimeMachine: isTimeMachineDisk(volumeURL: url)))
+                mountedWholeDiskBSDs.insert(bsd)
+            }
+        }
+
+        return MountedExternalDrives(drives: drives, mountedWholeDiskBSDs: mountedWholeDiskBSDs)
+    }
 
     static func list() -> [ExternalDrive] {
         let dmgPaths = DiskImages.mountedPaths()
@@ -1637,9 +2330,12 @@ struct ExternalDrive {
                 continue
             }
             let name = v.volumeName ?? url.lastPathComponent
-            let volumeUUID = DiskUtilInfo.volumeUUID(forVolumePath: url.path)
+            let diskInfo = DiskUtilInfo.plist(for: url.path)
+            let volumeUUID = DiskUtilInfo.volumeUUID(in: diskInfo)
+            let kind: ExternalDeviceKind = DiskUtilInfo.isSDCard(info: diskInfo) ? .sdCard : .disk
             let isTM = isTimeMachineDisk(volumeURL: url)
             drives.append(ExternalDrive(name: name, url: url,
+                                        kind: kind,
                                         volumeUUID: volumeUUID,
                                         isTimeMachine: isTM))
         }
@@ -1691,6 +2387,7 @@ struct UnmountedExternal {
     let bsdName: String
     /// 표시용 이름. VolumeName 이 있으면 그것, 없으면 BSD.
     let displayName: String
+    let kind: ExternalDeviceKind
 
     /// `diskutil list -plist external` + `ExternalDrive.list()` 비교로 unmounted 외장 검출.
     ///
@@ -1707,29 +2404,31 @@ struct UnmountedExternal {
             mountedBSDs = Set(ExternalDrive.list().compactMap { $0.wholeDiskBSDName })
         }
 
-        let result = ProcessRunner.run(executable: "/usr/sbin/diskutil",
-                                       arguments: ["list", "-plist", "external"])
-        guard result.success else {
-            log.error("diskutil list -plist external failed: \(result.errorMessage ?? "?", privacy: .public)")
-            return []
-        }
-        guard let plist = try? PropertyListSerialization
-                .propertyList(from: result.stdout, format: nil) as? [String: Any],
-              let entries = plist["AllDisksAndPartitions"] as? [[String: Any]]
-        else { return [] }
+        guard let diskList = DiskUtilExternalList.load() else { return [] }
+        return list(fromExternalDiskList: diskList, knownMountedBSDs: mountedBSDs)
+    }
 
+    fileprivate static func list(fromExternalDiskList diskList: DiskUtilExternalList,
+                                 knownMountedBSDs mountedBSDs: Set<String>) -> [UnmountedExternal] {
+        var infoCache: [String: [String: Any]] = [:]
         var unmounted: [UnmountedExternal] = []
-        for entry in entries {
+        for entry in diskList.entries {
             guard let bsd = entry["DeviceIdentifier"] as? String else { continue }
             if let internalFlag = entry["OSInternal"] as? Bool, internalFlag { continue }
             if mountedBSDs.contains(bsd) { continue }
-            guard let name = firstVolumeName(in: entry) else { continue }
-
-            if DiskUtilInfo.busProtocol(forBSDName: bsd) == "Disk Image" {
+            if DiskUtilExternalList.isDiskImage(entry: entry, cache: &infoCache) {
                 log.debug("UnmountedExternal: skip disk image bsd=\(bsd, privacy: .public)")
                 continue
             }
-            unmounted.append(UnmountedExternal(bsdName: bsd, displayName: name))
+
+            let volumes = DiskUtilExternalList.userVolumes(in: entry)
+            guard !volumes.contains(where: { ($0.mountPoint ?? "").isEmpty == false }),
+                  let volume = volumes.first
+            else { continue }
+
+            let diskInfo = DiskUtilExternalList.info(for: bsd, cache: &infoCache)
+            let kind: ExternalDeviceKind = DiskUtilInfo.isSDCard(info: diskInfo) ? .sdCard : .disk
+            unmounted.append(UnmountedExternal(bsdName: bsd, displayName: volume.name, kind: kind))
         }
         log.info("UnmountedExternal.list: found \(unmounted.count, privacy: .public) candidates = \(unmounted.map { "\($0.displayName)(\($0.bsdName))" }, privacy: .public)")
         return unmounted
@@ -1927,8 +2626,6 @@ enum LibraryAppHandler {
 }
 
 // MARK: - Login Item (SMAppService)
-
-import ServiceManagement
 
 /// 로그인 시 자동 실행 — `SMAppService.mainApp` (macOS 13+).
 /// 사용자가 메뉴 토글로 ON/OFF, 시스템 설정 → 일반 → 로그인 항목 에 등록됨.

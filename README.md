@@ -7,7 +7,7 @@
 
 ## 현재 상태 (2026-05-07 기준)
 
-✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug build, `diskutil mountDisk`, `diskutil list -plist external`, `hdiutil info -plist`, 메뉴 캐시, `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
+✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, `hdiutil info -plist`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
 
 | 항목 | 값 |
 |---|---|
@@ -16,6 +16,7 @@
 | Hardened Runtime | YES |
 | App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
 | 배포 노선 | **App Store 보류/포기**. 현재는 sandbox 없는 개인/Developer ID 계열 배포 전제 |
+| Developer ID 상태 | `Developer ID Application: roh yongwook (495S4FVMCB)` 서명 가능 확인. Notarization(공증)은 `notarytool` credential(자격 증명) 미설정으로 미완료 |
 | 빌드 시스템 | Xcodegen + xcodebuild |
 | 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
 | 디스크 작업 | `/usr/sbin/diskutil` 직접 실행 (`eject`, `unmount force`, `mountDisk`, `list -plist external`, `info -plist`) + `/usr/bin/hdiutil info -plist` + 실패 진단용 `/usr/sbin/lsof` + 수동 sleep 요청용 `/usr/bin/pmset sleepnow` |
@@ -24,14 +25,16 @@
 
 | 기능 | 설명 |
 |---|---|
-| 메뉴바 드롭다운 | 연결된 외장 드라이브 목록 |
+| 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임 |
 | 개별 추출 | 드라이브 이름 클릭 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
 | **추출하고 잠자기** | 메뉴 항목. 전체 추출 성공 시에만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |
-| 전역 단축키 (추출) | `⌥⌘E` (한/영 IME 무관, 물리 키 코드 비교) |
-| 전역 단축키 (마운트) | `⌃⌘E` — 마운트 안 된 외장 일괄 마운트 |
+| 전역 단축키 (추출) | 기본 `⌥⌘E` (한/영 IME 무관, 물리 키 코드 비교). 환경설정에서 E 기반 preset(프리셋) 변경 가능 |
+| 전역 단축키 (마운트) | 기본 `⌃⌘E` — 마운트 안 된 외장 일괄 마운트. 환경설정에서 변경 가능 |
 | 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭 |
 | **마운트 안 된 외장 마운트** | 메뉴에 "마운트 안 된 외장" 섹션 자동 노출 (후보 있을 때만). 클릭 = 마운트, ⌘+클릭 = 마운트 + Finder 열기 |
+| **마운트/미마운트 상태 정합성** | `diskutil list -plist external` 한 snapshot(스냅샷)에서 mounted(마운트됨) / unmounted(마운트 안 됨)를 함께 계산해, 실제 마운트가 없는데 mounted 섹션에 남는 stale state(오래된 상태)를 줄임 |
+| **디스크 종류 아이콘** | `diskutil info -plist` 의 SD card 신호가 확인되면 `sdcard` 아이콘, 그 외 외장은 `externaldrive` 계열 아이콘 사용 |
 | **잠자기 진입 시** 자동 추출 | 메뉴 토글. 노트북·데스크탑·sleep 종류 무관 모든 sleep 에서 동작 |
 | **화면 꺼질 때도 자동 추출** (v0.3.0, 옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. 빈번한 발동 우려로 명시적 opt-in |
 | **wake / 화면 켜질 때 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
@@ -40,7 +43,9 @@
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 | **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 사용. `.requiresApproval` 상태도 체크 표시 + "로그인 항목 허용 필요" 라벨로 표시 |
-| **다국어 (ko + en)** | `Localizable.xcstrings` 56개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
+| **환경설정 창** | `⌘,` 또는 메뉴의 "환경설정..."에서 로그인 실행, sleep/display sleep 추출, Music/Photos 종료, 단축키, 알림, force fallback(강제 fallback) 설정 |
+| **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 toggle(토글). 기본은 모두 ON |
+| **다국어 (ko + en)** | `Localizable.xcstrings` 71개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
 | **Per-disk 자동 추출 제외** | 디스크 메뉴 항목 ▶ submenu 의 *"자동 추출 제외"* 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + *(Time Machine)* 표기 |
 | **외장 라이브러리 앱 처리** | 메뉴 토글 (default OFF). ON 이면 sleep 직전 Music / Photos 자동 quit (외장 라이브러리 lock 풀어 추출 가능), wake 후 백그라운드 자동 relaunch |
@@ -128,16 +133,17 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 
 ## 사용법
 
-- 메뉴바 좌측의 **⏏ 추출 아이콘** 클릭 → 드라이브 목록
+- 메뉴바 좌측의 **⏏ 추출 아이콘** 클릭 → 드라이브 목록. 디스크 상태 갱신 중이면 먼저 현재 cache(캐시)를 보여주고 완료 후 자동 갱신
 - 드라이브 이름 클릭 → 개별 추출
 - "모두 추출" → 전체 추출
 - "추출하고 잠자기" → 전체 추출이 모두 성공하면 시스템 잠자기 시작. 실패가 있으면 잠자기 취소
-- `⌥⌘E` → 어디서든 전체 추출
+- `⌥⌘E` → 어디서든 전체 추출 (기본값, 환경설정에서 변경 가능)
 - 메뉴바 아이콘 우클릭 → 즉시 모두 추출 (메뉴 안 거침)
 - 메뉴 하단 "마운트 안 된 외장" 섹션 (후보 있을 때만 자동 노출) → 클릭으로 개별 마운트, **⌘+클릭** = 마운트 + Finder 열기
-- `⌃⌘E` → 마운트 안 된 외장 일괄 마운트
+- `⌃⌘E` → 마운트 안 된 외장 일괄 마운트 (기본값, 환경설정에서 변경 가능)
 - "잠자기 시 자동 추출" 토글 → ON 이면 모든 sleep 진입 시 자동 추출. wake 후엔 자동 재마운트로 사용자 무감각 UX
 - 사용자 단축키 / 메뉴 클릭 추출 시엔 wake 후 재마운트 안 함 (사용자 의도 존중)
+- "환경설정..." 또는 `⌘,` → 단축키, 알림, force fallback, 자동 실행/자동 추출 계열 옵션 변경
 
 ## 로그인 시 자동 실행
 
@@ -145,14 +151,14 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 
 ## 옵션 바꾸고 싶을 때
 
-코드 한 번 고치고 재빌드:
+대부분은 메뉴의 **환경설정...** 에서 바로 바꾼다. 코드 수정이 필요한 항목만 아래에 남긴다.
 
 | 바꿀 것 | 위치 |
 |---|---|
-| 단축키 | `AppDelegate.swift` 의 `installHotkey()` — `requiredFlags` 와 `eKeyCode` 수정 |
-| 자동추출 기본값 | `SleepEject.enabled` 의 `return true` 를 `return false` 로 |
+| 단축키 preset 추가 | `AppDelegate.swift` 의 `SettingsHotkeyPreset` |
+| 자동추출 기본값 | `SleepEject.enabled` 의 default 값 |
 | 재마운트 backoff 간격 | `tryRemount(bsd:delays:)` 호출 시 `delays: [0, 1, 3, 7]` 수정 |
-| 메뉴 텍스트 | `menuWillOpen(_:)` 의 문자열 |
+| 메뉴 텍스트 | `populateMenu(_:snapshot:isRefreshing:)` 의 문자열 |
 
 키 코드는 Carbon `Events.h` 의 `kVK_ANSI_*` 상수 참조.
 
