@@ -1,24 +1,24 @@
 # EjectDrives — 메뉴바 외장 드라이브 추출 유틸
 
-**v0.4.0** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
+**v0.4.0+** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
 
 맥 외장 드라이브를 한방에 안전하게 추출 / 마운트하는 메뉴바 앱.
-**Mac App Store 출시 준비 중.** 기능은 무료, 캐릭터 애니메이션 등 cosmetic 요소만 IAP (출시 후 2~3개월 뒤 도입 예정).
+현재는 **Mac App Store / sandbox 노선을 포기**하고, 개인 사용 및 향후 Developer ID 배포를 전제로 `diskutil` 직접 실행 방식으로 회귀했다.
 
-## 현재 상태 (2026-05-06 기준)
+## 현재 상태 (2026-05-07 기준)
 
-✅ **DA framework 재작성 + sandbox 활성 — 실기 검증 완료**. macOS 26.4.1 (Apple Silicon) 에서 외장 USB 로 추출/마운트/재마운트 사이클 정상 동작 확인 (추출 ~700ms, 마운트 ~550ms).
+✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug build, `diskutil mountDisk`, `diskutil list -plist external`, `hdiutil info -plist`, 메뉴 캐시 동작 확인 완료.
 
 | 항목 | 값 |
 |---|---|
 | Bundle ID | `com.yongza.ejectdrives` |
 | 사인 | `Apple Development: sukmack@gmail.com` (개발 빌드, 자동) |
 | Hardened Runtime | YES |
-| App Sandbox | **YES** (외부 명령 spawn 0개, DA framework + IOKit 만 사용) |
-| 배포 노선 | **Mac App Store 단일** (한국 1인 개발자 환경 → 결제·세무 부담 최소화) |
+| App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
+| 배포 노선 | **App Store 보류/포기**. 현재는 sandbox 없는 개인/Developer ID 계열 배포 전제 |
 | 빌드 시스템 | Xcodegen + xcodebuild |
 | 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
-| 디스크 작업 | `DiskArbitrationBackend.swift` — DADiskUnmount / DADiskMount + IOKit IOMedia enumerate |
+| 디스크 작업 | `/usr/sbin/diskutil` 직접 실행 (`eject`, `unmount force`, `mountDisk`, `list -plist external`, `info -plist`) + `/usr/bin/hdiutil info -plist` |
 
 ## 기능
 
@@ -34,11 +34,11 @@
 | **잠자기 진입 시** 자동 추출 | 메뉴 토글. 노트북·데스크탑·sleep 종류 무관 모든 sleep 에서 동작 |
 | **화면 꺼질 때도 자동 추출** (v0.3.0, 옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. 빈번한 발동 우려로 명시적 opt-in |
 | **wake / 화면 켜질 때 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
-| **DMG / sparseimage 제외** | DiskArbitration 의 `kDADiskDescriptionDeviceProtocolKey` 검사 (`"Disk Image"` 등) 로 가상 디스크 식별. Chrome.dmg 같은 마운트된 디스크 이미지가 같이 빠지는 사고 방지. |
-| graceful unmount | `DADiskUnmount` 호출. 실패(점유) 시 사용자에게 *"unmount declined"* 알림. force fallback 폐기 (sandbox + non-root 환경에서 거절). |
+| **DMG / sparseimage 제외** | 마운트된 이미지는 `hdiutil info -plist`, unmounted 후보는 `diskutil info -plist` 의 `BusProtocol == "Disk Image"` 로 제외. |
+| 추출 경로 | 1차 `diskutil eject <volumePath>` → 실패 시 `diskutil unmount force <volumePath>` fallback. App Store sandbox 포기 결정에 따라 과거 안정 경로로 복원. |
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
-| **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 으로 시스템 로그인 항목 등록. 시스템 설정에서 허용 필요한 상태면 자동으로 설정 페이지 열림 |
+| **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 사용. `.requiresApproval` 상태도 체크 표시 + "로그인 항목 허용 필요" 라벨로 표시 |
 | **다국어 (ko + en)** | `Localizable.xcstrings` 41개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
 | **Per-disk 자동 추출 제외** | 디스크 메뉴 항목 ▶ submenu 의 *"자동 추출 제외"* 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + *(Time Machine)* 표기 |
@@ -48,16 +48,16 @@
 
 ```
 diskOUT/
-├── AppDelegate.swift            # 메인 로직 (~915줄)
-├── DiskArbitrationBackend.swift # DA framework + IOKit wrapper (~275줄)
-├── Localizable.xcstrings        # ko + en 번역 (36개 키, Xcode String Catalog)
+├── AppDelegate.swift            # 메인 로직 (diskutil 실행, 메뉴 캐시, sleep/wake 처리)
+├── DiskArbitrationBackend.swift # 이전 DA/sandbox 실험 파일. 현재 project.yml 빌드 대상 아님
+├── Localizable.xcstrings        # ko + en 번역 (Xcode String Catalog)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
-├── EjectDrives.entitlements     # sandbox + USB + Volumes 권한 (project.yml 이 자동 생성)
-├── project.yml                  # xcodegen 설정 (버전 + entitlements 한 곳에서 관리)
+├── EjectDrives.entitlements     # 이전 sandbox 실험 권한 파일. 현재 빌드 미사용
+├── project.yml                  # xcodegen 설정 (sandbox OFF)
 ├── EjectDrives.xcodeproj/       # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
 ├── README.md                    # 이 파일
-└── EjectDrives_*.md             # 풀버전 기획 문서들 (App Store 출시 + IAP)
+└── EjectDrives_*.md             # 풀버전 기획/분석 문서들
 ```
 
 ## 빌드 + 설치
@@ -115,17 +115,15 @@ open ~/Applications/EjectDrives.app
 
 > Debug 빌드는 `~/Library/Developer/Xcode/DerivedData/EjectDrives-<hash>/Build/Products/Debug/` 에 생성됨. Release 는 `Release/`. xcodebuild 의 `-derivedDataPath` 를 안 줄 때만 default 위치 사용.
 
-### App Store 배포 (계획)
+### 배포 메모 (2026-05-07)
 
-이 앱은 Mac App Store 단일 노선으로 배포한다. 절차는 출시 직전 정리 예정. 참고 흐름:
+Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/eject 안정성이 sandbox + DA/SMAppService helper 조합에서 충분히 확보되지 않았기 때문.
 
-1. **Apple Distribution 인증서** 발급 (Apple Developer 계정)
-2. **App Store Connect** 에 앱 + Bundle ID 등록
-3. `xcodebuild archive` → Xcode Organizer 로 업로드
-4. App Store Connect 에서 메타데이터 (스크린샷 5종, 설명 ko/en, 카테고리 = Utilities, 가격 = 무료) 입력
-5. 심사 제출
+현재 기준 배포 방향:
 
-> Developer ID + 노타리 (GitHub Releases 노선) 는 폐기. App Store sandbox 와 동시 운영 부담이 1인 개발자에게 큼.
+1. 개발/개인 사용: `Apple Development` + sandbox OFF
+2. 외부 배포가 필요하면: Developer ID + notarization 검토
+3. App Store 재도전은 `diskutil mount/eject` 없이 동등 안정성을 확보할 때만 재검토
 
 ## 사용법
 
@@ -141,7 +139,7 @@ open ~/Applications/EjectDrives.app
 
 ## 로그인 시 자동 실행
 
-메뉴에서 **"로그인 시 자동 실행"** 토글 → 시스템 자동 등록. 첫 토글 시 시스템 설정에서 허용 요청이 뜨면 거기서 EjectDrives 토글을 켜주면 됨 (앱이 시스템 설정 페이지를 자동으로 열어줌).
+메뉴에서 **"로그인 시 자동 실행"** 토글 → `SMAppService.mainApp` 으로 시스템 자동 등록. macOS 가 `.requiresApproval` 을 반환하면 메뉴에는 체크 표시와 함께 **"로그인 항목 허용 필요"** 가 붙는다. 이 상태에서는 시스템 설정 → 일반 → 로그인 항목에서 EjectDrives 를 허용해야 실제 로그인 실행이 활성화된다.
 
 ## 옵션 바꾸고 싶을 때
 
@@ -159,7 +157,7 @@ open ~/Applications/EjectDrives.app
 ## 알려진 제한
 
 - **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS 가 sleep 자체를 안 들어감 → `willSleep` 노티 발생 X → 자동 추출도 트리거 안 됨. **자동으로 안전하게 보호됨** (어차피 dock 분리 안 일어남).
-- **사용 중 드라이브**: graceful unmount 만 시도 (DA framework). 점유 시 *"unmount declined"* 알림으로 사용자가 점유 앱을 직접 닫아야 함. force fallback 은 sandbox 호환성을 위해 폐기.
+- **사용 중 드라이브**: 1차 `diskutil eject` 실패 시 `diskutil unmount force` 를 시도한다. force 는 완전한 eject(power off)가 아니라 mount 해제 fallback 이므로, 점유 앱이 있는 경우 사용자 데이터 위험을 여전히 주의해야 한다.
 - **재마운트 신뢰도**: `diskutil eject` 가 디스크 전원까지 차단해서 wake 시 USB 재인식이 macOS 환경에 따라 들쭉날쭉. 재인식 안 되는 디스크는 알림으로 사용자 행동 유도. 재인식 자체가 안 되면 silent (사용자 분리로 간주).
 - **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
 - **`pmset sleep = 0` 환경에서 화면 꺼짐 ≠ system sleep**: v0.2.x 까지는 화면만 꺼져도 추출 안 됨. v0.3.0 의 "화면 꺼질 때도 자동 추출" 토글로 보완 (명시적 opt-in). 트레이드오프: 자리 잠깐 비울 때마다 추출/재마운트 사이클 발생 가능 — 빈번하면 disk wear / 작업 흐름 끊김.

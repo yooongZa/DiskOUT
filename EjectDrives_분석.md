@@ -8,6 +8,8 @@
 > 진짜 페인 포인트는 **"데이터 손실 방지"가 아니라 "Disk Not Ejected Properly 경고 알람의 일상적 짜증"** 이다.
 > 이 한 가지 차이가 시장 규모, 가격 탄력성, 검색 의도, 마케팅 카피를 모두 바꾼다.
 
+> 2026-05-07 운영 업데이트: Mac App Store / sandbox 호환 노선은 현재 보류/포기. 실제 mount/eject 안정성을 우선해 sandbox OFF + `diskutil` 직접 실행 방식으로 회귀했다. 따라서 이 문서의 App Store/IAP 사업성 분석은 장기 재검토 자료이며, 현재 구현 기준은 개인 사용 및 향후 Developer ID 배포 검토다.
+
 ---
 
 ## 1. 프로젝트 개요
@@ -21,7 +23,7 @@
 - 로그인 시 자동 실행 (macOS 13+ `SMAppService.mainApp`, 메뉴 토글) ✅
 - 다국어 (ko + en, `Localizable.xcstrings`) ✅
 - 마운트 안 된 외장 자동 검출 + 일괄 마운트 ✅
-- App Store sandbox 호환 (`DiskArbitrationBackend` — 외부 명령 0개) ✅
+- App Store sandbox 호환 (`DiskArbitrationBackend` — 외부 명령 0개) ❌ 보류. 현재는 sandbox OFF + `diskutil` 직접 실행
 
 ### 안전 기능 (Jettison 비교 후 v0.5.0 추가)
 - 디스크별 *"자동 추출 제외"* 토글 (Volume UUID 기반, 메뉴 submenu) ✅
@@ -263,7 +265,7 @@ EjectDrives는 페인 포인트를 **"데이터 손실 보험"이 아닌 "경고
 1. **카피 일관성**: 모든 채널에서 "그 짜증나는 알람을 없앤다"로 메시지 통일
 2. **Before/After 시각 자료**: 알람 X자 친 스크린샷 1장이 천 마디 설명보다 강함
 3. **분노 검색 SEO**: "disk not ejected properly" 계열 키워드 1위 확보
-4. **가격·유료화**: v1.0 무료, 출시 후 2~3개월에 cosmetic IAP. Mac App Store 단일 채널.
+4. **가격·유료화**: App Store/IAP 는 현재 보류. 핵심 기능 안정화 후 Developer ID 배포 또는 App Store 재도전 여부를 다시 판단.
 
 ### 여전히 유효한 경고
 - 생계용 비즈니스 X

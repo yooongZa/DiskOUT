@@ -1,6 +1,46 @@
 # CHANGELOG
 
-## Unreleased — 배포 노선 결정: Mac App Store 단일
+## Unreleased — 2026-05-07: App Store/sandbox 포기, diskutil 직접 경로 복원
+
+**배경**: Mac App Store sandbox 안에서 `DADiskMount` / `DADiskUnmount` / `SMAppService.daemon` 조합으로 mount 안정성을 확보하지 못했다. 핵심 기능이 mount/eject 인 앱에서 sandbox 호환성보다 실제 동작 안정성이 우선이라 판단해 App Store 노선을 보류/포기했다.
+
+### 결정 사항
+
+- **App Sandbox OFF**: `project.yml` 과 `EjectDrives.xcodeproj` 모두 `ENABLE_APP_SANDBOX = NO`.
+- **Helper daemon 제거**: `HelperClient`, `HelperDaemon`, helper target, LaunchDaemons copy phase 를 빌드에서 제거. 미추적 helper 파일은 남아있지만 현재 빌드 대상이 아니다.
+- **DiskArbitrationBackend 빌드 제외**: DA/IOKit sandbox 실험 코드는 파일로 남아있지만 현재 target sources 에서 제외.
+- **디스크 작업은 `diskutil` 직접 실행으로 복원**:
+  - mount: `diskutil mountDisk <wholeDiskBSD>`
+  - eject: `diskutil eject <volumePath>` 실패 시 `diskutil unmount force <volumePath>` fallback
+  - unmounted 후보: `diskutil list -plist external`
+  - enumerate 확인 / BusProtocol / VolumeUUID: `diskutil info -plist`
+  - mounted DMG 필터: `hdiutil info -plist`
+- **로그인 항목 UX 수정**: `SMAppService.mainApp.status == .requiresApproval` 인 경우에도 메뉴 체크 표시를 켜고, 제목에 "로그인 항목 허용 필요"를 붙인다.
+- **메뉴 열림 지연 개선**: `DiskMenuSnapshotCache` 추가. 앱 시작 및 mount/unmount 변경 시 background 에서 snapshot 을 미리 만들고, `menuWillOpen` 은 캐시를 사용한다.
+
+### 검증
+
+| 항목 | 결과 |
+|---|---|
+| Debug build | 성공 |
+| `codesign -d --entitlements` | sandbox entitlement 없음 (`get-task-allow` 만 존재) |
+| `diskutil list -plist external` | 정상 |
+| `hdiutil info -plist` | 정상 |
+| `diskutil mountDisk disk7/disk8` | 이미 마운트된 상태에서 success |
+| 메뉴 생성 시간 | 기존 체감 1초+ → 앱 로그 기준 `0.007s` |
+| 로그인 항목 메뉴 상태 | `.requiresApproval` 상태에서 `✓ 로그인 시 자동 실행 (로그인 항목 허용 필요)` 표시 |
+
+### 남은 이슈
+
+- 실제 `diskutil eject` / `unmount force` 는 사용자 디스크를 건드리므로 자동 검증하지 않았다.
+- App Store 재도전은 `diskutil` 없이 동등한 mount/eject 안정성을 확보할 때만 검토한다.
+- `Helper/`, `HelperClient.swift`, `Shared/` 는 미추적 파일로 남아있다. 현재 빌드에는 포함되지 않는다.
+
+---
+
+## Superseded — 2026-05-06: 배포 노선 결정: Mac App Store 단일
+
+> 2026-05-07에 App Store/sandbox 노선을 포기하면서 아래 결정은 현재 유효하지 않다. 당시 판단과 실험 기록 보존용으로 남긴다.
 
 **배경**: 한국 1인 개발자 + 사업자등록 미보유 + 해외 결제 인프라 부재 → Stripe / MoR 식 직접 판매 비현실적. App Store 의 결제·세무 인프라가 가장 합리적. 사용자 신뢰 측면에서도 App Store 라는 울타리가 유리.
 

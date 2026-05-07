@@ -3,9 +3,11 @@
 > 작성일: 2026-05-03
 > 작성: Claude (with yongZa)
 > 관련 문서: `EjectDrives_분석.md`
-> 상태: v1.0 출시 준비
+> 상태: v1.0 출시 준비 보류 — 2026-05-07 현재 App Store/sandbox 노선 포기, sandbox OFF + `diskutil` 직접 실행 경로로 회귀
 
 ---
+
+> 2026-05-07 업데이트: Mac App Store 단일 배포와 sandbox 호환 구현은 현재 유효하지 않다. `DADiskMount` / `DADiskUnmount` / `SMAppService.daemon` 조합으로 mount 안정성을 확보하지 못해, 현재 제품 방향은 개인 사용 및 향후 Developer ID 배포 검토로 변경됐다. 핵심 디스크 작업은 `diskutil mountDisk`, `diskutil eject`, 실패 시 `diskutil unmount force`, `diskutil list -plist external`, `diskutil info -plist`, `hdiutil info -plist` 를 사용한다.
 
 # Part 1. 개발 기획서 (Specification)
 
@@ -26,12 +28,12 @@
 
 ### 1.4 비즈니스 모델
 
-**확정 (2026-05-06)**:
+**수정 (2026-05-07)**:
 
-- **배포 채널**: Mac App Store **단일**. (한국 1인 개발자 + 사업자등록 미보유 → Stripe / MoR 등 직접 결제 채널 운영 불가)
+- **배포 채널**: Mac App Store **보류/포기**. 현재는 sandbox OFF 개인 사용 / 향후 Developer ID + notarization 검토.
 - **가격**: 출시는 **무료**. 핵심 기능 (추출, 마운트, 자동 추출, 단축키, 자동 실행 등) 전부 무료.
-- **유료화 (출시 후 2~3개월)**: **cosmetic IAP** — 캐릭터 애니메이션, 사운드 팩 등. 기능 잠금 X.
-- **신뢰**: App Store 라는 울타리 자체가 1인 개발자 인디 앱의 신뢰 도구.
+- **유료화**: App Store 재도전 전까지 보류.
+- **신뢰**: App Store 신뢰보다 핵심 기능의 실제 mount/eject 안정성을 우선한다.
 
 ---
 
@@ -231,7 +233,7 @@ EjectDrives/
 
 ### 5.5 권한 / Entitlements
 
-**Mac App Store 단일 노선 (확정)** — v1.0 부터 sandbox 활성:
+**2026-05-07 현재 상태** — App Store/sandbox 노선 보류. 현재 빌드는 sandbox OFF 이며 아래 entitlements 는 과거 App Store 검토 기록이다.
 
 ```xml
 <key>com.apple.security.app-sandbox</key>           <true/>
@@ -241,8 +243,8 @@ EjectDrives/
 <array><string>/Volumes/</string></array>
 ```
 
-- DiskArbitration framework: 별도 entitlement 불필요 (sandbox 와 호환)
-- 검증 필수: sandbox 환경에서 모든 외장 드라이브 추출 가능 여부 (출시 직전)
+- 현재 구현: `diskutil` / `hdiutil` 직접 실행. `EjectDrives.entitlements` 는 빌드 미사용.
+- App Store 재도전 조건: sandbox 안에서 `diskutil` 없이 동등한 mount/eject 안정성 확보.
 - 단축키 (`⌥⌘E`, `⌃⌘E`): Accessibility 권한 별도 요청 — 첫 실행 시 사용자 안내 다이얼로그
 
 ### 5.6 핵심 알고리즘
@@ -609,7 +611,7 @@ when you close the lid — silently, automatically, fast.
 ### 8.1 Week 1-2: 코어 기능
 - [ ] 프로젝트 셋업 (Xcode, 디렉토리 구조)
 - [x] ✅ 외장 드라이브 감지 (`ExternalDrive.list()` + `URLResourceValues`)
-- [x] ✅ 개별/전체 추출 (`DiskArbitrationBackend.unmount`)
+- [x] ✅ 개별/전체 추출 (`diskutil eject` + 실패 시 `diskutil unmount force`)
 - [x] ✅ 메뉴바 아이콘 + 드롭다운
 - [x] ✅ 추출 결과 알림 (banner / 알림 센터 매트릭스)
 
@@ -634,16 +636,16 @@ cosmetic IAP 의 핵심 자산. v1.0 출시 후 데이터 보고 도입 시점 �
 
 ### 8.4 Week 6: 성능 최적화
 
-- [x] ✅ 병렬 추출 (DA framework + `DispatchGroup`)
-- [x] ✅ 빠른 실패 — graceful unmount 가 dissenter 즉시 반환
+- [x] ✅ 병렬 추출 (`diskutil` + `DispatchGroup`)
+- [x] ✅ 빠른 실패 — `diskutil eject` 실패 시 force fallback 으로 마무리
 - [ ] 벤치마크 (1/3/5개 시나리오) — 출시 직전 측정 + 마케팅 자료
 
 ### 8.5 Week 7: 품질
-- [x] ✅ 에러 핸들링 — graceful unmount + 사용자 알림 (force fallback 폐기)
+- [x] ✅ 에러 핸들링 — `diskutil eject` 실패 시 `diskutil unmount force` fallback + 사용자 알림
 - [x] ✅ 다국어 (ko + en) — `Localizable.xcstrings`, 36개 키
 - [ ] 다크/라이트 모드 점검 (출시 전)
 - [ ] Accessibility (VoiceOver 등) — 출시 전
-- [ ] Sandbox 호환성 검증
+- [ ] Sandbox 호환성 검증 — 2026-05-07 기준 보류/포기
 
 ### 8.6 Week 8: 베타 테스트
 - [ ] TestFlight 빌드 업로드
@@ -785,4 +787,3 @@ cosmetic IAP 의 핵심 자산. v1.0 출시 후 데이터 보고 도입 시점 �
 ## 부록 B: 참고 문서
 - `EjectDrives_분석.md` — 시장 분석, 냉철한 비판, 페인 포인트 정의
 - 기존 코드 베이스 (`AppDelegate.swift`, `SettingsWindowController.swift`)
-

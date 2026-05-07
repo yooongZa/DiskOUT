@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         setupStatusItem()
         setupSleepObserver()
+        DiskMenuSnapshotCache.warm()
         installHotkey()
         log.notice("EjectDrives launched")
     }
@@ -128,12 +129,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // MARK: - Menu
 
     func menuWillOpen(_ menu: NSMenu) {
+        let started = Date()
         // 메뉴 열면 추출 결과 아이콘 reset — 사용자가 결과 확인했다고 간주
         resetIcon()
 
         menu.removeAllItems()
 
-        let drives = ExternalDrive.list()
+        let snapshot = DiskMenuSnapshotCache.current()
+        let drives = snapshot.drives
 
         if drives.isEmpty {
             let empty = NSMenuItem(title: String(localized: "No external drives"), action: nil, keyEquivalent: "")
@@ -175,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         // Mount 섹션 — 마운트 안 된 외장이 있을 때만 표시.
         // 사용자가 추출 후 다시 쓰고 싶거나, macOS 가 wake 후 자동 mount 못 한 케이스 회복용.
-        let unmounted = UnmountedExternal.list()
+        let unmounted = snapshot.unmounted
         if !unmounted.isEmpty {
             menu.addItem(NSMenuItem.separator())
             let header = NSMenuItem(title: String(localized: "Unmounted drives"),
@@ -235,12 +238,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 로그인 시 자동 실행 — SMAppService.mainApp 으로 시스템 로그인 항목 등록.
         // status 가 .requiresApproval 이면 시스템 설정에서 사용자가 직접 허용해야 함.
         let loginItemStatus = LoginItem.status
-        let loginToggle = NSMenuItem(title: String(localized: "Launch at login"),
+        let needsLoginApproval = loginItemStatus == .requiresApproval
+        let loginTitle = needsLoginApproval
+            ? "\(String(localized: "Launch at login")) (\(String(localized: "Login item needs approval")))"
+            : String(localized: "Launch at login")
+        let loginToggle = NSMenuItem(title: loginTitle,
                                      action: #selector(toggleLoginItem),
                                      keyEquivalent: "")
         loginToggle.target = self
-        loginToggle.state = (loginItemStatus == .enabled) ? .on : .off
-        if loginItemStatus == .requiresApproval {
+        loginToggle.state = (loginItemStatus == .enabled || needsLoginApproval) ? .on : .off
+        if needsLoginApproval {
             loginToggle.toolTip = String(localized: "Approve in System Settings → General → Login Items")
         }
         menu.addItem(loginToggle)
@@ -274,6 +281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
         menu.addItem(quit)
+
+        let elapsed = Date().timeIntervalSince(started)
+        log.info("menuWillOpen: built in \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.count, privacy: .public) unmounted=\(unmounted.count, privacy: .public)")
     }
 
     @objc private func toggleSleepEject() {
@@ -419,6 +429,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             let result = self.diskutilEject(volumePath: path)
+            DiskMenuSnapshotCache.invalidate()
+            DiskMenuSnapshotCache.warm()
             log.info("EJECTONE done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
             DispatchQueue.main.async {
                 if result.success {
@@ -543,56 +555,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }
         }
         group.wait()
+        DiskMenuSnapshotCache.invalidate()
+        DiskMenuSnapshotCache.warm()
         return (drives.map { $0.name }, success, failure)
     }
 
     /// whole disk 의 mountable partition 들을 모두 mount.
-    /// `diskutil mountDisk <whole>` 의 sandbox-호환 대체.
-    /// 하나라도 mount 되면 success. 모두 실패면 마지막 에러 반환.
+    /// App Store/sandbox 포기 경로: helper daemon 없이 `diskutil mountDisk` 직접 실행.
     /// background thread 에서만 호출.
     private func daMountWholeDisk(bsdName: String) -> (success: Bool, errorMessage: String?) {
-        let backend = DiskArbitrationBackend.shared
-        let parts = backend.childPartitions(ofWholeDisk: bsdName)
-        if parts.isEmpty {
-            // child partition 없으면 disk 자체에 mount 시도 (synth disk 인 경우)
-            guard let disk = backend.disk(forBSDName: bsdName) else {
-                return (false, "no mountable partitions on \(bsdName)")
-            }
-            let r = backend.mount(disk: disk)
-            return (r.success, r.errorMessage)
+        let r = runDiskutil(["mountDisk", bsdName])
+        if r.success {
+            log.info("diskutil mountDisk: \(bsdName, privacy: .public) OK")
+        } else {
+            log.notice("diskutil mountDisk: \(bsdName, privacy: .public) failed — \(r.errorMessage ?? "?", privacy: .public)")
         }
-        var anyMounted = false
-        var lastError: String?
-        for p in parts {
-            guard let disk = backend.disk(forBSDName: p) else { continue }
-            let r = backend.mount(disk: disk)
-            if r.success {
-                anyMounted = true
-                log.info("daMount: \(p, privacy: .public) OK")
-            } else {
-                log.notice("daMount: \(p, privacy: .public) failed — \(r.errorMessage ?? "?", privacy: .public)")
-                lastError = r.errorMessage
-            }
-        }
-        return (anyMounted, anyMounted ? nil : (lastError ?? "all partitions failed to mount"))
+        return r
     }
 
-    /// 외장하드 unmount — DiskArbitration framework graceful 시도.
-    ///
-    /// **이전 force fallback 폐기 사유**:
-    /// - App Store sandbox 환경에서 `diskutil unmount force` 동등 동작이 거절될 수 있음
-    /// - DA framework 의 `kDADiskUnmountOptionForce` 도 root 권한 없이는 실패 (sandbox 무관)
-    /// - 점유 프로세스가 있으면 사용자에게 알리고 직접 해소하게 하는 게 더 안전 (file system corruption 회피)
-    ///
-    /// **이전 동작과의 차이**: 점유 디스크는 unmount 실패 → 사용자 알림. graceful 만 시도, retry 없음.
-    /// background thread 에서만 호출 (semaphore wait blocking).
+    /// 외장하드 추출 — `diskutil eject` 실패 시 `diskutil unmount force` fallback.
+    /// background thread 에서만 호출.
     private func diskutilEject(volumePath: String) -> (success: Bool, errorMessage: String?) {
-        let backend = DiskArbitrationBackend.shared
-        guard let disk = backend.disk(forVolumePath: volumePath) else {
-            return (false, "disk not found at \(volumePath)")
+        let eject = runDiskutil(["eject", volumePath])
+        if eject.success {
+            return eject
         }
-        let r = backend.unmount(disk: disk)
-        return (r.success, r.errorMessage)
+
+        log.notice("diskutil eject failed for \(volumePath, privacy: .public), fallback to unmount force — \(eject.errorMessage ?? "?", privacy: .public)")
+        let force = runDiskutil(["unmount", "force", volumePath])
+        if force.success {
+            return force
+        }
+
+        let ejectMessage = eject.errorMessage ?? "diskutil eject failed"
+        let forceMessage = force.errorMessage ?? "diskutil unmount force failed"
+        return (false, "\(ejectMessage)\nforce fallback: \(forceMessage)")
+    }
+
+    /// diskutil 외부 명령 실행 helper.
+    private func runDiskutil(_ args: [String]) -> (success: Bool, errorMessage: String?) {
+        let result = ProcessRunner.run(executable: "/usr/sbin/diskutil", arguments: args)
+        if result.success {
+            return (true, nil)
+        }
+        return (false, result.errorMessage)
     }
 
     // MARK: - Mount Actions
@@ -613,6 +619,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             let r = self.daMountWholeDisk(bsdName: bsd)
+            DiskMenuSnapshotCache.invalidate()
+            DiskMenuSnapshotCache.warm()
             log.info("MOUNTONE done: \(displayName, privacy: .public) success=\(r.success, privacy: .public)")
             DispatchQueue.main.async {
                 if r.success {
@@ -684,6 +692,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 }
             }
             group.wait()
+            DiskMenuSnapshotCache.invalidate()
+            DiskMenuSnapshotCache.warm()
             log.info("MOUNT(\(caller, privacy: .public)) DONE — success=\(success.count, privacy: .public) failure=\(failure.count, privacy: .public)")
             DispatchQueue.main.async { [weak self] in
                 self?.notifyMountResult(success: success, failure: failure)
@@ -723,6 +733,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                        name: NSWorkspace.screensDidSleepNotification, object: nil)
         nc.addObserver(self, selector: #selector(screensDidWake),
                        name: NSWorkspace.screensDidWakeNotification, object: nil)
+        nc.addObserver(self, selector: #selector(volumesDidChange(_:)),
+                       name: NSWorkspace.didMountNotification, object: nil)
+        nc.addObserver(self, selector: #selector(volumesDidChange(_:)),
+                       name: NSWorkspace.didUnmountNotification, object: nil)
+    }
+
+    @objc private func volumesDidChange(_ notification: Notification) {
+        log.info("volume changed: \(notification.name.rawValue, privacy: .public)")
+        DiskMenuSnapshotCache.invalidate()
+        DiskMenuSnapshotCache.warm()
     }
 
     /// wake 직후:
@@ -926,9 +946,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         for (i, delay) in delays.enumerated() {
             if delay > 0 { Thread.sleep(forTimeInterval: TimeInterval(delay)) }
 
-            // 1) 디스크가 시스템에 보이나? — DA 로 disk handle 생성 가능한지로 판단.
-            //    nil 이면 IOKit/DA 가 enumerate 못 함 = 사용자 분리로 간주.
-            guard DiskArbitrationBackend.shared.disk(forBSDName: bsd) != nil else {
+            // 1) 디스크가 시스템에 보이나? — diskutil info 로 enumerate 여부 확인.
+            //    실패하면 사용자 분리 또는 OS 재인식 지연으로 간주.
+            guard runDiskutil(["info", bsd]).success else {
                 log.notice("attempt \(i + 1, privacy: .public)/\(delays.count, privacy: .public): \(bsd, privacy: .public) not enumerated — wait for re-detection")
                 continue
             }
@@ -1030,6 +1050,175 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 }
 
+// MARK: - Process / Disk Utilities
+
+private struct ProcessResult {
+    let success: Bool
+    let stdout: Data
+    let errorMessage: String?
+}
+
+private enum ProcessRunner {
+    static func run(executable: String, arguments: [String]) -> ProcessResult {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: executable)
+        task.arguments = arguments
+
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = errPipe
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+
+            let stdout = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let stderr = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            if task.terminationStatus == 0 {
+                return ProcessResult(success: true, stdout: stdout, errorMessage: nil)
+            }
+
+            let executableName = URL(fileURLWithPath: executable).lastPathComponent
+            let message = stderr.isEmpty ? "\(executableName) exit code \(task.terminationStatus)" : stderr
+            return ProcessResult(success: false, stdout: stdout, errorMessage: message)
+        } catch {
+            return ProcessResult(success: false, stdout: Data(), errorMessage: error.localizedDescription)
+        }
+    }
+}
+
+private enum DiskUtilInfo {
+    static func plist(for argument: String) -> [String: Any]? {
+        let result = ProcessRunner.run(executable: "/usr/sbin/diskutil",
+                                       arguments: ["info", "-plist", argument])
+        guard result.success else {
+            log.debug("diskutil info failed for \(argument, privacy: .public): \(result.errorMessage ?? "?", privacy: .public)")
+            return nil
+        }
+        return try? PropertyListSerialization
+            .propertyList(from: result.stdout, format: nil) as? [String: Any]
+    }
+
+    static func volumeUUID(forVolumePath path: String) -> String? {
+        plist(for: path)?["VolumeUUID"] as? String
+    }
+
+    static func busProtocol(forBSDName bsd: String) -> String? {
+        plist(for: bsd)?["BusProtocol"] as? String
+    }
+}
+
+/// 마운트된 DMG/sparseimage/CoreSimulator 같은 disk image 는 외장 디스크처럼 보일 수 있음.
+/// 잘못 처리 시 "Chrome 설치 중인데 DMG 가 빠짐" 같은 사고 발생.
+private enum DiskImages {
+    /// 현재 마운트된 모든 디스크 이미지(`/Volumes/Chrome` 같은) 의 mount path 집합.
+    static func mountedPaths() -> Set<String> {
+        let result = ProcessRunner.run(executable: "/usr/bin/hdiutil",
+                                       arguments: ["info", "-plist"])
+        guard result.success else {
+            log.error("hdiutil info failed: \(result.errorMessage ?? "?", privacy: .public)")
+            return []
+        }
+        guard let plist = try? PropertyListSerialization
+                .propertyList(from: result.stdout, format: nil) as? [String: Any],
+              let images = plist["images"] as? [[String: Any]]
+        else { return [] }
+
+        var paths: Set<String> = []
+        for image in images {
+            guard let entities = image["system-entities"] as? [[String: Any]] else { continue }
+            for entity in entities {
+                if let mountPoint = entity["mount-point"] as? String, !mountPoint.isEmpty {
+                    paths.insert(mountPoint)
+                }
+            }
+        }
+        return paths
+    }
+}
+
+private struct DiskMenuSnapshot {
+    let drives: [ExternalDrive]
+    let unmounted: [UnmountedExternal]
+    let createdAt: Date
+
+    static func load() -> DiskMenuSnapshot {
+        let started = Date()
+        let drives = ExternalDrive.list()
+        let mountedBSDs = Set(drives.compactMap { $0.wholeDiskBSDName })
+        let unmounted = UnmountedExternal.list(knownMountedBSDs: mountedBSDs)
+        let elapsed = Date().timeIntervalSince(started)
+        log.info("DiskMenuSnapshot.load: \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.count, privacy: .public) unmounted=\(unmounted.count, privacy: .public)")
+        return DiskMenuSnapshot(drives: drives, unmounted: unmounted, createdAt: Date())
+    }
+}
+
+private enum DiskMenuSnapshotCache {
+    private static let lock = NSLock()
+    private static var cached: DiskMenuSnapshot?
+    private static var refreshing = false
+    private static let maxAge: TimeInterval = 5.0
+
+    static func current() -> DiskMenuSnapshot {
+        lock.lock()
+        if let snapshot = cached {
+            let stale = Date().timeIntervalSince(snapshot.createdAt) > maxAge
+            let shouldRefresh = stale && !refreshing
+            if shouldRefresh { refreshing = true }
+            lock.unlock()
+
+            if shouldRefresh {
+                refreshAsyncAlreadyMarked()
+            }
+            return snapshot
+        }
+
+        if refreshing {
+            lock.unlock()
+            return DiskMenuSnapshot.load()
+        }
+        refreshing = true
+        lock.unlock()
+
+        let snapshot = DiskMenuSnapshot.load()
+        lock.lock()
+        cached = snapshot
+        refreshing = false
+        lock.unlock()
+        return snapshot
+    }
+
+    static func warm() {
+        lock.lock()
+        guard !refreshing else {
+            lock.unlock()
+            return
+        }
+        refreshing = true
+        lock.unlock()
+        refreshAsyncAlreadyMarked()
+    }
+
+    static func invalidate() {
+        lock.lock()
+        cached = nil
+        lock.unlock()
+    }
+
+    private static func refreshAsyncAlreadyMarked() {
+        DispatchQueue.global(qos: .utility).async {
+            let snapshot = DiskMenuSnapshot.load()
+            lock.lock()
+            cached = snapshot
+            refreshing = false
+            lock.unlock()
+        }
+    }
+}
+
 // MARK: - External Drive Detection
 
 struct ExternalDrive {
@@ -1042,6 +1231,7 @@ struct ExternalDrive {
     let isTimeMachine: Bool
 
     static func list() -> [ExternalDrive] {
+        let dmgPaths = DiskImages.mountedPaths()
         let keys: [URLResourceKey] = [
             .volumeNameKey,
             .volumeIsInternalKey,
@@ -1053,7 +1243,6 @@ struct ExternalDrive {
             options: [.skipHiddenVolumes]
         ) else { return [] }
 
-        let backend = DiskArbitrationBackend.shared
         var drives: [ExternalDrive] = []
         for url in urls {
             guard let v = try? url.resourceValues(forKeys: Set(keys)) else { continue }
@@ -1063,22 +1252,13 @@ struct ExternalDrive {
             // 외장 = 내장 아님 + 사용자에게 보임 + 로컬 (network mount 제외)
             // ejectable/removable 은 체크 안 함 — Thunderbolt 외장 SSD 등이 false 로 보고됨
             guard !isInternal, isBrowsable, isLocal else { continue }
-            // DMG / sparseimage / CoreSimulator 제외 — Chrome.dmg 같은 마운트된 디스크 이미지가
-            // 같이 빠지면 사고. DiskArbitration 의 DeviceProtocol 키로 식별 (sandbox 호환).
-            var volumeUUID: String? = nil
-            if let disk = backend.disk(forVolumePath: url.path) {
-                if backend.isVirtualDisk(disk) {
-                    log.debug("filter: virtual disk excluded \(url.path, privacy: .public)")
-                    continue
-                }
-                if let desc = backend.description(for: disk),
-                   let uuidRef = desc[kDADiskDescriptionVolumeUUIDKey as String] {
-                    // CFUUID → String. unsafeBitCast 안 쓰고 CFUUIDCreateString 사용.
-                    let cfuuid = uuidRef as! CFUUID
-                    volumeUUID = (CFUUIDCreateString(kCFAllocatorDefault, cfuuid) as String?)
-                }
+            // DMG / sparseimage 제외 — Chrome.dmg 같은 마운트된 디스크 이미지가 같이 빠지면 사고
+            guard !dmgPaths.contains(url.path) else {
+                log.debug("filter: DMG excluded \(url.path, privacy: .public)")
+                continue
             }
             let name = v.volumeName ?? url.lastPathComponent
+            let volumeUUID = DiskUtilInfo.volumeUUID(forVolumePath: url.path)
             let isTM = isTimeMachineDisk(volumeURL: url)
             drives.append(ExternalDrive(name: name, url: url,
                                         volumeUUID: volumeUUID,
@@ -1087,15 +1267,14 @@ struct ExternalDrive {
         return drives
     }
 
-    /// Time Machine 백업 디스크 식별 — sandbox 호환 (file 존재 검사만).
+    /// Time Machine 백업 디스크 식별 — file 존재 검사만.
     /// - APFS Time Machine: 루트의 `.com.apple.timemachine.donotpresent` 파일
     /// - Legacy HFS+: `Backups.backupdb/` 디렉토리
     private static func isTimeMachineDisk(volumeURL: URL) -> Bool {
         let fm = FileManager.default
-        // (1) APFS Time Machine marker
         let marker1 = volumeURL.appendingPathComponent(".com.apple.timemachine.donotpresent")
         if fm.fileExists(atPath: marker1.path) { return true }
-        // (2) Legacy HFS+ backup folder
+
         let marker2 = volumeURL.appendingPathComponent("Backups.backupdb")
         var isDir: ObjCBool = false
         if fm.fileExists(atPath: marker2.path, isDirectory: &isDir), isDir.boolValue {
@@ -1134,69 +1313,77 @@ struct UnmountedExternal {
     /// 표시용 이름. VolumeName 이 있으면 그것, 없으면 BSD.
     let displayName: String
 
-    /// IOKit + DiskArbitration 조합으로 unmounted 외장 디스크 검출 (sandbox 호환).
+    /// `diskutil list -plist external` + `ExternalDrive.list()` 비교로 unmounted 외장 검출.
     ///
     /// **로직**:
-    /// 1. `ExternalDrive.list()` 로 현재 마운트된 외장 whole disk BSD set 수집
-    /// 2. `DA.enumerateExternalWholeDisks()` 로 모든 외장(internal=false) whole disk 후보 수집
-    /// 3. mountedBSDs 에 없는 후보 중 가상 디스크 제외, 사용자 데이터 partition 이 있는 것만
-    static func list() -> [UnmountedExternal] {
-        let mountedBSDs = Set(ExternalDrive.list().compactMap { $0.wholeDiskBSDName })
-        let backend = DiskArbitrationBackend.shared
-        let externals = backend.enumerateExternalWholeDisks()
+    /// 1. 현재 마운트된 외장의 whole disk BSD set 수집 (`ExternalDrive.list()` 의 wholeDiskBSDName)
+    /// 2. `diskutil list -plist external` 의 모든 OSInternal=false whole disk entry 검사
+    /// 3. mountedBSDs 에 없는 entry 중 mountable sub-volume(VolumeName 있는 partition/APFSVolume) 가
+    ///    하나라도 있는 것만 후보. RAID 멤버 디스크 같은 건 자동 제외.
+    static func list(knownMountedBSDs: Set<String>? = nil) -> [UnmountedExternal] {
+        let mountedBSDs: Set<String>
+        if let knownMountedBSDs {
+            mountedBSDs = knownMountedBSDs
+        } else {
+            mountedBSDs = Set(ExternalDrive.list().compactMap { $0.wholeDiskBSDName })
+        }
 
-        var result: [UnmountedExternal] = []
-        for bsd in externals {
+        let result = ProcessRunner.run(executable: "/usr/sbin/diskutil",
+                                       arguments: ["list", "-plist", "external"])
+        guard result.success else {
+            log.error("diskutil list -plist external failed: \(result.errorMessage ?? "?", privacy: .public)")
+            return []
+        }
+        guard let plist = try? PropertyListSerialization
+                .propertyList(from: result.stdout, format: nil) as? [String: Any],
+              let entries = plist["AllDisksAndPartitions"] as? [[String: Any]]
+        else { return [] }
+
+        var unmounted: [UnmountedExternal] = []
+        for entry in entries {
+            guard let bsd = entry["DeviceIdentifier"] as? String else { continue }
+            if let internalFlag = entry["OSInternal"] as? Bool, internalFlag { continue }
             if mountedBSDs.contains(bsd) { continue }
-            // 가상 디스크 (DMG / CoreSimulator) 제외
-            if let disk = backend.disk(forBSDName: bsd), backend.isVirtualDisk(disk) {
-                log.debug("UnmountedExternal: skip virtual bsd=\(bsd, privacy: .public)")
+            guard let name = firstVolumeName(in: entry) else { continue }
+
+            if DiskUtilInfo.busProtocol(forBSDName: bsd) == "Disk Image" {
+                log.debug("UnmountedExternal: skip disk image bsd=\(bsd, privacy: .public)")
                 continue
             }
-            // 사용자 데이터 partition 의 VolumeName 추출 (EFI / 시스템 partition 자동 제외).
-            // 없으면 RAID 멤버 / EFI-only 디스크 — skip.
-            guard let name = volumeName(forWholeDisk: bsd) else { continue }
-            result.append(UnmountedExternal(bsdName: bsd, displayName: name))
+            unmounted.append(UnmountedExternal(bsdName: bsd, displayName: name))
         }
-        log.info("UnmountedExternal.list: found \(result.count, privacy: .public) candidates = \(result.map { "\($0.displayName)(\($0.bsdName))" }, privacy: .public)")
-        return result
+        log.info("UnmountedExternal.list: found \(unmounted.count, privacy: .public) candidates = \(unmounted.map { "\($0.displayName)(\($0.bsdName))" }, privacy: .public)")
+        return unmounted
     }
 
-    /// whole disk 의 child partitions / APFS volumes 중 *사용자가 마운트 의미 있는* 첫 VolumeName.
-    /// 3중 방어: (1) DA Mountable 키 (2) MediaContent blacklist (3) VolumeName blacklist.
-    /// 모두 시스템이거나 mount 불가면 nil (RAID 멤버 디스크 등 → 후보 제외).
-    private static func volumeName(forWholeDisk bsd: String) -> String? {
-        // (2) Partition map type fallback — kDADiskDescriptionMediaContentKey
+    /// entry 의 Partitions / APFSVolumes 에서 사용자 데이터 partition 의 VolumeName 반환.
+    /// EFI / Microsoft Reserved / Apple_Boot 같은 시스템 partition 의 VolumeName 은 무시.
+    /// 모두 시스템이거나 비어있으면 nil — 즉 mount 대상 아님 (RAID 멤버, EFI-only 디스크 등).
+    private static func firstVolumeName(in entry: [String: Any]) -> String? {
         let systemContents: Set<String> = [
             "EFI", "Microsoft Reserved", "Apple_Boot",
             "Apple_KernelCoreDump", "Recovery",
-            "Apple_RAID", "Apple_RAID_Offline"   // RAID 멤버 디스크 (직접 mount 불가)
+            "Apple_RAID", "Apple_RAID_Offline"
         ]
-        // (3) VolumeName fallback blacklist — MediaContent 키가 macOS 26+ 에서 변경/missing 시 보호
         let systemNames: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
 
-        let backend = DiskArbitrationBackend.shared
-        let parts = backend.childPartitions(ofWholeDisk: bsd)
-        for p in parts {
-            guard let disk = backend.disk(forBSDName: p),
-                  let desc = backend.description(for: disk)
-            else { continue }
-
-            // (1) DA 의 Volume Mountable 키 — user-mountable 로 marking 안 된 volume skip.
-            //     EFI / Apple_Boot / Apple_RAID 모두 false 로 marking 됨 (가장 robust 한 방어).
-            //     키가 missing 이면 fallback 검사로 진행.
-            if let mountable = desc[kDADiskDescriptionVolumeMountableKey as String] as? Bool,
-               !mountable { continue }
-
-            // (2) Partition map type
-            if let content = desc[kDADiskDescriptionMediaContentKey as String] as? String,
-               systemContents.contains(content) { continue }
-
-            // (3) VolumeName
-            if let name = desc[kDADiskDescriptionVolumeNameKey as String] as? String,
-               !name.isEmpty,
-               !systemNames.contains(name) {
-                return name
+        if let parts = entry["Partitions"] as? [[String: Any]] {
+            for p in parts {
+                if let content = p["Content"] as? String, systemContents.contains(content) { continue }
+                if let name = p["VolumeName"] as? String,
+                   !name.isEmpty,
+                   !systemNames.contains(name) {
+                    return name
+                }
+            }
+        }
+        if let vols = entry["APFSVolumes"] as? [[String: Any]] {
+            for v in vols {
+                if let name = v["VolumeName"] as? String,
+                   !name.isEmpty,
+                   !systemNames.contains(name) {
+                    return name
+                }
             }
         }
         return nil
