@@ -167,6 +167,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             updating.isEnabled = false
             menu.addItem(updating)
             menu.addItem(NSMenuItem.separator())
+        } else if let refreshError = snapshot.refreshError {
+            let failed = NSMenuItem(title: String(localized: "Disk status update failed"),
+                                    action: nil,
+                                    keyEquivalent: "")
+            failed.isEnabled = false
+            failed.toolTip = refreshError
+            menu.addItem(failed)
+            menu.addItem(NSMenuItem.separator())
         }
 
         if drives.isEmpty {
@@ -1705,14 +1713,20 @@ private enum ProcessRunner {
 
         outPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             lock.lock()
             stdout.append(data)
             lock.unlock()
         }
         errPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             lock.lock()
             stderr.append(data)
             lock.unlock()
@@ -1905,9 +1919,10 @@ private enum LsofInspector {
 }
 
 private enum DiskUtilInfo {
-    static func plist(for argument: String) -> [String: Any]? {
+    static func plist(for argument: String, timeout: TimeInterval? = 3.0) -> [String: Any]? {
         let result = ProcessRunner.run(executable: "/usr/sbin/diskutil",
-                                       arguments: ["info", "-plist", argument])
+                                       arguments: ["info", "-plist", argument],
+                                       timeout: timeout)
         guard result.success else {
             log.debug("diskutil info failed for \(argument, privacy: .public): \(result.errorMessage ?? "?", privacy: .public)")
             return nil
@@ -2005,9 +2020,10 @@ private struct DiskUtilExternalList {
     ]
     private static let systemNames: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
 
-    static func load() -> DiskUtilExternalList? {
+    static func load(timeout: TimeInterval? = 5.0) -> DiskUtilExternalList? {
         let result = ProcessRunner.run(executable: "/usr/sbin/diskutil",
-                                       arguments: ["list", "-plist", "external"])
+                                       arguments: ["list", "-plist", "external"],
+                                       timeout: timeout)
         guard result.success else {
             log.error("diskutil list -plist external failed: \(result.errorMessage ?? "?", privacy: .public)")
             return nil
@@ -2070,27 +2086,33 @@ private struct DiskMenuSnapshot {
     let drives: [ExternalDrive]
     let unmounted: [UnmountedExternal]
     let createdAt: Date
+    let refreshError: String?
 
     static func load() -> DiskMenuSnapshot {
         let started = Date()
         let diskList = DiskUtilExternalList.load()
         let drives: [ExternalDrive]
         let unmounted: [UnmountedExternal]
+        let refreshError: String?
 
         if let diskList {
             let mounted = ExternalDrive.list(fromExternalDiskList: diskList)
             drives = mounted.drives
             unmounted = UnmountedExternal.list(fromExternalDiskList: diskList,
                                                knownMountedBSDs: mounted.mountedWholeDiskBSDs)
+            refreshError = nil
         } else {
-            drives = ExternalDrive.list()
-            let mountedBSDs = Set(drives.compactMap { $0.wholeDiskBSDName })
-            unmounted = UnmountedExternal.list(knownMountedBSDs: mountedBSDs)
+            drives = []
+            unmounted = []
+            refreshError = "diskutil list -plist external failed or timed out"
         }
 
         let elapsed = Date().timeIntervalSince(started)
-        log.info("DiskMenuSnapshot.load: \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.map { $0.name }, privacy: .public) unmounted=\(unmounted.map { $0.displayName }, privacy: .public)")
-        return DiskMenuSnapshot(drives: drives, unmounted: unmounted, createdAt: Date())
+        log.info("DiskMenuSnapshot.load: \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.map { $0.name }, privacy: .public) unmounted=\(unmounted.map { $0.displayName }, privacy: .public) refreshError=\(refreshError ?? "-", privacy: .public)")
+        return DiskMenuSnapshot(drives: drives,
+                                unmounted: unmounted,
+                                createdAt: Date(),
+                                refreshError: refreshError)
     }
 }
 
@@ -2141,7 +2163,10 @@ private enum DiskMenuSnapshotCache {
         if shouldRefresh {
             refreshAsyncAlreadyMarked()
         }
-        return DiskMenuSnapshotCacheState(snapshot: DiskMenuSnapshot(drives: [], unmounted: [], createdAt: Date()),
+        return DiskMenuSnapshotCacheState(snapshot: DiskMenuSnapshot(drives: [],
+                                                                     unmounted: [],
+                                                                     createdAt: Date(),
+                                                                     refreshError: nil),
                                           isRefreshing: true)
     }
 
@@ -2217,15 +2242,23 @@ private enum DiskMenuSnapshotCache {
             let snapshot = DiskMenuSnapshot.load()
             let completions: [(DiskMenuSnapshot) -> Void]
             lock.lock()
-            cached = snapshot
+            if snapshot.refreshError == nil || cached == nil {
+                cached = snapshot
+            } else if let existing = cached {
+                cached = DiskMenuSnapshot(drives: existing.drives,
+                                          unmounted: existing.unmounted,
+                                          createdAt: Date(),
+                                          refreshError: snapshot.refreshError)
+            }
             refreshing = false
             refreshRequested = false
             completions = refreshCompletions
             refreshCompletions = []
+            let callbackSnapshot = cached ?? snapshot
             lock.unlock()
             for completion in completions {
                 DispatchQueue.main.async {
-                    completion(snapshot)
+                    completion(callbackSnapshot)
                 }
             }
         }

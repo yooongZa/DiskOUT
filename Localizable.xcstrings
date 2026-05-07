@@ -386,6 +386,20 @@
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "lsof 진단 시간 초과" } }
       }
     },
+    "Disk status update failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Disk status update failed" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "디스크 상태 갱신 실패" } }
+      }
+    },
+    "Updating disk status..." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Updating disk status..." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "디스크 상태 갱신 중..." } }
+      }
+    },
     "Eject all  (%@ · or right-click)" : {
       "extractionState" : "manual",
       "localizations" : {

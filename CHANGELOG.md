@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased — 2026-05-07: App Store/sandbox 포기, diskutil 직접 경로 복원
+## Unreleased — 2026-05-07~08: App Store/sandbox 포기, diskutil 직접 경로 복원
 
 **배경**: Mac App Store sandbox 안에서 `DADiskMount` / `DADiskUnmount` / `SMAppService.daemon` 조합으로 mount 안정성을 확보하지 못했다. 핵심 기능이 mount/eject 인 앱에서 sandbox 호환성보다 실제 동작 안정성이 우선이라 판단해 App Store 노선을 보류/포기했다.
 
@@ -18,6 +18,7 @@
 - **로그인 항목 UX 수정**: `SMAppService.mainApp.status == .requiresApproval` 인 경우에도 메뉴 체크 표시를 켜고, 제목에 "로그인 항목 허용 필요"를 붙인다.
 - **메뉴 열림 지연 개선**: `DiskMenuSnapshotCache` 추가. 앱 시작 및 mount/unmount 변경 시 background 에서 snapshot 을 미리 만들고, `menuWillOpen` 은 cache(캐시)를 즉시 표시한 뒤 stale(오래된) 상태면 background refresh(백그라운드 갱신) 완료 후 열린 메뉴를 다시 채운다.
 - **mounted/unmounted 정합성 개선**: mounted(마운트됨) 목록과 unmounted(마운트 안 됨) 후보를 `diskutil list -plist external` 한 snapshot(스냅샷)에서 같이 계산한다. 이전처럼 `FileManager.mountedVolumeURLs` 와 `diskutil list` 를 따로 읽으며 생기던 stale state(오래된 상태) 가능성을 줄였다.
+- **refresh stuck recovery(갱신 고착 복구)**: SD card 추출 직후처럼 장치가 사라지는 race condition(경합 상태)에서 `Updating...` 이 풀리지 않던 문제를 막기 위해 snapshot 조회 timeout(타임아웃), EOF(파일 끝) 처리, 실패 복구 상태를 추가했다.
 - **Developer ID 배포 상태 기록**: `Developer ID Application: roh yongwook (495S4FVMCB)` 인증서로 서명 가능한 것까지 확인했다. Notarization(공증)은 `notarytool` profile(프로필) / credential(자격 증명) 미설정으로 보류 상태다.
 
 ### 추가된 기능 / 변경
@@ -29,9 +30,12 @@
 - **디스크 종류 아이콘 적용**: SD card(카드) 로 판단되는 볼륨은 `sdcard`, 일반 외장은 `externaldrive` 계열 SF Symbol(시스템 심볼)을 사용한다.
 - **`lsof` 실패 진단 복원**: App Store sandbox(샌드박스) 노선을 끄면서 `diskutil eject` 와 `unmount force` 가 모두 실패한 경우 `/usr/sbin/lsof -nP -w -Fpcfn -- <volumePath>` 로 점유 process(프로세스) / open file(열린 파일)을 알림에 붙인다. macOS privacy(개인정보 보호) 제한으로 Full Disk Access(전체 디스크 접근)가 필요할 수 있다.
 - **`ProcessRunner` 개선**: stdout/stderr 를 `readabilityHandler` 로 drain(비우기)하고, timeout(타임아웃) 옵션을 추가했다. `lsof` 는 3초, `pmset sleepnow` 는 5초 timeout 을 사용한다.
+- **`ProcessRunner` EOF 처리 수정**: `availableData` 가 빈 data(데이터)를 반환하면 `readabilityHandler` 를 즉시 해제해, 종료된 child process(자식 프로세스)의 pipe(파이프)에서 CPU 를 계속 쓰는 loop(루프)를 방지한다.
+- **snapshot용 `diskutil` timeout 추가**: `diskutil list -plist external` 은 5초, `diskutil info -plist ...` 는 3초 timeout 을 둔다. 실패해도 `DiskMenuSnapshotCache.refreshing` 은 반드시 false 로 풀린다.
+- **갱신 실패 표시 추가**: snapshot refresh(스냅샷 갱신)가 실패하면 기존 cache 를 유지하고 메뉴 상단에 "Disk status update failed" / "디스크 상태 갱신 실패" disabled row(비활성 행)를 표시한다.
 - **"추출하고 잠자기" 추가**: 메뉴에서 전체 추출 후 실패가 없을 때만 `/usr/bin/pmset sleepnow` 로 sleep(잠자기)을 요청한다. 추출 실패가 있으면 sleep 은 시작하지 않고 알림을 남긴다.
 - **logout/restart/shutdown 전 자동 추출은 default OFF**: 구현 코드는 남겨두되 `powerOffAutoEjectEnabled = false` 로 게이트(gate = 차단 조건)를 닫았다. macOS 종료 과정이 원래 볼륨 정리를 시도하고, 현재 제품 가치가 낮아 사용자 노출 기능으로 켜지 않는다.
-- **다국어 키 증가**: `Localizable.xcstrings` 는 41개에서 71개 키로 증가했다.
+- **다국어 키 증가**: `Localizable.xcstrings` 는 41개에서 73개 키로 증가했다.
 
 ### 검증
 
@@ -43,6 +47,8 @@
 | Debug build (`/tmp/EjectDrives-docs-build`) | 성공 |
 | Debug build (`/tmp/EjectDrives-async-menu`) | 성공 |
 | Release build (`/tmp/EjectDrives-async-menu-release`) | 성공 |
+| Debug build (`/tmp/EjectDrives-refresh-fix-debug`) | 성공 |
+| Release build (`/tmp/EjectDrives-refresh-fix-release`) | 성공 |
 | `codesign -d --entitlements` | sandbox entitlement 없음 (`get-task-allow` 만 존재) |
 | Developer ID signing(개발자 ID 서명) | timestamp 포함 서명 zip 생성 가능 확인. `spctl` 은 notarization 미완료 상태라 `Unnotarized Developer ID` 로 reject |
 | `diskutil list -plist external` | 정상 |
@@ -51,7 +57,8 @@
 | `lsof -Fpcfn` 출력 형태 | parser(파서) 입력 형식 확인 |
 | `jq empty Localizable.xcstrings` | 성공 |
 | `git diff --check -- AppDelegate.swift Localizable.xcstrings README.md CHANGELOG.md EjectDrives_*.md` | 성공 |
-| 메뉴 생성 시간 | stale cache 상태에서도 먼저 `0.013s` 에 메뉴 표시, background refresh 완료 후 `0.008s` 로 재구성 |
+| 메뉴 생성 시간 | stale cache 상태에서도 먼저 `0.013~0.014s` 에 메뉴 표시, background refresh 완료 후 `0.008s` 로 재구성 |
+| SD card 추출 후 stale cache 복구 | 기존 stuck 실행본에서 CPU 약 200% 및 `refreshing=true` 지속 확인. 수정 빌드 재시작 후 `DiskMenuSnapshot.load: 2.550s drives=["SSD_W", "SYSJO"] refreshError=-`, CPU `0.0%` 확인 |
 | 로그인 항목 메뉴 상태 | `.requiresApproval` 상태에서 `✓ 로그인 시 자동 실행 (로그인 항목 허용 필요)` 표시 |
 
 ### 남은 이슈
@@ -62,6 +69,7 @@
 - logout/restart/shutdown 전 자동 추출은 default OFF. 사용자 증거가 쌓일 때만 다시 켠다.
 - App Store 재도전은 `diskutil` 없이 동등한 mount/eject 안정성을 확보할 때만 검토한다.
 - Notarization(공증)은 Apple notary credential(공증 자격 증명) 등록 전까지 완료할 수 없다.
+- SD card 를 다시 꽂고 추출하는 반복 실기 테스트는 남아 있다. 현재 수정은 stuck 상태 복구와 CPU loop 방지까지 검증했다.
 - `Helper/`, `HelperClient.swift`, `Shared/` 는 미추적 파일로 남아있다. 현재 빌드에는 포함되지 않는다.
 
 ---

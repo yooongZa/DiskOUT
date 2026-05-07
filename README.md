@@ -5,9 +5,9 @@
 맥 외장 드라이브를 한방에 안전하게 추출 / 마운트하는 메뉴바 앱.
 현재는 **Mac App Store / sandbox 노선을 포기**하고, 개인 사용 및 향후 Developer ID 배포를 전제로 `diskutil` 직접 실행 방식으로 회귀했다.
 
-## 현재 상태 (2026-05-07 기준)
+## 현재 상태 (2026-05-08 기준)
 
-✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, `hdiutil info -plist`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
+✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, `hdiutil info -plist`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), refresh stuck recovery(갱신 고착 복구), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
 
 | 항목 | 값 |
 |---|---|
@@ -19,13 +19,13 @@
 | Developer ID 상태 | `Developer ID Application: roh yongwook (495S4FVMCB)` 서명 가능 확인. Notarization(공증)은 `notarytool` credential(자격 증명) 미설정으로 미완료 |
 | 빌드 시스템 | Xcodegen + xcodebuild |
 | 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
-| 디스크 작업 | `/usr/sbin/diskutil` 직접 실행 (`eject`, `unmount force`, `mountDisk`, `list -plist external`, `info -plist`) + `/usr/bin/hdiutil info -plist` + 실패 진단용 `/usr/sbin/lsof` + 수동 sleep 요청용 `/usr/bin/pmset sleepnow` |
+| 디스크 작업 | `/usr/sbin/diskutil` 직접 실행 (`eject`, `unmount force`, `mountDisk`, `list -plist external`, `info -plist`) + `/usr/bin/hdiutil info -plist` + 실패 진단용 `/usr/sbin/lsof` + 수동 sleep 요청용 `/usr/bin/pmset sleepnow`. snapshot 조회는 timeout(타임아웃) 적용 |
 
 ## 기능
 
 | 기능 | 설명 |
 |---|---|
-| 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임 |
+| 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임. 갱신 실패 시 기존 cache 를 유지하고 실패 row(행)를 표시 |
 | 개별 추출 | 드라이브 이름 클릭 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
 | **추출하고 잠자기** | 메뉴 항목. 전체 추출 성공 시에만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |
@@ -45,7 +45,7 @@
 | **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 사용. `.requiresApproval` 상태도 체크 표시 + "로그인 항목 허용 필요" 라벨로 표시 |
 | **환경설정 창** | `⌘,` 또는 메뉴의 "환경설정..."에서 로그인 실행, sleep/display sleep 추출, Music/Photos 종료, 단축키, 알림, force fallback(강제 fallback) 설정 |
 | **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 toggle(토글). 기본은 모두 ON |
-| **다국어 (ko + en)** | `Localizable.xcstrings` 71개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
+| **다국어 (ko + en)** | `Localizable.xcstrings` 73개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
 | **Per-disk 자동 추출 제외** | 디스크 메뉴 항목 ▶ submenu 의 *"자동 추출 제외"* 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + *(Time Machine)* 표기 |
 | **외장 라이브러리 앱 처리** | 메뉴 토글 (default OFF). ON 이면 sleep 직전 Music / Photos 자동 quit (외장 라이브러리 lock 풀어 추출 가능), wake 후 백그라운드 자동 relaunch |
