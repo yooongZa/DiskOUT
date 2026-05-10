@@ -9,6 +9,8 @@
 > 이 한 가지 차이가 시장 규모, 가격 탄력성, 검색 의도, 마케팅 카피를 모두 바꾼다.
 
 > 2026-05-07 운영 업데이트: Mac App Store / sandbox 호환 노선은 현재 보류/포기. 실제 mount/eject 안정성을 우선해 sandbox OFF + `diskutil` 직접 실행 방식으로 회귀했다. 따라서 이 문서의 App Store/IAP 사업성 분석은 장기 재검토 자료이며, 현재 구현 기준은 개인 사용 및 향후 Developer ID 배포 검토다.
+>
+> 2026-05-10 운영 업데이트: lid close(뚜껑 닫기) 직후 케이블 분리 패턴을 우선 대응하기 위해 sleep/display sleep/"추출하고 잠자기" 경로는 `Disk Arbitration API` 기반 volume-first force unmount(볼륨 우선 강제 마운트 해제) 를 먼저 사용한다. 수동 추출은 기존 `diskutil eject` 우선 경로를 유지한다.
 
 ---
 
@@ -18,11 +20,11 @@
 
 ### 핵심 기능 (v1.0)
 - 메뉴 바 드롭다운에서 외장 드라이브 개별/전체 추출 ✅
-- 잠자기 / 화면 꺼짐 진입 시 자동 추출 (`NSWorkspace.willSleepNotification` / `screensDidSleep`) ✅
+- 잠자기 / 화면 꺼짐 진입 시 자동 추출 (`IOKit` power/clamshell observer + `NSWorkspace` fallback / `screensDidSleep`) ✅
 - 전역 단축키 (`⌥⌘E` 추출, `⌃⌘E` 마운트) ✅
 - "추출하고 잠자기" 메뉴 명령 — 전체 추출 성공 시에만 `pmset sleepnow` ✅
 - 로그인 시 자동 실행 (macOS 13+ `SMAppService.mainApp`, 메뉴 토글) ✅
-- 다국어 (ko + en, `Localizable.xcstrings` 56개 키) ✅
+- 다국어 (ko + en, `Localizable.xcstrings` 73개 키) ✅
 - 마운트 안 된 외장 자동 검출 + 일괄 마운트 ✅
 - App Store sandbox 호환 (`DiskArbitrationBackend` — 외부 명령 0개) ❌ 보류. 현재는 sandbox OFF + `diskutil` 직접 실행
 

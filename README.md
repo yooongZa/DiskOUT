@@ -5,9 +5,9 @@
 맥 외장 드라이브를 한방에 안전하게 추출 / 마운트하는 메뉴바 앱.
 현재는 **Mac App Store / sandbox 노선을 포기**하고, 개인 사용 및 향후 Developer ID 배포를 전제로 `diskutil` 직접 실행 방식으로 회귀했다.
 
-## 현재 상태 (2026-05-08 기준)
+## 현재 상태 (2026-05-10 기준)
 
-✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, `hdiutil info -plist`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), refresh stuck recovery(갱신 고착 복구), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
+✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), refresh stuck recovery(갱신 고착 복구), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. sleep/display sleep/"추출하고 잠자기" 경로는 `Disk Arbitration API` 기반 volume-first force unmount(볼륨 우선 강제 마운트 해제)를 먼저 시도한다. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
 
 | 항목 | 값 |
 |---|---|
@@ -19,7 +19,7 @@
 | Developer ID 상태 | `Developer ID Application: roh yongwook (495S4FVMCB)` 서명 가능 확인. Notarization(공증)은 `notarytool` credential(자격 증명) 미설정으로 미완료 |
 | 빌드 시스템 | Xcodegen + xcodebuild |
 | 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
-| 디스크 작업 | `/usr/sbin/diskutil` 직접 실행 (`eject`, `unmount force`, `mountDisk`, `list -plist external`, `info -plist`) + `/usr/bin/hdiutil info -plist` + 실패 진단용 `/usr/sbin/lsof` + 수동 sleep 요청용 `/usr/bin/pmset sleepnow`. snapshot 조회는 timeout(타임아웃) 적용 |
+| 디스크 작업 | 기본 수동 추출은 `/usr/sbin/diskutil` 직접 실행 (`eject`, `unmount force`, `mountDisk`, `list -plist external`, `info -plist`). sleep/display sleep/"추출하고 잠자기"는 `Disk Arbitration API` 로 volume(볼륨)을 먼저 `force unmount` 한 뒤 실패 시 `diskutil` fallback. disk image(DMG/CoreSimulator) 필터는 `/usr/bin/hdiutil info -plist` 1초 timeout + `diskutil info` fallback. 실패 진단은 `/usr/sbin/lsof`, 수동 sleep 요청은 `/usr/bin/pmset sleepnow` |
 
 ## 기능
 
@@ -28,18 +28,18 @@
 | 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임. 갱신 실패 시 기존 cache 를 유지하고 실패 row(행)를 표시 |
 | 개별 추출 | 드라이브 이름 클릭 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
-| **추출하고 잠자기** | 메뉴 항목. 전체 추출 성공 시에만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |
+| **추출하고 잠자기** | 메뉴 항목. sleep 계열 volume-first force unmount(볼륨 우선 강제 마운트 해제) 경로로 전체 추출 후, 모두 성공할 때만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |
 | 전역 단축키 (추출) | 기본 `⌥⌘E` (한/영 IME 무관, 물리 키 코드 비교). 환경설정에서 E 기반 preset(프리셋) 변경 가능 |
 | 전역 단축키 (마운트) | 기본 `⌃⌘E` — 마운트 안 된 외장 일괄 마운트. 환경설정에서 변경 가능 |
 | 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭 |
 | **마운트 안 된 외장 마운트** | 메뉴에 "마운트 안 된 외장" 섹션 자동 노출 (후보 있을 때만). 클릭 = 마운트, ⌘+클릭 = 마운트 + Finder 열기 |
 | **마운트/미마운트 상태 정합성** | `diskutil list -plist external` 한 snapshot(스냅샷)에서 mounted(마운트됨) / unmounted(마운트 안 됨)를 함께 계산해, 실제 마운트가 없는데 mounted 섹션에 남는 stale state(오래된 상태)를 줄임 |
 | **디스크 종류 아이콘** | `diskutil info -plist` 의 SD card 신호가 확인되면 `sdcard` 아이콘, 그 외 외장은 `externaldrive` 계열 아이콘 사용 |
-| **잠자기 진입 시** 자동 추출 | 메뉴 토글. 노트북·데스크탑·sleep 종류 무관 모든 sleep 에서 동작 |
-| **화면 꺼질 때도 자동 추출** (v0.3.0, 옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. 빈번한 발동 우려로 명시적 opt-in |
-| **wake / 화면 켜질 때 자동 재마운트** | 자동 추출된 디스크만 재마운트. enumerate 안 되면 (사용자가 분리한 것) silent |
-| **DMG / sparseimage 제외** | 마운트된 이미지는 `hdiutil info -plist`, unmounted 후보는 `diskutil info -plist` 의 `BusProtocol == "Disk Image"` 로 제외. |
-| 추출 경로 | 1차 `diskutil eject <volumePath>` → 실패 시 `diskutil unmount force <volumePath>` fallback. 둘 다 실패하면 `lsof -nP -w -Fpcfn -- <volumePath>` 로 점유 process(프로세스) / open file(열린 파일) 진단을 알림에 추가 |
+| **잠자기 진입 시** 자동 추출 | 메뉴 토글. IOKit power notification(전원 알림)으로 sleep(잠자기)을 잠깐 지연하고, 각 volume(볼륨)을 병렬로 `DADiskUnmount(force)` 먼저 시도 |
+| **화면 꺼질 때도 자동 추출** (v0.3.0, 옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. sleep 계열 volume-first force unmount 경로 사용. 빈번한 발동 우려로 명시적 opt-in |
+| **wake / 화면 켜질 때 자동 재마운트** | 자동 추출에 성공한 디스크만 재마운트. enumerate(열거) 안 되면 사용자가 분리한 것으로 보고 silent |
+| **DMG / sparseimage 제외** | 마운트된 이미지는 `hdiutil info -plist` 1초 timeout + `diskutil info` fallback, unmounted 후보는 `BusProtocol == "Disk Image"` 로 제외 |
+| 추출 경로 | 수동 추출은 1차 `diskutil eject <volumePath>` → 실패 시 `diskutil unmount force <volumePath>` fallback. sleep/display sleep/"추출하고 잠자기"는 `DADiskUnmount(force)` volume-first 후 `diskutil unmountDisk force` / `diskutil eject force` fallback. 최종 실패 시 수동 경로는 `lsof` 로 점유 process(프로세스) / open file(열린 파일) 진단을 알림에 추가 |
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 | **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 사용. `.requiresApproval` 상태도 체크 표시 + "로그인 항목 허용 필요" 라벨로 표시 |
@@ -136,7 +136,7 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 - 메뉴바 좌측의 **⏏ 추출 아이콘** 클릭 → 드라이브 목록. 디스크 상태 갱신 중이면 먼저 현재 cache(캐시)를 보여주고 완료 후 자동 갱신
 - 드라이브 이름 클릭 → 개별 추출
 - "모두 추출" → 전체 추출
-- "추출하고 잠자기" → 전체 추출이 모두 성공하면 시스템 잠자기 시작. 실패가 있으면 잠자기 취소
+- "추출하고 잠자기" → volume-first force unmount 경로로 전체 추출이 모두 성공하면 시스템 잠자기 시작. 실패가 있으면 잠자기 취소
 - `⌥⌘E` → 어디서든 전체 추출 (기본값, 환경설정에서 변경 가능)
 - 메뉴바 아이콘 우클릭 → 즉시 모두 추출 (메뉴 안 거침)
 - 메뉴 하단 "마운트 안 된 외장" 섹션 (후보 있을 때만 자동 노출) → 클릭으로 개별 마운트, **⌘+클릭** = 마운트 + Finder 열기
@@ -157,7 +157,7 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 |---|---|
 | 단축키 preset 추가 | `AppDelegate.swift` 의 `SettingsHotkeyPreset` |
 | 자동추출 기본값 | `SleepEject.enabled` 의 default 값 |
-| 재마운트 backoff 간격 | `tryRemount(bsd:delays:)` 호출 시 `delays: [0, 1, 3, 7]` 수정 |
+| 재마운트 backoff 간격 | `tryRemount(bsd:delays:operationID:)` 호출 시 `delays: [0, 1, 3, 7]` 수정 |
 | 메뉴 텍스트 | `populateMenu(_:snapshot:isRefreshing:)` 의 문자열 |
 
 키 코드는 Carbon `Events.h` 의 `kVK_ANSI_*` 상수 참조.
@@ -168,7 +168,7 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 - **사용 중 드라이브**: 1차 `diskutil eject` 실패 시 `diskutil unmount force` 를 시도한다. force 는 완전한 eject(power off)가 아니라 mount 해제 fallback 이므로, 점유 앱이 있는 경우 사용자 데이터 위험을 여전히 주의해야 한다.
 - **`lsof` 실패 진단**: 최종 추출 실패 뒤 best-effort(최선 노력)로 점유 process / open file 을 표시한다. macOS privacy(개인정보 보호) 정책 때문에 일부 앱/경로는 **Full Disk Access(전체 디스크 접근)** 권한 없이는 확인이 제한될 수 있다.
 - **logout/restart/shutdown 전 자동 추출**: macOS 가 원래 종료 과정에서 볼륨 정리를 시도하고, 사용자 질문 기준 기능 가치가 낮아 현재 `powerOffAutoEjectEnabled = false` 로 꺼져 있다. 사용자에게 보이는 동작은 없다.
-- **재마운트 신뢰도**: `diskutil eject` 가 디스크 전원까지 차단해서 wake 시 USB 재인식이 macOS 환경에 따라 들쭉날쭉. 재인식 안 되는 디스크는 알림으로 사용자 행동 유도. 재인식 자체가 안 되면 silent (사용자 분리로 간주).
+- **재마운트 신뢰도**: 자동 추출에 성공한 디스크만 wake 후 `diskutil mountDisk` 로 재마운트한다. 재인식 안 되는 디스크는 사용자 분리로 간주해 silent 처리한다. 물리적으로 이미 빠진 디스크는 앱이 다시 마운트할 수 없다.
 - **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
 - **`pmset sleep = 0` 환경에서 화면 꺼짐 ≠ system sleep**: v0.2.x 까지는 화면만 꺼져도 추출 안 됨. v0.3.0 의 "화면 꺼질 때도 자동 추출" 토글로 보완 (명시적 opt-in). 트레이드오프: 자리 잠깐 비울 때마다 추출/재마운트 사이클 발생 가능 — 빈번하면 disk wear / 작업 흐름 끊김.
 

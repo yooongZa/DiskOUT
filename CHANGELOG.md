@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased — 2026-05-07~08: App Store/sandbox 포기, diskutil 직접 경로 복원
+## Unreleased — 2026-05-07~10: App Store/sandbox 포기, diskutil 직접 경로 복원, sleep 추출 안정화
 
 **배경**: Mac App Store sandbox 안에서 `DADiskMount` / `DADiskUnmount` / `SMAppService.daemon` 조합으로 mount 안정성을 확보하지 못했다. 핵심 기능이 mount/eject 인 앱에서 sandbox 호환성보다 실제 동작 안정성이 우선이라 판단해 App Store 노선을 보류/포기했다.
 
@@ -15,6 +15,11 @@
   - unmounted 후보: `diskutil list -plist external`
   - enumerate 확인 / BusProtocol / VolumeUUID: `diskutil info -plist`
   - mounted DMG 필터: `hdiutil info -plist`
+- **sleep 계열 추출은 volume-first(볼륨 우선) 경로 추가**:
+  - sleep / display sleep / "추출하고 잠자기" 경로는 `Disk Arbitration API` 의 `DADiskCreateFromVolumePath` + `DADiskUnmount(force)` 를 각 volume(볼륨)에 병렬로 먼저 시도한다.
+  - 실패하거나 1초 timeout(타임아웃) 이 나면 기존 `diskutil unmountDisk force` → `diskutil eject force` → normal eject 순서로 fallback 한다.
+  - 수동 우클릭 / 단축키 / 개별 추출은 기존 `diskutil eject` 우선 경로를 유지한다. 사용자 명시 추출에서는 실패 원인 진단과 일반 eject 의미를 우선한다.
+- **IOKit sleep delay(잠자기 지연) 추가**: `NSWorkspace.willSleepNotification` 만 의존하지 않고 IOKit power notification(전원 알림)으로 system sleep(시스템 잠자기)을 잠깐 붙잡은 뒤 자동 추출을 시도한다.
 - **로그인 항목 UX 수정**: `SMAppService.mainApp.status == .requiresApproval` 인 경우에도 메뉴 체크 표시를 켜고, 제목에 "로그인 항목 허용 필요"를 붙인다.
 - **메뉴 열림 지연 개선**: `DiskMenuSnapshotCache` 추가. 앱 시작 및 mount/unmount 변경 시 background 에서 snapshot 을 미리 만들고, `menuWillOpen` 은 cache(캐시)를 즉시 표시한 뒤 stale(오래된) 상태면 background refresh(백그라운드 갱신) 완료 후 열린 메뉴를 다시 채운다.
 - **mounted/unmounted 정합성 개선**: mounted(마운트됨) 목록과 unmounted(마운트 안 됨) 후보를 `diskutil list -plist external` 한 snapshot(스냅샷)에서 같이 계산한다. 이전처럼 `FileManager.mountedVolumeURLs` 와 `diskutil list` 를 따로 읽으며 생기던 stale state(오래된 상태) 가능성을 줄였다.
@@ -34,6 +39,11 @@
 - **snapshot용 `diskutil` timeout 추가**: `diskutil list -plist external` 은 5초, `diskutil info -plist ...` 는 3초 timeout 을 둔다. 실패해도 `DiskMenuSnapshotCache.refreshing` 은 반드시 false 로 풀린다.
 - **갱신 실패 표시 추가**: snapshot refresh(스냅샷 갱신)가 실패하면 기존 cache 를 유지하고 메뉴 상단에 "Disk status update failed" / "디스크 상태 갱신 실패" disabled row(비활성 행)를 표시한다.
 - **"추출하고 잠자기" 추가**: 메뉴에서 전체 추출 후 실패가 없을 때만 `/usr/bin/pmset sleepnow` 로 sleep(잠자기)을 요청한다. 추출 실패가 있으면 sleep 은 시작하지 않고 알림을 남긴다.
+- **"추출하고 잠자기" 경로 개선**: 일반 `diskutil eject` 대신 sleep 계열 `volume-first force unmount` 경로를 사용한다. 성공한 디스크만 wake/remount(깨움/재마운트) 대상으로 기록한다.
+- **display sleep 자동 추출 경로 개선**: `pmset sleep=0` 환경 보호용 display sleep(화면 꺼짐) 자동 추출도 sleep 계열 `volume-first force unmount` 경로를 사용한다. system sleep 추출이 이미 진행 중이면 중복 실행하지 않는다.
+- **remount target 기록 정정**: sleep / display sleep / "추출하고 잠자기" 모두 추출 성공한 whole disk BSD(전체 디스크 BSD) 만 `autoEjectedDisks` 에 기록한다. 실패한 디스크를 wake 후 재마운트 대상으로 보던 상태 혼선을 줄였다.
+- **`hdiutil info -plist` timeout 추가**: mounted disk image(DMG/CoreSimulator) 필터링 중 `hdiutil` 이 멈추면 sleep 추출 task(작업)가 끝나지 않아 wake 후 재마운트 대상이 기록되지 않는 문제가 있었다. `hdiutil` 에 1초 timeout 을 추가하고, 실패 시 `diskutil info` 의 `BusProtocol == "Disk Image"` 및 CoreSimulator mount path(마운트 경로) 기반 fallback 으로 disk image 를 제외한다.
+- **clamshell(뚜껑 닫힘) pre-eject 추가**: clamshell state change(뚜껑 상태 변경) 를 관찰해 lid close(뚜껑 닫기) 시 sleep 여부와 별개로 sleep 추출 task 를 먼저 시작한다. 이후 system sleep 알림이 오면 같은 task 에 join 한다.
 - **logout/restart/shutdown 전 자동 추출은 default OFF**: 구현 코드는 남겨두되 `powerOffAutoEjectEnabled = false` 로 게이트(gate = 차단 조건)를 닫았다. macOS 종료 과정이 원래 볼륨 정리를 시도하고, 현재 제품 가치가 낮아 사용자 노출 기능으로 켜지 않는다.
 - **다국어 키 증가**: `Localizable.xcstrings` 는 41개에서 73개 키로 증가했다.
 
@@ -49,10 +59,12 @@
 | Release build (`/tmp/EjectDrives-async-menu-release`) | 성공 |
 | Debug build (`/tmp/EjectDrives-refresh-fix-debug`) | 성공 |
 | Release build (`/tmp/EjectDrives-refresh-fix-release`) | 성공 |
+| Debug build (2026-05-10 sleep/remount fixes) | 성공 |
 | `codesign -d --entitlements` | sandbox entitlement 없음 (`get-task-allow` 만 존재) |
 | Developer ID signing(개발자 ID 서명) | timestamp 포함 서명 zip 생성 가능 확인. `spctl` 은 notarization 미완료 상태라 `Unnotarized Developer ID` 로 reject |
 | `diskutil list -plist external` | 정상 |
 | `hdiutil info -plist` | 정상 |
+| `sample <EjectDrives PID>` | sleep task 가 `hdiutil info -plist` 무제한 대기 중인 call stack 확인 후 timeout 수정 |
 | `diskutil mountDisk disk7/disk8` | 이미 마운트된 상태에서 success |
 | `lsof -Fpcfn` 출력 형태 | parser(파서) 입력 형식 확인 |
 | `jq empty Localizable.xcstrings` | 성공 |
@@ -60,12 +72,14 @@
 | 메뉴 생성 시간 | stale cache 상태에서도 먼저 `0.013~0.014s` 에 메뉴 표시, background refresh 완료 후 `0.008s` 로 재구성 |
 | SD card 추출 후 stale cache 복구 | 기존 stuck 실행본에서 CPU 약 200% 및 `refreshing=true` 지속 확인. 수정 빌드 재시작 후 `DiskMenuSnapshot.load: 2.550s drives=["SSD_W", "SYSJO"] refreshError=-`, CPU `0.0%` 확인 |
 | 로그인 항목 메뉴 상태 | `.requiresApproval` 상태에서 `✓ 로그인 시 자동 실행 (로그인 항목 허용 필요)` 표시 |
+| 앱 재시작 후 디스크 인식 | `SYSJO` 정상 인식 (`DiskMenuSnapshot.load ... drives=["SYSJO"]`) |
 
 ### 남은 이슈
 
 - 실제 `diskutil eject` / `unmount force` 는 사용자 디스크를 건드리므로 자동 검증하지 않았다.
+- 실제 뚜껑 닫기 / display sleep / "추출하고 잠자기" 의 `DA volume force unmount first` 로그와 wake 후 `remount START` 는 실제 외장 디스크 연결 상태에서 반복 검증이 남아 있다.
 - 실제 점유 앱이 있는 외장 디스크에서 `lsof` 진단 알림은 수동 검증이 남아 있다.
-- "추출하고 잠자기"는 빌드 검증까지 완료. 실제 sleep 진입은 현재 작업 세션 보호를 위해 수동 검증하지 않았다.
+- "추출하고 잠자기"는 빌드 검증까지 완료. 실제 sleep 진입은 현재 작업 세션 보호를 위해 제한적으로만 확인했다.
 - logout/restart/shutdown 전 자동 추출은 default OFF. 사용자 증거가 쌓일 때만 다시 켠다.
 - App Store 재도전은 `diskutil` 없이 동등한 mount/eject 안정성을 확보할 때만 검토한다.
 - Notarization(공증)은 Apple notary credential(공증 자격 증명) 등록 전까지 완료할 수 없다.

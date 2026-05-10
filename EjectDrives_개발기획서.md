@@ -8,6 +8,8 @@
 ---
 
 > 2026-05-07 업데이트: Mac App Store 단일 배포와 sandbox 호환 구현은 현재 유효하지 않다. `DADiskMount` / `DADiskUnmount` / `SMAppService.daemon` 조합으로 mount 안정성을 확보하지 못해, 현재 제품 방향은 개인 사용 및 향후 Developer ID 배포 검토로 변경됐다. 핵심 디스크 작업은 `diskutil mountDisk`, `diskutil eject`, 실패 시 `diskutil unmount force`, `diskutil list -plist external`, `diskutil info -plist`, `hdiutil info -plist` 를 사용한다.
+>
+> 2026-05-10 업데이트: sleep(잠자기) / display sleep(화면 꺼짐) / "추출하고 잠자기" 는 `Disk Arbitration API` 의 `DADiskUnmount(force)` 를 volume-first(볼륨 우선) 로 병렬 시도한 뒤 `diskutil` fallback 으로 내려간다. IOKit power notification(전원 알림) 으로 sleep 을 잠깐 지연하고, 성공한 디스크만 wake/remount(깨움/재마운트) 대상으로 기록한다.
 
 # Part 1. 개발 기획서 (Specification)
 
@@ -107,10 +109,10 @@
 > **무료/유료 분리 (확정)** — 아래 모든 기능 v1.0 무료 포함. **유료 = 캐릭터 애니메이션 / 사운드 팩 등 cosmetic IAP**, 기능 잠금 없음. IAP 도입은 v1.0 출시 후 2~3개월.
 
 **자동화**
-- [P1] ✅ 잠자기 진입 시 모든 외장 드라이브 자동 추출 (v0.2.0+)
+- [P1] ✅ 잠자기 진입 시 모든 외장 드라이브 자동 추출 (v0.2.0+). 2026-05-10 기준 IOKit sleep delay(잠자기 지연) + `DADiskUnmount(force)` volume-first 경로 사용
 - [P2] 단축키 — `⌥⌘E` (추출) + `⌃⌘E` (마운트) ✅ 구현됨. 4가지 프리셋은 환경설정 창 도입 시점에 검토.
 - [P3] ✅ 로그인 시 자동 실행 (`SMAppService.mainApp`, 메뉴 토글)
-- [P12] ✅ "추출하고 잠자기" 메뉴 항목 — 전체 추출 성공 시에만 `pmset sleepnow`
+- [P12] ✅ "추출하고 잠자기" 메뉴 항목 — volume-first force unmount(볼륨 우선 강제 마운트 해제) 후 전체 추출 성공 시에만 `pmset sleepnow`
 - [P13] 보류: logout/restart/shutdown 전 자동 추출 — 구현 코드 존재, 현재 `powerOffAutoEjectEnabled = false`
 
 **안전 (Jettison 비교 후 추가)**
@@ -163,8 +165,8 @@
 
 | 기능 | API/프레임워크 |
 |---|---|
-| 드라이브 감지·추출 | 현재 구현: `diskutil` / `hdiutil` / `lsof` 직접 실행. App Store 재도전 후보: `DiskArbitration.framework` |
-| 잠자기 감지 | `NSWorkspace.willSleepNotification` |
+| 드라이브 감지·추출 | 현재 구현: 수동 경로는 `diskutil` / `hdiutil` / `lsof` 직접 실행. sleep 계열 경로는 `DiskArbitration.framework` 의 `DADiskUnmount(force)` 를 먼저 쓰고 `diskutil` fallback |
+| 잠자기 감지 | IOKit power notification(전원 알림) + clamshell state(뚜껑 상태) observer + `NSWorkspace.willSleepNotification` fallback |
 | 전역 단축키 | `Carbon.HIToolbox` (RegisterEventHotKey) |
 | 로그인 자동 실행 | `ServiceManagement.SMAppService` (macOS 13+) |
 | 결제(IAP) | `StoreKit 2` |
