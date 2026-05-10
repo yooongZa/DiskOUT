@@ -511,6 +511,83 @@
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Unmounted drives" } },
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 안 된 외장" } }
       }
+    },
+    "About" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "About" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "정보" } }
+      }
+    },
+    "Allow Accessibility for global hotkeys" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow Accessibility for global hotkeys" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "전역 단축키를 위해 손쉬운 사용 권한 허용 필요" } }
+      }
+    },
+    "Allow notifications to see eject results" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow notifications to see eject results" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 결과 알림을 보려면 알림 권한 허용 필요" } }
+      }
+    },
+    "Eject and Mount can't share the same shortcut. %@ was moved to a different preset." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject and Mount can't share the same shortcut. %@ was moved to a different preset." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출과 마운트는 같은 단축키를 쓸 수 없음. %@ 단축키를 다른 preset 으로 이동함." } }
+      }
+    },
+    "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "'추출하고 잠자기' 는 모두 추출/모두 마운트와 같은 단축키를 쓸 수 없음. 다른 preset 선택." } }
+      }
+    },
+    "Hotkey conflict" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hotkey conflict" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "단축키 충돌" } }
+      }
+    },
+    "Notifications are silent by design — no sound. Look for the menu bar icon for results." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Notifications are silent by design — no sound. Look for the menu bar icon for results." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "알림은 의도적으로 무음 — 결과는 메뉴바 아이콘으로 확인하세요." } }
+      }
+    },
+    "Off" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Off" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "사용 안 함" } }
+      }
+    },
+    "Quit EjectDrives" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit EjectDrives" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "EjectDrives 종료" } }
+      }
+    },
+    "Right-click menu bar icon to eject all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Right-click menu bar icon to eject all" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "메뉴바 아이콘 우클릭 = 모두 추출" } }
+      }
+    },
+    "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "끄면 우클릭(과 ctrl+클릭)이 추출 대신 메뉴를 띄움. 실수 우클릭으로 외장이 빠지는 사고 방지용." } }
+      }
     }
   },
   "version" : "1.0"

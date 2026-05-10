@@ -46,14 +46,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// flashIcon 호출 시 +1, reset 시점에 같은 값이면 그대로 reset, 다르면 skip.
     /// setPersistentIcon / resetIcon 도 +1 해서 진행중인 reset 무효화.
     private var iconFlashGeneration: Int = 0
+    /// 자동 추출 / wake remount 관련 state — `sleepEjectQueue` 와 main thread 양쪽에서 접근하므로
+    /// 반드시 `autoEjectStateLock` 으로 감싼다. 직접 storage 는 _ prefix, public 접근은 computed
+    /// property 로 lock 자동 적용.
+    private let autoEjectStateLock = NSLock()
     /// 자동(lid-close) 추출된 disk BSD names — wake 시 재마운트 대상.
     /// 수동 추출(단축키/메뉴)은 여기 안 들어감 — 사용자 의도 존중.
-    private var autoEjectedDisks: Set<String> = []
+    private var _autoEjectedDisks: Set<String> = []
+    private var autoEjectedDisks: Set<String> {
+        get { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; return _autoEjectedDisks }
+        set { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; _autoEjectedDisks = newValue }
+    }
     /// 자동 추출부터 wake/remount 까지 같은 사건을 묶는 진단용 ID.
-    private var autoEjectOperationID: String?
-    private var autoEjectOperationReason: String?
+    private var _autoEjectOperationID: String?
+    private var autoEjectOperationID: String? {
+        get { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; return _autoEjectOperationID }
+        set { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; _autoEjectOperationID = newValue }
+    }
+    private var _autoEjectOperationReason: String?
+    private var autoEjectOperationReason: String? {
+        get { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; return _autoEjectOperationReason }
+        set { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; _autoEjectOperationReason = newValue }
+    }
     /// `Eject and Sleep` 이 이미 추출한 직후 들어오는 willSleep 중복 자동 추출 방지.
-    private var skipSleepAutoEjectUntil: Date?
+    private var _skipSleepAutoEjectUntil: Date?
+    private var skipSleepAutoEjectUntil: Date? {
+        get { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; return _skipSleepAutoEjectUntil }
+        set { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; _skipSleepAutoEjectUntil = newValue }
+    }
     private var powerRootPort: io_connect_t = 0
     private var powerNotifyPort: IONotificationPortRef?
     private var powerNotifier: io_object_t = 0
@@ -79,6 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         img?.isTemplate = true
         return img
     }()
+    /// 마지막으로 확인한 알림 권한 상태. `getNotificationSettings` 가 비동기라 메뉴에서
+    /// 동기 표시할 수 없어 캐싱. launch / menu 열 때 background refresh.
+    private var lastKnownNotificationStatus: UNAuthorizationStatus = .notDetermined
 
     // MARK: - Lifecycle
 
@@ -92,11 +115,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 log.notice("requestAuthorization: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
             }
 
-            // 권한 상태 진단
-            center.getNotificationSettings { settings in
+            // 권한 상태 진단 + 메뉴 표시용 캐싱
+            center.getNotificationSettings { [weak self] settings in
                 log.notice("notif settings: authStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alert=\(settings.alertSetting.rawValue, privacy: .public) center=\(settings.notificationCenterSetting.rawValue, privacy: .public)")
                 // authStatus: 0=notDetermined 1=denied 2=authorized 3=provisional 4=ephemeral
                 // alert/center: 0=notSupported 1=disabled 2=enabled
+                DispatchQueue.main.async {
+                    self?.lastKnownNotificationStatus = settings.authorizationStatus
+                }
             }
         }
 
@@ -128,6 +154,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             // .leftMouseDown/.rightMouseDown 으로 down 시점에 발화 (메뉴 표시 timing 일치).
             button.sendAction(on: [.leftMouseDown, .rightMouseDown])
             (button.cell as? NSButtonCell)?.sendAction(on: [.leftMouseDown, .rightMouseDown])
+
+            // macOS 26 워크어라운드: NSStatusBarWindow 의 height=0 갇힘 방지.
+            // WindowServer 에 등록 안 되거나 frame 이 0 으로 갇히는 케이스에서 메뉴바 아이콘이
+            // 표시 안 됨. setFrame + orderFrontRegardless 로 강제 등록 + frame 보장.
+            // (이 두 줄이 빠지면 일부 환경에서 메뉴바 아이콘 자체가 안 보임 — 자세한 내용은 README 참조)
+            if let win = button.window {
+                let thickness = NSStatusBar.system.thickness
+                win.setFrame(NSRect(x: 0, y: 0, width: 32, height: thickness),
+                             display: true, animate: false)
+                win.orderFrontRegardless()
+            }
         }
     }
 
@@ -151,13 +188,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             && (event?.modifierFlags.contains(.control) ?? false)
 
         if isRightClick || isCtrlLeftClick {
-            log.info("RIGHTCLICK on status item")
+            log.info("RIGHTCLICK on status item enabled=\(SettingsStore.rightClickEjectEnabled, privacy: .public)")
+            // 사용자가 우클릭=즉시추출을 끈 경우엔 메뉴를 띄운다 (좌클릭과 동일 동작).
+            // 실수 우클릭으로 작업 중인 외장이 한꺼번에 빠지는 사고 방지.
+            guard SettingsStore.rightClickEjectEnabled else {
+                showStatusMenu()
+                return
+            }
             flashIcon(symbol: "hand.tap.fill", duration: 0.3)
             ejectAll(caller: "rightclick")
             return
         }
 
-        // 좌클릭 → 메뉴 표시 (임시로 menu set 해서 popup, 닫히면 nil 로 복원)
+        showStatusMenu()
+    }
+
+    /// 메뉴바 아이콘 클릭 시 임시 menu 부착 → popup → 닫히면 nil 복원.
+    /// (status item 의 menu 를 영구 set 하면 좌클릭 = action handler 가 아닌 menu popup 으로 변해
+    ///  우클릭 분기 등 커스텀 처리가 안 됨 — 그래서 임시 부착 패턴 유지.)
+    private func showStatusMenu() {
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
@@ -170,6 +219,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // MARK: - Menu
 
     func menuWillOpen(_ menu: NSMenu) {
+        // 권한 상태 background refresh — 결과는 다음번 메뉴 열 때 반영.
+        if SettingsStore.notificationsEnabled {
+            UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+                DispatchQueue.main.async {
+                    self?.lastKnownNotificationStatus = settings.authorizationStatus
+                }
+            }
+        }
         let state = DiskMenuSnapshotCache.currentForMenu { [weak self, weak menu] snapshot in
             DispatchQueue.main.async {
                 guard let self, let menu else { return }
@@ -179,12 +236,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         populateMenu(menu, snapshot: state.snapshot, isRefreshing: state.isRefreshing)
     }
 
+    /// Accessibility 권한 — global hotkey 동작 필수. prompt 없는 동기 체크.
+    private var isAccessibilityTrusted: Bool {
+        AXIsProcessTrustedWithOptions([
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false
+        ] as CFDictionary)
+    }
+
+    /// 메뉴 상단에 표시할 권한 경고 항목들. 빈 배열이면 표시 안 함.
+    private func permissionWarnings() -> [(title: String, action: Selector)] {
+        var warnings: [(String, Selector)] = []
+        if !isAccessibilityTrusted {
+            warnings.append((String(localized: "Allow Accessibility for global hotkeys"),
+                             #selector(openAccessibilitySettings)))
+        }
+        if SettingsStore.notificationsEnabled,
+           lastKnownNotificationStatus == .denied {
+            warnings.append((String(localized: "Allow notifications to see eject results"),
+                             #selector(openNotificationSettings)))
+        }
+        return warnings
+    }
+
+    @objc private func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openLoginItemSettings() {
+        LoginItem.openSystemSettings()
+    }
+
     private func populateMenu(_ menu: NSMenu, snapshot: DiskMenuSnapshot, isRefreshing: Bool) {
         let started = Date()
         // 메뉴 열면 추출 결과 아이콘 reset — 사용자가 결과 확인했다고 간주
         resetIcon()
 
         menu.removeAllItems()
+
+        // 권한 누락 경고 — 클릭 시 시스템 설정의 해당 페이지로 이동.
+        // 자주 보이지 않게 (사용자가 거부했으면 매번 권유하기보다 메뉴 상단에 조용히 표시).
+        let warnings = permissionWarnings()
+        for warning in warnings {
+            let item = NSMenuItem(title: warning.title, action: warning.action, keyEquivalent: "")
+            item.target = self
+            item.image = menuSymbol("exclamationmark.triangle.fill", fallback: "exclamationmark.triangle")
+            menu.addItem(item)
+        }
+        if !warnings.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+        }
 
         let drives = snapshot.drives
 
@@ -288,6 +396,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         menu.addItem(NSMenuItem.separator())
 
+        // 메뉴에는 자주 토글하는 핵심 옵션만 둔다. display sleep / Music·Photos 자동 종료 /
+        // 로그인 자동 실행은 한 번 설정하고 끝나는 항목이라 환경설정 창 (Settings...) 으로 이동.
+        // 양쪽에 같은 토글이 있으면 어디서 켰는지 사용자가 헷갈림.
         let toggle = NSMenuItem(title: String(localized: "Eject on sleep"),
                                 action: #selector(toggleSleepEject),
                                 keyEquivalent: "")
@@ -295,40 +406,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         toggle.state = SleepEject.enabled ? .on : .off
         menu.addItem(toggle)
 
-        let toggleDisp = NSMenuItem(title: String(localized: "Eject on display sleep (experimental)"),
-                                    action: #selector(toggleDisplaySleepEject),
-                                    keyEquivalent: "")
-        toggleDisp.target = self
-        toggleDisp.state = DisplaySleepEject.enabled ? .on : .off
-        toggleDisp.toolTip = String(localized: "Eject on display sleep tooltip")
-        menu.addItem(toggleDisp)
-
-        // 외장 라이브러리 앱 자동 종료 — Music / Photos 가 외장 라이브러리 lock 잡고 있으면
-        // 추출 실패. 옵션 ON 이면 sleep 직전 quit, wake 후 relaunch.
-        let toggleLib = NSMenuItem(title: String(localized: "Quit Music/Photos before sleep"),
-                                   action: #selector(toggleLibraryAppManagement),
-                                   keyEquivalent: "")
-        toggleLib.target = self
-        toggleLib.state = LibraryAppManagement.enabled ? .on : .off
-        toggleLib.toolTip = String(localized: "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives.")
-        menu.addItem(toggleLib)
-
-        // 로그인 시 자동 실행 — SMAppService.mainApp 으로 시스템 로그인 항목 등록.
-        // status 가 .requiresApproval 이면 시스템 설정에서 사용자가 직접 허용해야 함.
-        let loginItemStatus = LoginItem.status
-        let needsLoginApproval = loginItemStatus == .requiresApproval
-        let loginTitle = needsLoginApproval
-            ? "\(String(localized: "Launch at login")) (\(String(localized: "Login item needs approval")))"
-            : String(localized: "Launch at login")
-        let loginToggle = NSMenuItem(title: loginTitle,
-                                     action: #selector(toggleLoginItem),
+        // requiresApproval 인 경우만 메뉴에서 경고 표시 — 사용자가 모르는 사이 로그인 자동 실행이
+        // 막혀 있는 상황을 알아챌 수 있도록.
+        if LoginItem.status == .requiresApproval {
+            let approve = NSMenuItem(title: String(localized: "Login item needs approval"),
+                                     action: #selector(openLoginItemSettings),
                                      keyEquivalent: "")
-        loginToggle.target = self
-        loginToggle.state = (loginItemStatus == .enabled || needsLoginApproval) ? .on : .off
-        if needsLoginApproval {
-            loginToggle.toolTip = String(localized: "Approve in System Settings → General → Login Items")
+            approve.target = self
+            approve.image = menuSymbol("exclamationmark.triangle.fill", fallback: "exclamationmark.triangle")
+            approve.toolTip = String(localized: "Approve in System Settings → General → Login Items")
+            menu.addItem(approve)
         }
-        menu.addItem(loginToggle)
 
         // 자동 추출 제외 디스크 submenu — 식별 가능한 (UUID 있는) 디스크가 1개 이상일 때만 노출.
         // submenu 안에 디스크 별 토글 — 사용자가 디스크 항목 클릭 = 추출 (1단계) 보장하면서
@@ -363,7 +451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         settings.image = menuSymbol("gearshape", fallback: "gear")
         menu.addItem(settings)
 
-        let quit = NSMenuItem(title: String(localized: "Quit"),
+        let quit = NSMenuItem(title: String(localized: "Quit EjectDrives"),
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
         menu.addItem(quit)
@@ -377,11 +465,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("SleepEject toggled → \(SleepEject.enabled, privacy: .public)")
     }
 
-    @objc private func toggleDisplaySleepEject() {
-        DisplaySleepEject.enabled.toggle()
-        log.info("DisplaySleepEject toggled → \(DisplaySleepEject.enabled, privacy: .public)")
-    }
-
     /// 디스크별 *"자동 추출 제외"* 토글. representedObject = Volume UUID.
     @objc private func toggleExcludeVolume(_ sender: NSMenuItem) {
         guard let uuid = sender.representedObject as? String else { return }
@@ -389,16 +472,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("ExcludedVolumes toggled \(uuid, privacy: .public) → excluded=\(ExcludedVolumes.isExcluded(uuid), privacy: .public)")
     }
 
-    /// 외장 라이브러리 앱 (Music / Photos) 자동 종료 토글.
-    @objc private func toggleLibraryAppManagement() {
-        LibraryAppManagement.enabled.toggle()
-        log.info("LibraryAppManagement toggled → \(LibraryAppManagement.enabled, privacy: .public)")
-    }
-
     @objc private func showSettingsWindow(_ sender: Any?) {
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController(onHotkeyChanged: { [weak self] in
                 self?.installHotkey()
+            }, onClosed: { [weak self] in
+                // 창 닫히면 controller 해제 — 다음번 ⌘, 시 fresh state 로 다시 띄움.
+                self?.settingsWindowController = nil
             })
         }
         settingsWindowController?.show()
@@ -417,43 +497,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             notify(title: String(localized: "Time Machine drive protected"),
                    body: String(localized: "\"\(drive.name)\" is excluded from auto-eject. Toggle in the menu if you want it ejected on sleep."),
                    archived: true)
-        }
-    }
-
-    /// 로그인 항목 등록/해제 토글. requiresApproval 상태면 시스템 설정 직접 열어줌.
-    @objc private func toggleLoginItem() {
-        let before = LoginItem.status
-        log.info("LoginItem toggle: status before = \(before.rawValue, privacy: .public)")
-
-        // 사용자가 시스템 설정에서 허용 안 한 상태에서 토글하면 → 시스템 설정 열어줌
-        if before == .requiresApproval {
-            LoginItem.openSystemSettings()
-            log.notice("LoginItem: opened System Settings (requiresApproval)")
-            return
-        }
-
-        do {
-            if before == .enabled {
-                try LoginItem.unregister()
-                log.notice("LoginItem: unregistered")
-            } else {
-                try LoginItem.register()
-                log.notice("LoginItem: registered (status now = \(LoginItem.status.rawValue, privacy: .public))")
-                // register 직후 status 가 requiresApproval 이면 시스템 설정 안내
-                if LoginItem.status == .requiresApproval {
-                    notify(title: String(localized: "Login item needs approval"),
-                           body: String(localized: "Toggle EjectDrives on in System Settings → Login Items."),
-                           archived: true,
-                           kind: .failure)
-                    LoginItem.openSystemSettings()
-                }
-            }
-        } catch {
-            log.error("LoginItem toggle failed: \(error.localizedDescription, privacy: .public)")
-            notify(title: String(localized: "Couldn't update launch-at-login"),
-                   body: error.localizedDescription,
-                   archived: true,
-                   kind: .failure)
         }
     }
 
@@ -485,6 +528,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 메뉴바 아이콘을 영구 변경 (메뉴 열 때 또는 다음 추출 시작 시까지 유지).
     /// 추출 결과 표시용 — sleep 중 추출 후 wake 했을 때 사용자가 결과 확인 가능.
     /// lastResultSymbol 에도 저장 — wake 시 macOS 가 view redraw 하면서 reset 되는 것 복원용.
+    /// 5분간 메뉴를 열지 않으면 자동으로 default 아이콘으로 복귀 — 결과 아이콘이 며칠씩
+    /// 메뉴바에 남아 거슬리는 것 방지.
     private func setPersistentIcon(symbol: String) {
         lastResultSymbol = symbol
         log.info("setPersistentIcon: \(symbol, privacy: .public)")
@@ -497,6 +542,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             img.isTemplate = true
             button.image = img
             self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
+            let myGen = self.iconFlashGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+                guard let self = self, self.iconFlashGeneration == myGen else { return }
+                self.resetIcon()
+            }
         }
     }
 
@@ -1764,7 +1814,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     /// 한 BSD 디스크에 대해 지정된 delays(초) 간격으로 mountDisk 재시도.
-    /// 각 시도마다 먼저 `diskutil info` 로 enumerate 여부 확인 — 분리 의도 감지.
+    /// 각 시도마다 IORegistry 직접 enumerate 검사 — 분리 의도 감지 + `diskutil info` 호출 회피
+    /// (info 호출당 수백 ms 소요 → wake 직후 사용자 체감 지연 누적).
     /// 첫 시도 delay=0 즉시. 이후 1, 3, 7s 백오프 (USB 재인식 시간 확보).
     /// 이미 마운트된 디스크에 호출되면 idempotent (no-op success).
     private func tryRemount(bsd: String, delays: [Int], operationID: String? = nil) -> RemountOutcome {
@@ -1778,9 +1829,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 Thread.sleep(forTimeInterval: TimeInterval(delay))
             }
 
-            // 1) 디스크가 시스템에 보이나? — diskutil info 로 enumerate 여부 확인.
-            //    실패하면 사용자 분리 또는 OS 재인식 지연으로 간주.
-            guard runDiskutil(["info", bsd], operationID: operationID).success else {
+            // 1) 디스크가 시스템에 보이나? — IORegistry 직접 검사 (process spawn 없음).
+            guard ioRegistryHasBSDDisk(bsd) else {
                 log.notice("cycle \(operation, privacy: .public) remount attempt \(i + 1, privacy: .public)/\(delays.count, privacy: .public): \(bsd, privacy: .public) not enumerated — wait for re-detection")
                 continue
             }
@@ -1802,6 +1852,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         log.error("cycle \(operation, privacy: .public) ✗ remount FAIL: \(bsd, privacy: .public) — enumerate OK but mount failed all \(delays.count, privacy: .public) attempts")
         return .mountFailed(lastMountError ?? "unknown")
+    }
+
+    /// IORegistry 에 주어진 BSD name 의 IOMedia 가 enumerate 되어 있는지. `diskutil info`
+    /// process spawn 보다 1~2 자릿수 빠르다.
+    private func ioRegistryHasBSDDisk(_ bsd: String) -> Bool {
+        guard let matching = IOServiceMatching("IOMedia") else { return false }
+        let dict = matching as NSMutableDictionary
+        dict["BSD Name"] = bsd
+        var iter: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iter) == KERN_SUCCESS else {
+            return false
+        }
+        defer { IOObjectRelease(iter) }
+        let svc = IOIteratorNext(iter)
+        if svc != 0 { IOObjectRelease(svc); return true }
+        return false
     }
 
     // MARK: - Notifications
@@ -1867,6 +1933,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         ] as CFDictionary)
         log.notice("Accessibility trusted = \(trusted, privacy: .public)")
 
+        // 저장된 설정이 어떤 경위로 같은 preset 두 개를 갖게 되었으면 시작 시 자동 정정.
+        // (구버전 → 신버전 마이그레이션, defaults 직접 편집 등)
+        if SettingsStore.ejectHotkey == SettingsStore.mountHotkey {
+            let original = SettingsStore.mountHotkey
+            let replacement = SettingsHotkeyPreset.allCases.first(where: { $0 != original }) ?? original
+            SettingsStore.mountHotkey = replacement
+            log.notice("hotkey conflict detected at startup: mount moved \(original.title, privacy: .public) → \(replacement.title, privacy: .public)")
+        }
+
         let ejectHotkey = SettingsStore.ejectHotkey
         let mountHotkey = SettingsStore.mountHotkey
         log.notice("hotkeys: eject=\(ejectHotkey.title, privacy: .public) mount=\(mountHotkey.title, privacy: .public)")
@@ -1886,20 +1961,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private func handleHotkey(_ event: NSEvent, scope: String) -> Bool {
         guard event.keyCode == SettingsStore.ejectHotkey.keyCode else { return false }
+        // 키 누름 유지로 인한 자동 반복 이벤트 무시 — 디바운스 1.5s 가 있긴 하지만 첫 한두 번이
+        // 통과해 결과 알림이 두 번 뜨는 경우 방지. 사용자 의도는 한 번 누름 = 한 번 실행.
+        guard !event.isARepeat else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .help, .capsLock])
 
         if flags == SettingsStore.ejectHotkey.flags {
-            log.info("HOTKEY \(scope, privacy: .public) eject fired (isARepeat=\(event.isARepeat, privacy: .public))")
+            log.info("HOTKEY \(scope, privacy: .public) eject fired")
             flashIcon(symbol: "bolt.fill", duration: 0.3)
             DispatchQueue.main.async { [weak self] in self?.ejectAll(caller: "hotkey-\(scope.lowercased())") }
             return true
         }
 
         if flags == SettingsStore.mountHotkey.flags {
-            log.info("HOTKEY \(scope, privacy: .public) mount fired (isARepeat=\(event.isARepeat, privacy: .public))")
+            log.info("HOTKEY \(scope, privacy: .public) mount fired")
             flashIcon(symbol: "arrow.down.circle", duration: 0.3)
             DispatchQueue.main.async { [weak self] in self?.mountAll(caller: "hotkey-\(scope.lowercased())") }
+            return true
+        }
+
+        if let preset = SettingsStore.ejectAndSleepHotkey, flags == preset.flags {
+            log.info("HOTKEY \(scope, privacy: .public) eject-and-sleep fired")
+            flashIcon(symbol: "moon.zzz.fill", duration: 0.3)
+            DispatchQueue.main.async { [weak self] in self?.ejectAndSleep(caller: "hotkey-\(scope.lowercased())") }
             return true
         }
 
@@ -1978,6 +2063,8 @@ private enum SettingsStore {
         static let forceFallbackEnabled = "settings.eject.forceFallback.enabled"
         static let ejectHotkey = "settings.hotkey.eject"
         static let mountHotkey = "settings.hotkey.mount"
+        static let ejectAndSleepHotkey = "settings.hotkey.ejectAndSleep"
+        static let rightClickEjectEnabled = "settings.statusItem.rightClickEject.enabled"
     }
 
     private static func bool(for key: String, default defaultValue: Bool) -> Bool {
@@ -2005,6 +2092,13 @@ private enum SettingsStore {
         set { UserDefaults.standard.set(newValue, forKey: Key.forceFallbackEnabled) }
     }
 
+    /// 메뉴바 아이콘 우클릭(또는 ctrl+좌클릭) 시 즉시 모두 추출. default ON (기존 동작 유지).
+    /// OFF 면 우클릭도 메뉴를 띄움 — 실수로 작업 중인 외장이 빠지는 사고 방지용 opt-out.
+    static var rightClickEjectEnabled: Bool {
+        get { bool(for: Key.rightClickEjectEnabled, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.rightClickEjectEnabled) }
+    }
+
     static var ejectHotkey: SettingsHotkeyPreset {
         get {
             guard let raw = UserDefaults.standard.string(forKey: Key.ejectHotkey),
@@ -2026,10 +2120,29 @@ private enum SettingsStore {
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: Key.mountHotkey) }
     }
+
+    /// "추출하고 잠자기" 전역 단축키. nil 이면 단축키 없음 (메뉴에서만 호출).
+    /// 충돌 위험 + 사용 빈도 미상이라 default = nil.
+    static var ejectAndSleepHotkey: SettingsHotkeyPreset? {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: Key.ejectAndSleepHotkey) else {
+                return nil
+            }
+            return SettingsHotkeyPreset(rawValue: raw)
+        }
+        set {
+            if let preset = newValue {
+                UserDefaults.standard.set(preset.rawValue, forKey: Key.ejectAndSleepHotkey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Key.ejectAndSleepHotkey)
+            }
+        }
+    }
 }
 
-private final class SettingsWindowController: NSWindowController {
+private final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let onHotkeyChanged: () -> Void
+    private let onClosed: () -> Void
 
     private var loginToggle: NSButton!
     private var sleepToggle: NSButton!
@@ -2039,11 +2152,14 @@ private final class SettingsWindowController: NSWindowController {
     private var successNotificationsToggle: NSButton!
     private var failureNotificationsToggle: NSButton!
     private var forceFallbackToggle: NSButton!
+    private var rightClickEjectToggle: NSButton!
     private var ejectHotkeyPopup: NSPopUpButton!
     private var mountHotkeyPopup: NSPopUpButton!
+    private var ejectAndSleepHotkeyPopup: NSPopUpButton!
 
-    init(onHotkeyChanged: @escaping () -> Void) {
+    init(onHotkeyChanged: @escaping () -> Void, onClosed: @escaping () -> Void) {
         self.onHotkeyChanged = onHotkeyChanged
+        self.onClosed = onClosed
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 360),
                               styleMask: [.titled, .closable],
                               backing: .buffered,
@@ -2051,9 +2167,14 @@ private final class SettingsWindowController: NSWindowController {
         window.title = String(localized: "Settings")
         window.isReleasedWhenClosed = false
         super.init(window: window)
+        window.delegate = self
         window.contentView = makeContentView()
         window.center()
         refreshControls()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClosed()
     }
 
     required init?(coder: NSCoder) {
@@ -2074,6 +2195,7 @@ private final class SettingsWindowController: NSWindowController {
         tabView.addTabViewItem(tab(label: String(localized: "Hotkeys"), view: makeHotkeysView()))
         tabView.addTabViewItem(tab(label: String(localized: "Notifications"), view: makeNotificationsView()))
         tabView.addTabViewItem(tab(label: String(localized: "Eject Behavior"), view: makeEjectBehaviorView()))
+        tabView.addTabViewItem(tab(label: String(localized: "About"), view: makeAboutView()))
 
         let container = NSView()
         container.addSubview(tabView)
@@ -2104,9 +2226,11 @@ private final class SettingsWindowController: NSWindowController {
     private func makeHotkeysView() -> NSView {
         ejectHotkeyPopup = hotkeyPopup(action: #selector(ejectHotkeyChanged(_:)))
         mountHotkeyPopup = hotkeyPopup(action: #selector(mountHotkeyChanged(_:)))
+        ejectAndSleepHotkeyPopup = optionalHotkeyPopup(action: #selector(ejectAndSleepHotkeyChanged(_:)))
         return tabStack([
             formRow(label: String(localized: "Eject all"), control: ejectHotkeyPopup),
-            formRow(label: String(localized: "Mount all"), control: mountHotkeyPopup)
+            formRow(label: String(localized: "Mount all"), control: mountHotkeyPopup),
+            formRow(label: String(localized: "Eject and Sleep"), control: ejectAndSleepHotkeyPopup)
         ])
     }
 
@@ -2119,7 +2243,28 @@ private final class SettingsWindowController: NSWindowController {
 
     private func makeEjectBehaviorView() -> NSView {
         forceFallbackToggle = checkbox(title: String(localized: "Force fallback"), action: #selector(toggleForceFallback(_:)))
-        return tabStack([forceFallbackToggle])
+        rightClickEjectToggle = checkbox(title: String(localized: "Right-click menu bar icon to eject all"),
+                                         action: #selector(toggleRightClickEject(_:)))
+        rightClickEjectToggle.toolTip = String(localized: "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives.")
+        return tabStack([forceFallbackToggle, rightClickEjectToggle])
+    }
+
+    private func makeAboutView() -> NSView {
+        let info = Bundle.main.infoDictionary
+        let version = (info?["CFBundleShortVersionString"] as? String) ?? "?"
+        let build = (info?["CFBundleVersion"] as? String) ?? "?"
+        let copyright = (info?["NSHumanReadableCopyright"] as? String) ?? "EjectDrives by yongZa"
+
+        let title = NSTextField(labelWithString: "EjectDrives")
+        title.font = .boldSystemFont(ofSize: 18)
+        let versionLabel = NSTextField(labelWithString: "v\(version) (build \(build))")
+        let copyrightLabel = NSTextField(labelWithString: copyright)
+        copyrightLabel.textColor = .secondaryLabelColor
+        let hint = NSTextField(wrappingLabelWithString: String(localized: "Notifications are silent by design — no sound. Look for the menu bar icon for results."))
+        hint.textColor = .secondaryLabelColor
+        hint.font = .systemFont(ofSize: 11)
+
+        return tabStack([title, versionLabel, copyrightLabel, hint])
     }
 
     private func checkbox(title: String, action: Selector) -> NSButton {
@@ -2128,6 +2273,20 @@ private final class SettingsWindowController: NSWindowController {
 
     private func hotkeyPopup(action: Selector) -> NSPopUpButton {
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for preset in SettingsHotkeyPreset.allCases {
+            popup.addItem(withTitle: preset.title)
+        }
+        popup.target = self
+        popup.action = action
+        popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+        return popup
+    }
+
+    /// "Off" 옵션이 첫 번째 항목으로 들어간 popup. index 0 = nil (단축키 없음),
+    /// index 1+ = SettingsHotkeyPreset.allCases[i-1].
+    private func optionalHotkeyPopup(action: Selector) -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.addItem(withTitle: String(localized: "Off"))
         for preset in SettingsHotkeyPreset.allCases {
             popup.addItem(withTitle: preset.title)
         }
@@ -2179,8 +2338,10 @@ private final class SettingsWindowController: NSWindowController {
         successNotificationsToggle.state = SettingsStore.successNotificationsEnabled ? .on : .off
         failureNotificationsToggle.state = SettingsStore.failureNotificationsEnabled ? .on : .off
         forceFallbackToggle.state = SettingsStore.forceFallbackEnabled ? .on : .off
+        rightClickEjectToggle.state = SettingsStore.rightClickEjectEnabled ? .on : .off
         selectHotkey(SettingsStore.ejectHotkey, in: ejectHotkeyPopup)
         selectHotkey(SettingsStore.mountHotkey, in: mountHotkeyPopup)
+        selectOptionalHotkey(SettingsStore.ejectAndSleepHotkey, in: ejectAndSleepHotkeyPopup)
         refreshNotificationControlState()
     }
 
@@ -2194,6 +2355,14 @@ private final class SettingsWindowController: NSWindowController {
         if let index = SettingsHotkeyPreset.allCases.firstIndex(of: preset) {
             popup.selectItem(at: index)
         }
+    }
+
+    private func selectOptionalHotkey(_ preset: SettingsHotkeyPreset?, in popup: NSPopUpButton) {
+        guard let preset, let index = SettingsHotkeyPreset.allCases.firstIndex(of: preset) else {
+            popup.selectItem(at: 0)   // "Off"
+            return
+        }
+        popup.selectItem(at: index + 1)
     }
 
     @objc private func toggleLoginItem(_ sender: NSButton) {
@@ -2251,14 +2420,72 @@ private final class SettingsWindowController: NSWindowController {
         SettingsStore.forceFallbackEnabled = sender.state == .on
     }
 
+    @objc private func toggleRightClickEject(_ sender: NSButton) {
+        SettingsStore.rightClickEjectEnabled = sender.state == .on
+    }
+
     @objc private func ejectHotkeyChanged(_ sender: NSPopUpButton) {
-        SettingsStore.ejectHotkey = SettingsHotkeyPreset.allCases[sender.indexOfSelectedItem]
+        let chosen = SettingsHotkeyPreset.allCases[sender.indexOfSelectedItem]
+        // 추출/마운트 단축키가 같은 preset 이면 충돌 — handleHotkey 가 추출만 매칭하고 마운트는 영원히 안 발화.
+        // 사용자에게 알리고 mount 를 자동으로 다른 preset 으로 옮긴다.
+        if chosen == SettingsStore.mountHotkey {
+            SettingsStore.mountHotkey = nextDistinctPreset(from: chosen)
+            selectHotkey(SettingsStore.mountHotkey, in: mountHotkeyPopup)
+            showHotkeyConflictAlert(displacedKind: .mount)
+        }
+        SettingsStore.ejectHotkey = chosen
         onHotkeyChanged()
     }
 
     @objc private func mountHotkeyChanged(_ sender: NSPopUpButton) {
-        SettingsStore.mountHotkey = SettingsHotkeyPreset.allCases[sender.indexOfSelectedItem]
+        let chosen = SettingsHotkeyPreset.allCases[sender.indexOfSelectedItem]
+        if chosen == SettingsStore.ejectHotkey {
+            SettingsStore.ejectHotkey = nextDistinctPreset(from: chosen)
+            selectHotkey(SettingsStore.ejectHotkey, in: ejectHotkeyPopup)
+            showHotkeyConflictAlert(displacedKind: .eject)
+        }
+        SettingsStore.mountHotkey = chosen
         onHotkeyChanged()
+    }
+
+    /// 주어진 preset 과 다른 첫 번째 preset (allCases 순서). 충돌 회피용.
+    private func nextDistinctPreset(from preset: SettingsHotkeyPreset) -> SettingsHotkeyPreset {
+        SettingsHotkeyPreset.allCases.first(where: { $0 != preset }) ?? preset
+    }
+
+    @objc private func ejectAndSleepHotkeyChanged(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem
+        if index == 0 {
+            SettingsStore.ejectAndSleepHotkey = nil
+            onHotkeyChanged()
+            return
+        }
+        let chosen = SettingsHotkeyPreset.allCases[index - 1]
+        // eject / mount 와 같은 preset 이면 handleHotkey 가 이쪽까지 도달 안 함 — 자동으로 다른 값으로.
+        if chosen == SettingsStore.ejectHotkey || chosen == SettingsStore.mountHotkey {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Hotkey conflict")
+            alert.informativeText = String(localized: "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one.")
+            alert.alertStyle = .informational
+            alert.runModal()
+            selectOptionalHotkey(SettingsStore.ejectAndSleepHotkey, in: sender)
+            return
+        }
+        SettingsStore.ejectAndSleepHotkey = chosen
+        onHotkeyChanged()
+    }
+
+    private enum HotkeyKind { case eject, mount }
+
+    private func showHotkeyConflictAlert(displacedKind: HotkeyKind) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Hotkey conflict")
+        let kindLabel = displacedKind == .eject
+            ? String(localized: "Eject all")
+            : String(localized: "Mount all")
+        alert.informativeText = String(localized: "Eject and Mount can't share the same shortcut. \(kindLabel) was moved to a different preset.")
+        alert.alertStyle = .informational
+        alert.runModal()
     }
 
     private func requestNotificationAuthorization() {
@@ -2367,14 +2594,26 @@ private enum ProcessRunner {
             outPipe.fileHandleForReading.readabilityHandler = nil
             errPipe.fileHandleForReading.readabilityHandler = nil
 
-            let remainingStdout = outPipe.fileHandleForReading.readDataToEndOfFile()
-            let remainingStderr = errPipe.fileHandleForReading.readDataToEndOfFile()
-            lock.lock()
-            stdout.append(remainingStdout)
-            stderr.append(remainingStderr)
-            let finalStdout = stdout
-            let finalStderr = stderr
-            lock.unlock()
+            // timeout 후 SIGKILL 된 child 가 grandchild 를 남겨 둔 경우 (예: hdiutil fork)
+            // pipe fd 가 즉시 닫히지 않아 readDataToEndOfFile 가 무한 대기할 수 있다.
+            // timeout 시엔 readabilityHandler 가 모은 데이터만 사용하고 추가 read 는 생략.
+            let finalStdout: Data
+            let finalStderr: Data
+            if didTimeout {
+                lock.lock()
+                finalStdout = stdout
+                finalStderr = stderr
+                lock.unlock()
+            } else {
+                let remainingStdout = outPipe.fileHandleForReading.readDataToEndOfFile()
+                let remainingStderr = errPipe.fileHandleForReading.readDataToEndOfFile()
+                lock.lock()
+                stdout.append(remainingStdout)
+                stderr.append(remainingStderr)
+                finalStdout = stdout
+                finalStderr = stderr
+                lock.unlock()
+            }
 
             let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if didTimeout {
@@ -3104,38 +3343,6 @@ struct UnmountedExternal {
         return unmounted
     }
 
-    /// entry 의 Partitions / APFSVolumes 에서 사용자 데이터 partition 의 VolumeName 반환.
-    /// EFI / Microsoft Reserved / Apple_Boot 같은 시스템 partition 의 VolumeName 은 무시.
-    /// 모두 시스템이거나 비어있으면 nil — 즉 mount 대상 아님 (RAID 멤버, EFI-only 디스크 등).
-    private static func firstVolumeName(in entry: [String: Any]) -> String? {
-        let systemContents: Set<String> = [
-            "EFI", "Microsoft Reserved", "Apple_Boot",
-            "Apple_KernelCoreDump", "Recovery",
-            "Apple_RAID", "Apple_RAID_Offline"
-        ]
-        let systemNames: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
-
-        if let parts = entry["Partitions"] as? [[String: Any]] {
-            for p in parts {
-                if let content = p["Content"] as? String, systemContents.contains(content) { continue }
-                if let name = p["VolumeName"] as? String,
-                   !name.isEmpty,
-                   !systemNames.contains(name) {
-                    return name
-                }
-            }
-        }
-        if let vols = entry["APFSVolumes"] as? [[String: Any]] {
-            for v in vols {
-                if let name = v["VolumeName"] as? String,
-                   !name.isEmpty,
-                   !systemNames.contains(name) {
-                    return name
-                }
-            }
-        }
-        return nil
-    }
 }
 
 // MARK: - Sleep Eject Toggle (UserDefaults)
@@ -3251,8 +3458,11 @@ enum LibraryAppHandler {
 
     /// 실행 중인 Music / Photos 종료. 종료된 bundle 들은 quitBundles 에 기록.
     /// background thread 또는 main thread 어디서든 호출 가능 (NSWorkspace 는 thread-safe).
+    /// terminate() 는 비동기라, 라이브러리 lock 이 풀릴 때까지 짧은 polling 으로 기다린다 —
+    /// 그렇지 않으면 직후 추출이 lock 에 걸려 실패할 수 있다.
     static func quitLibraryApps() {
         let workspace = NSWorkspace.shared
+        var quitTargets: [NSRunningApplication] = []
         var quit: [String] = []
         for app in workspace.runningApplications {
             guard let bid = app.bundleIdentifier, bundleIDs.contains(bid) else { continue }
@@ -3261,11 +3471,24 @@ enum LibraryAppHandler {
             // forceTerminate() 는 안 씀 (사용자 데이터 손실 위험).
             if app.terminate() {
                 quit.append(bid)
+                quitTargets.append(app)
             } else {
                 log.error("LibraryAppHandler: terminate denied for \(bid, privacy: .public)")
             }
         }
         quitBundles = quit
+
+        // 종료 완료까지 최대 ~3초 polling. graceful terminate 라 보통 100~500ms 에 끝남.
+        // sleep 자체가 IOKit 으로 잠깐 지연된 상태이므로 이 정도는 허용 범위.
+        let deadline = Date().addingTimeInterval(3.0)
+        for target in quitTargets {
+            while !target.isTerminated && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            if !target.isTerminated {
+                log.notice("LibraryAppHandler: \(target.bundleIdentifier ?? "?", privacy: .public) still running after 3s — proceeding anyway")
+            }
+        }
         log.info("LibraryAppHandler: quit \(quit.count, privacy: .public) apps = \(quit, privacy: .public)")
     }
 

@@ -10,6 +10,8 @@
 > 2026-05-07 업데이트: Mac App Store 단일 배포와 sandbox 호환 구현은 현재 유효하지 않다. `DADiskMount` / `DADiskUnmount` / `SMAppService.daemon` 조합으로 mount 안정성을 확보하지 못해, 현재 제품 방향은 개인 사용 및 향후 Developer ID 배포 검토로 변경됐다. 핵심 디스크 작업은 `diskutil mountDisk`, `diskutil eject`, 실패 시 `diskutil unmount force`, `diskutil list -plist external`, `diskutil info -plist`, `hdiutil info -plist` 를 사용한다.
 >
 > 2026-05-10 업데이트: sleep(잠자기) / display sleep(화면 꺼짐) / "추출하고 잠자기" 는 `Disk Arbitration API` 의 `DADiskUnmount(force)` 를 volume-first(볼륨 우선) 로 병렬 시도한 뒤 `diskutil` fallback 으로 내려간다. IOKit power notification(전원 알림) 으로 sleep 을 잠깐 지연하고, 성공한 디스크만 wake/remount(깨움/재마운트) 대상으로 기록한다.
+>
+> 2026-05-10 (정비) 업데이트: 코드 검토 결과 21 개 항목을 일괄 fix — 메뉴바 표시 강제 코드 복원(macOS 26 워크어라운드), 공유 state thread safety, 단축키 충돌 자동 정정, ProcessRunner timeout hang 방지, 권한 누락 메뉴 안내, About 탭, 우클릭 추출 opt-out, 결과 아이콘 자동 reset, tryRemount 의 IORegistry 직접 검사 전환, archive 디렉토리 분리 등. 자세한 내용은 `CHANGELOG.md` 의 "MVP 정비" 항목 참조.
 
 # Part 1. 개발 기획서 (Specification)
 
@@ -651,9 +653,10 @@ cosmetic IAP 의 핵심 자산. v1.0 출시 후 데이터 보고 도입 시점 �
 
 ### 8.5 Week 7: 품질
 - [x] ✅ 에러 핸들링 — `diskutil eject` 실패 시 `diskutil unmount force` fallback + `lsof` 진단 + 사용자 알림
-- [x] ✅ 다국어 (ko + en) — `Localizable.xcstrings`, 56개 키
+- [x] ✅ 다국어 (ko + en) — `Localizable.xcstrings`, 84 개 키 (MVP 정비로 새 11 키 추가)
+- [x] ✅ Thread safety / 단축키 충돌 / ProcessRunner hang / 권한 누락 안내 등 MVP 정비 (2026-05-10) — 자세한 내용은 `CHANGELOG.md`
 - [ ] 다크/라이트 모드 점검 (출시 전)
-- [ ] Accessibility (VoiceOver 등) — 출시 전
+- [ ] Accessibility (VoiceOver 등) — 출시 전. 권한 거부 / 미허용 상태 메뉴 안내는 완료 (2026-05-10).
 - [ ] Sandbox 호환성 검증 — 2026-05-07 기준 보류/포기
 
 ### 8.6 Week 8: 베타 테스트

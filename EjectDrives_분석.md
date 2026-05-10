@@ -11,6 +11,8 @@
 > 2026-05-07 운영 업데이트: Mac App Store / sandbox 호환 노선은 현재 보류/포기. 실제 mount/eject 안정성을 우선해 sandbox OFF + `diskutil` 직접 실행 방식으로 회귀했다. 따라서 이 문서의 App Store/IAP 사업성 분석은 장기 재검토 자료이며, 현재 구현 기준은 개인 사용 및 향후 Developer ID 배포 검토다.
 >
 > 2026-05-10 운영 업데이트: lid close(뚜껑 닫기) 직후 케이블 분리 패턴을 우선 대응하기 위해 sleep/display sleep/"추출하고 잠자기" 경로는 `Disk Arbitration API` 기반 volume-first force unmount(볼륨 우선 강제 마운트 해제) 를 먼저 사용한다. 수동 추출은 기존 `diskutil eject` 우선 경로를 유지한다.
+>
+> 2026-05-10 (정비) 업데이트: 코드 검토 결과 21 개 항목 일괄 fix — 잠재 버그(thread safety, ProcessRunner timeout hang, 단축키 충돌) + UX(권한 누락 메뉴 안내, 우클릭 추출 opt-out, About 탭, 결과 아이콘 자동 reset) + 코드 위생(미사용 파일 archive, dead code 제거, project.yml entitlements 명시). 자세한 내용은 `CHANGELOG.md`.
 
 ---
 

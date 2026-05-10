@@ -9,6 +9,8 @@
 
 ✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), refresh stuck recovery(갱신 고착 복구), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. sleep/display sleep/"추출하고 잠자기" 경로는 `Disk Arbitration API` 기반 volume-first force unmount(볼륨 우선 강제 마운트 해제)를 먼저 시도한다. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
 
+✅ **MVP 정비 완료 (2026-05-10)** — 코드 검토 결과 21 개 항목 일괄 fix. 메뉴바 표시 강제 코드 복원, 공유 state thread safety, 단축키 충돌 자동 정정, `ProcessRunner` timeout hang 방지, 권한 누락 메뉴 안내, About 탭, 우클릭 추출 opt-out, 결과 아이콘 자동 reset 등. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "MVP 정비" 항목 참고.
+
 | 항목 | 값 |
 |---|---|
 | Bundle ID | `com.yongza.ejectdrives` |
@@ -31,7 +33,7 @@
 | **추출하고 잠자기** | 메뉴 항목. sleep 계열 volume-first force unmount(볼륨 우선 강제 마운트 해제) 경로로 전체 추출 후, 모두 성공할 때만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |
 | 전역 단축키 (추출) | 기본 `⌥⌘E` (한/영 IME 무관, 물리 키 코드 비교). 환경설정에서 E 기반 preset(프리셋) 변경 가능 |
 | 전역 단축키 (마운트) | 기본 `⌃⌘E` — 마운트 안 된 외장 일괄 마운트. 환경설정에서 변경 가능 |
-| 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭 |
+| 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭. 환경설정 → Eject Behavior 에서 끄면 우클릭이 메뉴를 띄움 (실수 추출 방지 opt-out) |
 | **마운트 안 된 외장 마운트** | 메뉴에 "마운트 안 된 외장" 섹션 자동 노출 (후보 있을 때만). 클릭 = 마운트, ⌘+클릭 = 마운트 + Finder 열기 |
 | **마운트/미마운트 상태 정합성** | `diskutil list -plist external` 한 snapshot(스냅샷)에서 mounted(마운트됨) / unmounted(마운트 안 됨)를 함께 계산해, 실제 마운트가 없는데 mounted 섹션에 남는 stale state(오래된 상태)를 줄임 |
 | **디스크 종류 아이콘** | `diskutil info -plist` 의 SD card 신호가 확인되면 `sdcard` 아이콘, 그 외 외장은 `externaldrive` 계열 아이콘 사용 |
@@ -43,7 +45,9 @@
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 | **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 사용. `.requiresApproval` 상태도 체크 표시 + "로그인 항목 허용 필요" 라벨로 표시 |
-| **환경설정 창** | `⌘,` 또는 메뉴의 "환경설정..."에서 로그인 실행, sleep/display sleep 추출, Music/Photos 종료, 단축키, 알림, force fallback(강제 fallback) 설정 |
+| **환경설정 창** | `⌘,` 또는 메뉴의 "환경설정..."에서 로그인 실행, sleep/display sleep 추출, Music/Photos 종료, 단축키 (Eject all / Mount all / Eject and Sleep), 알림, force fallback(강제 fallback), 우클릭=모두 추출 토글, About(버전/저작권) 설정. 메뉴엔 자주 토글하는 *"잠자기 시 자동 추출"* 만 노출 — 나머지는 환경설정 전용 |
+| **단축키 충돌 자동 정정** | 추출 / 마운트 / 추출하고 잠자기 단축키가 같은 preset 으로 저장되면 충돌 감지 + 다른 preset 으로 자동 이동 + alert |
+| **권한 누락 메뉴 안내** | Accessibility(손쉬운 사용) / 알림 권한이 미허용 상태면 메뉴 상단에 ⚠ 경고 row 표시. 클릭하면 시스템 설정의 해당 페이지로 이동 |
 | **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 toggle(토글). 기본은 모두 ON |
 | **다국어 (ko + en)** | `Localizable.xcstrings` 73개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
 | **Per-disk 자동 추출 제외** | 디스크 메뉴 항목 ▶ submenu 의 *"자동 추출 제외"* 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
@@ -55,13 +59,18 @@
 ```
 diskOUT/
 ├── AppDelegate.swift            # 메인 로직 (diskutil 실행, 메뉴 캐시, sleep/wake 처리)
-├── DiskArbitrationBackend.swift # 이전 DA/sandbox 실험 파일. 현재 project.yml 빌드 대상 아님
 ├── Localizable.xcstrings        # ko + en 번역 (Xcode String Catalog)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
-├── EjectDrives.entitlements     # 이전 sandbox 실험 권한 파일. 현재 빌드 미사용
+├── EjectDrives.entitlements     # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
 ├── project.yml                  # xcodegen 설정 (sandbox OFF)
 ├── EjectDrives.xcodeproj/       # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
+├── archive/                     # 폐기된 sandbox/helper 시절 코드 — 빌드 미사용, .gitignore 됨
+│   ├── DiskArbitrationBackend.swift
+│   ├── EjectDrives.entitlements (sandbox=true 시절)
+│   ├── Helper/
+│   ├── HelperClient.swift
+│   └── Shared/HelperProtocol.swift
 ├── README.md                    # 이 파일
 └── EjectDrives_*.md             # 풀버전 기획/분석 문서들
 ```
@@ -171,6 +180,7 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 - **재마운트 신뢰도**: 자동 추출에 성공한 디스크만 wake 후 `diskutil mountDisk` 로 재마운트한다. 재인식 안 되는 디스크는 사용자 분리로 간주해 silent 처리한다. 물리적으로 이미 빠진 디스크는 앱이 다시 마운트할 수 없다.
 - **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
 - **`pmset sleep = 0` 환경에서 화면 꺼짐 ≠ system sleep**: v0.2.x 까지는 화면만 꺼져도 추출 안 됨. v0.3.0 의 "화면 꺼질 때도 자동 추출" 토글로 보완 (명시적 opt-in). 트레이드오프: 자리 잠깐 비울 때마다 추출/재마운트 사이클 발생 가능 — 빈번하면 disk wear / 작업 흐름 끊김.
+- **재설치 후 `로그인 항목 허용 필요` 메시지 잔존 가능**: 이전 sandbox/helper 노선 빌드를 설치했었던 머신은 BTM(Background Task Management) 에 helper daemon 등록이 stale 로 남아 있어, 새 빌드에서도 `SMAppService.mainApp.status == .requiresApproval` 로 보고된다. 시스템 설정 → 일반 → 로그인 항목 에서 EjectDrives 관련 stale entry 를 직접 OFF / 제거한 뒤 환경설정 → "Launch at login" 을 한 번 OFF/ON 하면 정정된다. (`sudo sfltool resetbtm` 은 다른 백그라운드 앱 등록도 reset 되므로 권장 안 함.)
 
 ---
 

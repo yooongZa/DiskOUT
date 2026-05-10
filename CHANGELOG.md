@@ -1,5 +1,57 @@
 # CHANGELOG
 
+## Unreleased — 2026-05-10: MVP 정비 (코드 검토 후 일괄 fix)
+
+코드 + 문서 전체 검토 결과 발견된 21 개 항목을 우선순위 순으로 정비. 기능 추가보다는 잠재 버그 / UX 함정 / 코드 위생 정리에 집중. Debug 빌드 ✅ 검증 완료, 새 빌드 `~/Applications/` 설치까지 확인.
+
+### 안정성 / 잠재 버그
+
+- **status item 표시 강제 코드 복원**: macOS 26 의 `NSStatusBarWindow` 가 height=0 으로 갇혀 메뉴바 아이콘이 보이지 않는 워크어라운드를 `setupStatusItem()` 에 다시 넣었다. 이전에 README 에는 "이 두 줄이 빠지면 메뉴바에 안 보임"으로 기록돼 있었지만 실제 코드에선 빠져 있어, 사용자 환경에 따라 메뉴바 아이콘 자체가 안 보일 수 있는 상태였다.
+- **공유 state thread safety**: `autoEjectedDisks: Set<String>`, `autoEjectOperationID/Reason`, `skipSleepAutoEjectUntil` 4 개를 `autoEjectStateLock` 으로 감싸는 computed property 로 교체했다. `sleepEjectQueue` 와 main thread 양쪽에서 락 없이 read/write 하던 race 가능성을 막았다. Swift `Set` 은 thread-unsafe 라 race 시 crash 가능했다.
+- **`ProcessRunner` timeout 후 hang 방지**: SIGKILL 된 child 가 grandchild 를 fork (예: `hdiutil`) 했으면 pipe fd 가 닫히지 않아 `readDataToEndOfFile` 가 무한 대기할 수 있었다. timeout 시엔 `readabilityHandler` 가 모은 데이터만 사용하고 추가 read 를 건너뛴다.
+- **`LibraryAppHandler.quitLibraryApps` quit/eject race 완화**: `app.terminate()` 가 비동기라 라이브러리 lock 이 풀리기 전에 추출이 시작되던 케이스가 있었다. 종료 완료까지 최대 3 초 polling (100 ms 간격) 으로 lock 풀림 보장.
+- **`tryRemount` 가 매 시도마다 `diskutil info` 호출하던 부분을 IORegistry 직접 검사로 교체**: process spawn overhead 가 시도당 수백 ms 였다. wake 직후 사용자 체감 지연이 줄어든다.
+- **단축키 preset 충돌 자동 정정**: 추출 / 마운트 단축키가 같은 preset 으로 저장돼 있으면 mount 가 영원히 발화 안 되던 함정. 환경설정 popup 변경 시 충돌 감지 + 다른 preset 으로 자동 이동 + alert. 시작 시에도 `installHotkey()` 에서 자동 정정.
+- **단축키 자동 반복 무시**: `event.isARepeat` 인 키 이벤트는 무시. 디바운스 1.5 s 로 보호되긴 했지만 첫 한두 번이 통과해 결과 알림이 두 번 뜨는 케이스가 있었다.
+- **결과 아이콘 자동 reset**: `setPersistentIcon` 으로 ✓ / ⚠ / ✗ 가 메뉴바에 영구 표시되어 며칠씩 거슬리던 문제. 5 분 후 자동으로 default 아이콘으로 복귀 (그 사이 다른 추출 / reset 일어나면 generation 토큰으로 무효화).
+
+### 사용자 편의성 / UX
+
+- **우클릭 = 즉시 모두 추출** 을 환경설정에서 끌 수 있게 했다 (`SettingsStore.rightClickEjectEnabled`, default ON 으로 기존 동작 유지). OFF 로 두면 우클릭 / ctrl+click 이 메뉴를 띄워 실수로 작업 중인 외장이 빠지는 사고를 막는다.
+- **권한 누락 메뉴 안내**: Accessibility 권한이나 알림 권한이 거부 / 미허용 상태면 메뉴 상단에 ⚠ row 로 표시한다. 클릭하면 시스템 설정의 해당 페이지로 deeplink. 이전엔 silent 실패 (단축키 안 먹히거나 알림 안 뜨는데 왜 인지 알 길 없음) 였다.
+- **About 탭 추가**: 환경설정 창에 정보 탭 신설 — 버전, 빌드 번호, copyright, "알림은 의도적으로 무음" 안내 한 줄. 사용자가 자기 버전 확인할 곳이 없던 문제 해결.
+- **메뉴 vs 환경설정 토글 중복 정리**: 양쪽에 같은 토글이 떠 있어 어디서 켰는지 혼동되던 문제. 메뉴엔 자주 토글하는 *"잠자기 시 자동 추출"* 만 유지, *"화면 꺼질 때 자동 추출"* / *"Music·Photos 자동 종료"* / *"로그인 시 자동 실행"* 은 환경설정 전용으로 이동. 단 `SMAppService` 가 `.requiresApproval` 을 반환하면 메뉴에 ⚠ 경고 row 만 노출.
+- **"추출하고 잠자기" 단축키 옵션 추가**: `SettingsStore.ejectAndSleepHotkey` (기본 Off). 환경설정 → Hotkeys 탭에서 4 개 preset 중 선택 가능. eject / mount 와 같은 preset 선택 시 alert 후 무시.
+- **"Quit" → "Quit EjectDrives"** macOS 표준 라벨. 한국어 "EjectDrives 종료".
+
+### 코드 위생 / 빌드 정합성
+
+- **미사용 파일 archive 이동**: `Helper/`, `HelperClient.swift`, `Shared/HelperProtocol.swift`, `DiskArbitrationBackend.swift`, 구 `EjectDrives.entitlements` (sandbox=true) 를 `archive/` 디렉토리로 이동. `.gitignore` 에 `archive/` 추가. helper 시절 잔재가 빌드에 다시 포함되는 사고 방지.
+- **`EjectDrives 2.xcodeproj` / `EjectDrives 3.xcodeproj` 삭제**: iCloud 동기화 충돌 잔재. `.gitignore` 패턴은 있었으나 디스크에 그대로였다. 동시에 `.gitignore` 의 sync conflict 패턴을 `* [0-9].xcodeproj/` 로 일반화.
+- **dead code 삭제**: `UnmountedExternal.firstVolumeName(in:)` 정의는 있었으나 호출 0 회. 메뉴용 `toggleLoginItem`, `toggleDisplaySleepEject`, `toggleLibraryAppManagement` 핸들러도 메뉴 정리 후 dead 가 되어 함께 삭제.
+- **`project.yml` 에 entitlements 명시**: 빈 dict (`properties: {}`) 로 명시해, 향후 누군가 helper / DA backend 를 다시 빌드할 때 entitlements 가 자동 생성되어 sandbox=true 가 묻어 들어가는 함정 방지. 새 `EjectDrives.entitlements` 는 빈 plist.
+- **Settings window 닫힘 cleanup**: `windowWillClose` 시 controller 를 nil 로 해제. 다음번 ⌘, 시 fresh state 로 다시 띄움.
+
+### 다국어
+
+- 새 키 11 개 한 / 영 추가 (`About`, `Off`, `Quit EjectDrives`, `Right-click menu bar icon to eject all`, `Allow Accessibility for global hotkeys`, `Allow notifications to see eject results`, `Hotkey conflict`, 충돌 alert 본문 2 개, About 탭 hint, 우클릭 토글 tooltip).
+
+### 검증
+
+| 항목 | 결과 |
+|---|---|
+| `xcodegen generate` + Debug build (`/tmp/EjectDrives-review-build`) | 성공 |
+| `jq empty Localizable.xcstrings` | 성공 |
+| `~/Applications/EjectDrives.app` fresh install + launch | 성공 |
+| 시작 로그 (`log show --predicate 'subsystem == "com.yongza.ejectdrives"'`) | `EjectDrives launched`, `IOKit power sleep observer registered`, `Accessibility trusted = true`, `globalKeyMonitor = REGISTERED`, `DiskMenuSnapshot.load 0.131s drives=["Extreme SSD","SYSJO"]` |
+
+### 알려진 후속 작업
+
+- **App Icon**: `Assets.xcassets/AppIcon.appiconset` + `project.yml` 연결 미완료. 사용자가 아이콘 자산 결정 후 별도 진행.
+- **`sfltool dumpbtm` 잔재**: BTM 에 sandbox/helper 시절 등록 (`URL: file:///Applications/EjectDrives.app/`, `Embedded Item: 16.com.yongza.ejectdrives.helper`) 이 disallowed 상태로 남아 있어, 새 빌드의 `SMAppService.mainApp.status` 가 `.requiresApproval` 로 보고된다. 사용자가 시스템 설정 → 일반 → 로그인 항목에서 stale entry 를 직접 정리해야 한다 (`sudo sfltool resetbtm` 은 다른 백그라운드 앱 등록도 reset 되므로 권장 안 함).
+
+---
+
 ## Unreleased — 2026-05-07~10: App Store/sandbox 포기, diskutil 직접 경로 복원, sleep 추출 안정화
 
 **배경**: Mac App Store sandbox 안에서 `DADiskMount` / `DADiskUnmount` / `SMAppService.daemon` 조합으로 mount 안정성을 확보하지 못했다. 핵심 기능이 mount/eject 인 앱에서 sandbox 호환성보다 실제 동작 안정성이 우선이라 판단해 App Store 노선을 보류/포기했다.

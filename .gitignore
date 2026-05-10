@@ -15,6 +15,9 @@ xcuserdata/
 # /tmp build path used in README
 EjectDrives-derived/
 
-# macOS sync conflict duplicates (예: "EjectDrives 2.xcodeproj")
-* 2.xcodeproj/
-* 2/
+# macOS sync conflict duplicates (예: "EjectDrives 2.xcodeproj", "EjectDrives 3.xcodeproj" 등)
+* [0-9].xcodeproj/
+* [0-9]/
+
+# 폐기된 sandbox/helper 실험 코드 — 빌드 미사용. 보존만 (필요 시 archive/ 안에서 복원)
+archive/
