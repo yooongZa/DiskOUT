@@ -1,5 +1,37 @@
 # CHANGELOG
 
+## Unreleased — 2026-05-13: sleep eject "비정상 추출" 알림 감소
+
+**배경**: 디스플레이 sleep 진입 시 `Extreme SSD` (APFS multi-volume container) 에 대해 macOS "디스크가 제대로 추출되지 않음" 알림이 4번 떴다. 로그 분석 결과 sleep eject 가 처음부터 `force` 옵션으로 시작 → DA volume-only force unmount(1s) 타임아웃 → `diskutil unmountDisk force`(10s) 타임아웃 → `diskutil eject force` 로 강제 추출되었기 때문. 강제 추출 단계까지 도달하면 macOS 가 비정상 추출로 인식하고, sub-volume 마다 알림을 띄운다.
+
+### 변경 ([AppDelegate.swift](AppDelegate.swift) `diskutilEjectForSleep` / `diskArbitrationUnmountForSleep`)
+
+- **`diskArbitrationForceUnmountForSleep` → `diskArbitrationUnmountForSleep` 으로 일반화**: `force: Bool` 파라미터 추가. `force=false` 면 `kDADiskUnmountOptionDefault`, `true` 면 `kDADiskUnmountOptionForce` 사용. 양쪽 모두 `wholeDiskBSDName` 이 있으면 `kDADiskUnmountOptionWhole` 함께 적용해 sub-volume 들을 한 번에 처리한다.
+- **sleep eject 흐름 재구성** — 정상 unmount 1단계 추가, force 단계는 whole-disk 우선:
+  1. **Step A (NEW)**: DA normal unmount (whole disk 우선, 2.0s timeout) — 다른 process 가 disk 를 빠르게 놓으면 여기서 끝나며, 정상 unmount 라 macOS 알림이 뜨지 않는다.
+  2. **Step B**: DA force unmount (whole disk 우선, 3.0s timeout) — 기존 1.0s + volume-only 였던 단계. timeout 을 늘리고 whole-disk option 으로 sub-volume 한 번에 처리.
+  3. **Step C**: `diskutil unmountDisk force` (6s timeout) — 기존 10s 에서 단축. 여기까지 도달했다는 건 이미 kernel-level unmount 가 막혀 있다는 뜻이라 10s 까지 기다릴 의미가 적음.
+  4. **Step D**: `diskutil eject force` (5s timeout) — 기존 10s 에서 단축. 마지막 수단.
+  5. **Step E**: `diskutil eject` (3s) — fallback.
+- **최대 소요 시간**: 24s → 19s. wake 후 remount 가 시작되기까지의 잠재 지연 감소.
+
+### 기대 효과
+
+- 정상 sleep 진입 (사용 중 process 없음) 시 **Step A 에서 종료 → 알림 0개**.
+- Step B 이상으로 떨어져도 whole-disk option 덕분에 sub-volume 마다 따로 force-unmount 되지 않으므로 알림 개수가 줄어든다 (이전 4개 → 1개 또는 0개 기대).
+- 수동 추출 (`diskutilEject`) 경로는 변경 없음.
+
+### 검증
+
+| 항목 | 결과 |
+|---|---|
+| `xcodebuild -project EjectDrives.xcodeproj -scheme EjectDrives -configuration Debug build` | BUILD SUCCEEDED |
+| 호출부 / 시그니처 정합성 (`grep diskArbitrationForceUnmountForSleep`) | 잔재 0건 |
+
+실제 알림 감소는 다음 sleep 사이클 이후 `log show --predicate 'subsystem == "com.yongza.ejectdrives"' --last 1h` 로 Step A/B 도달 여부를 확인하면서 검증한다.
+
+---
+
 ## Unreleased — 2026-05-10: MVP 정비 (코드 검토 후 일괄 fix)
 
 코드 + 문서 전체 검토 결과 발견된 21 개 항목을 우선순위 순으로 정비. 기능 추가보다는 잠재 버그 / UX 함정 / 코드 위생 정리에 집중. Debug 빌드 ✅ 검증 완료, 새 빌드 `~/Applications/` 설치까지 확인.

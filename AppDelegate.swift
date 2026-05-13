@@ -932,22 +932,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let forceTarget = wholeDiskBSDName ?? volumePath
 
         if SettingsStore.forceFallbackEnabled {
-            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA volume force unmount first target=\(volumePath, privacy: .public)")
-            let daVolumeUnmount = diskArbitrationForceUnmountForSleep(volumePath: volumePath,
-                                                                      wholeDiskBSDName: nil,
-                                                                      operationID: operationID,
-                                                                      timeout: 1.0,
-                                                                      context: context)
-            if daVolumeUnmount.success {
-                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA volume force unmount succeeded target=\(volumePath, privacy: .public)")
-                return daVolumeUnmount
+            // Step A: 정상 DA unmount (force=false, whole disk 우선) — 성공 시 macOS 의 비정상 추출 알림이 뜨지 않음.
+            let daNormal = diskArbitrationUnmountForSleep(volumePath: volumePath,
+                                                          wholeDiskBSDName: wholeDiskBSDName,
+                                                          force: false,
+                                                          operationID: operationID,
+                                                          timeout: 2.0,
+                                                          context: context)
+            if daNormal.success {
+                return daNormal
             }
-            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA volume force unmount failed target=\(volumePath, privacy: .public), fallback to diskutil unmountDisk force — \(daVolumeUnmount.errorMessage ?? "?", privacy: .public)")
+            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA normal unmount failed, fallback to DA force unmount — \(daNormal.errorMessage ?? "?", privacy: .public)")
+
+            // Step B: DA force unmount (whole disk BSD 알면 우선 — sub-volume 들을 한꺼번에 처리해 알림 개수를 줄임).
+            let daForce = diskArbitrationUnmountForSleep(volumePath: volumePath,
+                                                         wholeDiskBSDName: wholeDiskBSDName,
+                                                         force: true,
+                                                         operationID: operationID,
+                                                         timeout: 3.0,
+                                                         context: context)
+            if daForce.success {
+                return daForce
+            }
+            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA force unmount failed, fallback to diskutil unmountDisk force — \(daForce.errorMessage ?? "?", privacy: .public)")
 
             log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) unmountDisk force first target=\(forceTarget, privacy: .public)")
             let unmount = runDiskutil(["unmountDisk", "force", forceTarget],
                                       operationID: operationID,
-                                      timeout: 10.0)
+                                      timeout: 6.0)
             if unmount.success {
                 log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) force unmount succeeded target=\(forceTarget, privacy: .public)")
                 return unmount
@@ -957,7 +969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) eject force second target=\(forceTarget, privacy: .public)")
             let force = runDiskutil(["eject", "force", forceTarget],
                                     operationID: operationID,
-                                    timeout: 10.0)
+                                    timeout: 5.0)
             if force.success {
                 log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) force eject succeeded target=\(forceTarget, privacy: .public)")
                 return force
@@ -973,9 +985,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
             let forceMessage = force.errorMessage ?? "diskutil eject force failed"
             let normalMessage = normal.errorMessage ?? "diskutil eject failed"
-            let daVolumeMessage = daVolumeUnmount.errorMessage ?? "DA volume force unmount failed"
+            let daNormalMessage = daNormal.errorMessage ?? "DA normal unmount failed"
+            let daForceMessage = daForce.errorMessage ?? "DA force unmount failed"
             let unmountMessage = unmount.errorMessage ?? "diskutil unmountDisk force failed"
-            return (false, ["\(context) DA volume force unmount: \(daVolumeMessage)", "\(context) force unmount: \(unmountMessage)", "\(context) force eject: \(forceMessage)", normalMessage].joined(separator: "\n"))
+            return (false, ["\(context) DA normal unmount: \(daNormalMessage)", "\(context) DA force unmount: \(daForceMessage)", "\(context) force unmount: \(unmountMessage)", "\(context) force eject: \(forceMessage)", normalMessage].joined(separator: "\n"))
         }
 
         log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) force eject disabled for \(volumePath, privacy: .public)")
@@ -984,12 +997,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                            timeout: 10.0)
     }
 
-    private func diskArbitrationForceUnmountForSleep(volumePath: String,
-                                                     wholeDiskBSDName: String?,
-                                                     operationID: String? = nil,
-                                                     timeout: TimeInterval,
-                                                     context: String = "sleep") -> (success: Bool, errorMessage: String?) {
+    private func diskArbitrationUnmountForSleep(volumePath: String,
+                                                wholeDiskBSDName: String?,
+                                                force: Bool,
+                                                operationID: String? = nil,
+                                                timeout: TimeInterval,
+                                                context: String = "sleep") -> (success: Bool, errorMessage: String?) {
         let operation = operationID ?? "-"
+        let modeLabel = force ? "force" : "normal"
         guard let session = DASessionCreate(kCFAllocatorDefault) else {
             return (false, "DASessionCreate failed")
         }
@@ -1004,12 +1019,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
            let wholeDisk = bsd.withCString({ DADiskCreateFromBSDName(kCFAllocatorDefault, session, $0) }) {
             disk = wholeDisk
             target = bsd
-            options = DADiskUnmountOptions(kDADiskUnmountOptionForce | kDADiskUnmountOptionWhole)
+            let baseOptions = force ? kDADiskUnmountOptionForce : kDADiskUnmountOptionDefault
+            options = DADiskUnmountOptions(baseOptions | kDADiskUnmountOptionWhole)
         } else {
             let url = URL(fileURLWithPath: volumePath) as CFURL
             disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url)
             target = volumePath
-            options = DADiskUnmountOptions(kDADiskUnmountOptionForce)
+            options = DADiskUnmountOptions(force ? kDADiskUnmountOptionForce : kDADiskUnmountOptionDefault)
         }
 
         guard let disk else {
@@ -1019,7 +1035,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let box = SleepDAUnmountBox(session: session, disk: disk)
         let ctx = Unmanaged.passRetained(box).toOpaque()
         let started = Date()
-        log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA force unmount start target=\(target, privacy: .public) timeout=\(String(format: "%.1f", timeout), privacy: .public)s")
+        log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA \(modeLabel, privacy: .public) unmount start target=\(target, privacy: .public) timeout=\(String(format: "%.1f", timeout), privacy: .public)s")
 
         DADiskUnmount(disk, options, { (_, dissenter, ctx) in
             guard let ctx else { return }
@@ -1027,7 +1043,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             if let dissenter {
                 let status = DADissenterGetStatus(dissenter)
                 let reason = (DADissenterGetStatusString(dissenter) as String?) ?? daDissenterStatusText(status)
-                box.result = (false, "DA force unmount declined: \(reason)")
+                box.result = (false, "DA unmount declined: \(reason)")
             } else {
                 box.result = (true, nil)
             }
@@ -1035,17 +1051,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }, ctx)
 
         if box.semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA force unmount timeout target=\(target, privacy: .public) elapsed=\(self.elapsedText(since: started), privacy: .public)s")
-            return (false, "DA force unmount timed out")
+            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA \(modeLabel, privacy: .public) unmount timeout target=\(target, privacy: .public) elapsed=\(self.elapsedText(since: started), privacy: .public)s")
+            return (false, "DA \(modeLabel) unmount timed out")
         }
 
-        let result = box.result ?? (false, "DA force unmount unknown result")
+        let result = box.result ?? (false, "DA \(modeLabel) unmount unknown result")
         if result.0 {
-            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA force unmount succeeded target=\(target, privacy: .public) elapsed=\(self.elapsedText(since: started), privacy: .public)s")
+            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA \(modeLabel, privacy: .public) unmount succeeded target=\(target, privacy: .public) elapsed=\(self.elapsedText(since: started), privacy: .public)s")
             return (true, nil)
         }
 
-        log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA force unmount failed target=\(target, privacy: .public) elapsed=\(self.elapsedText(since: started), privacy: .public)s error=\(result.1 ?? "unknown", privacy: .public)")
+        log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA \(modeLabel, privacy: .public) unmount failed target=\(target, privacy: .public) elapsed=\(self.elapsedText(since: started), privacy: .public)s error=\(result.1 ?? "unknown", privacy: .public)")
         return (false, result.1)
     }
 
