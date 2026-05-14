@@ -1,4 +1,4 @@
-# EjectDrives 프로젝트 분석
+# DiskOUT 프로젝트 분석
 
 > 작성일: 2026-05-03 (v2 수정: 핵심 페인 포인트 재정의)
 > 작성: Claude (with yongZa)
@@ -20,7 +20,7 @@
 
 ## 1. 프로젝트 개요
 
-**EjectDrives**: 맥북 외장 드라이브를 안전하게 추출하는 메뉴 바 유틸리티
+**DiskOUT**: 맥북 외장 드라이브를 안전하게 추출하는 메뉴 바 유틸리티
 
 ### 핵심 기능 (v1.0)
 - 메뉴 바 드롭다운에서 외장 드라이브 개별/전체 추출 ✅
@@ -165,7 +165,7 @@
 ### Tier 1: SEO (분노 검색 의도 타겟)
 - 랜딩 페이지 1개 + Before/After GIF
 - 키워드: "disk not ejected properly", "맥 디스크 추출 경고 끄기"
-- 비교 글: "EjectDrives vs Jettison" (Jettison 검색자 흡수)
+- 비교 글: "DiskOUT vs Jettison" (Jettison 검색자 흡수)
 
 ### Tier 2: 런칭 모먼트
 - Product Hunt (화~목 PST 0시) — 카피: "Mute that annoying macOS warning forever"
@@ -183,7 +183,7 @@
 - 작은 YouTube 채널 협업
 
 ### ASO (앱스토어 최적화)
-- 앱 이름: `EjectDrives - No More Warnings`
+- 앱 이름: `DiskOUT - No More Warnings`
 - 서브타이틀: `Stop the "Disk Not Ejected" alert`
 - 키워드: jettison, eject, warning, alert, disk, sleep, drive
 
@@ -268,7 +268,7 @@
 
 ## 8. 결론 (v2)
 
-EjectDrives는 페인 포인트를 **"데이터 손실 보험"이 아닌 "경고 알람 짜증 해소"**로 명확히 포지셔닝하면, **포트폴리오·학습 자산 + 부수입 가능권** 프로젝트.
+DiskOUT는 페인 포인트를 **"데이터 손실 보험"이 아닌 "경고 알람 짜증 해소"**로 명확히 포지셔닝하면, **포트폴리오·학습 자산 + 부수입 가능권** 프로젝트.
 
 ### 핵심 성공 조건
 1. **카피 일관성**: 모든 채널에서 "그 짜증나는 알람을 없앤다"로 메시지 통일
@@ -303,8 +303,8 @@ EjectDrives는 페인 포인트를 **"데이터 손실 보험"이 아닌 "경고
 
 **브랜딩 연계 — 이름 후보**
 - **Tako** (たこ, 일본어 문어): 짧고 외우기 쉽고 캐릭터와 정렬
-- 기존 `EjectDrives`는 SEO에는 좋으나 외울 만한 이름 아님
-- v1 출시는 `EjectDrives`로 가되, 마스코트 별명 "Tako" 병행 가능
+- 기존 `DiskOUT`는 SEO에는 좋으나 외울 만한 이름 아님
+- v1 출시는 `DiskOUT`로 가되, 마스코트 별명 "Tako" 병행 가능
 
 ### 9.2 단축키 인터랙션
 
@@ -335,7 +335,7 @@ EjectDrives는 페인 포인트를 **"데이터 손실 보험"이 아닌 "경고
 
 - **드라이브 개수에 따라 변화**: 1개 = 작은 문어, 5개+ = 다리 다 펼친 큰 문어
 - **추출 중 애니메이션**: 다리 하나씩 쏙쏙 들어가다가 마지막엔 "휴—" 표정
-- **CPU/메모리 연동 X**: RunCat과 차별화. EjectDrives는 디스크 상태만 반영
+- **CPU/메모리 연동 X**: RunCat과 차별화. DiskOUT는 디스크 상태만 반영
 - **드라이브별 색상**: 각 USB 포트에 연결된 드라이브를 다른 색 다리로 표시 (가능하면)
 
 ### 9.4 단축키 아이디어 백로그
@@ -359,7 +359,7 @@ EjectDrives는 페인 포인트를 **"데이터 손실 보험"이 아닌 "경고
 
 ### 9.6 진화 시스템 (Evolution System)
 
-연결된 외장 드라이브 개수에 따라 메뉴바 캐릭터가 변화. RunCat이 CPU로 한 것을 EjectDrives는 **드라이브 개수**로 구현.
+연결된 외장 드라이브 개수에 따라 메뉴바 캐릭터가 변화. RunCat이 CPU로 한 것을 DiskOUT는 **드라이브 개수**로 구현.
 
 #### 9.6.1 설계 철학
 
@@ -428,7 +428,7 @@ EjectDrives는 페인 포인트를 **"데이터 손실 보험"이 아닌 "경고
 #### 9.6.4 마케팅·바이럴 효과
 
 - **숨은 발견의 재미**: 외장 드라이브 추가 시 "어 캐릭터 바뀌었네?" → 도파민
-- **공유 트리거**: "내 EjectDrives 세발낙지 봤냐ㅋㅋ" → 트위터·스레드 자동 노출
+- **공유 트리거**: "내 DiskOUT 세발낙지 봤냐ㅋㅋ" → 트위터·스레드 자동 노출
 - **App Store 카피**: "How many drives can YOU collect?"
 - **Tako 클라이맥스화**: 8개 도달 시 "진짜 Tako 등장" — 마스코트가 보상이 됨
 
@@ -545,7 +545,7 @@ unmount() 호출
 
 ### 10.5 실측 예상 비교
 
-| 시나리오 | macOS 기본 | EjectDrives (최적화) |
+| 시나리오 | macOS 기본 | DiskOUT (최적화) |
 |---|---|---|
 | 1개 드라이브, idle | 1~2초 | 1~2초 (차이 없음) |
 | 5개 드라이브, idle | 5~10초 | **2~3초 ✓** |
@@ -578,6 +578,6 @@ unmount() 호출
 속도 개선이 검증되면 다음 카피 사용 가능:
 - "5 drives ejected in 2 seconds, not 10"
 - "병렬 추출로 도킹 셋업이 5배 빨라집니다"
-- App Store 스크린샷 비교: macOS 기본 vs EjectDrives 동영상
+- App Store 스크린샷 비교: macOS 기본 vs DiskOUT 동영상
 
 단, **카피와 실제 측정값이 일치해야** 함. 사용자 환경별 측정 데이터 확보 후 카피 결정.

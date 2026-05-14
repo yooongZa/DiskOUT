@@ -1,4 +1,4 @@
-# EjectDrives — 메뉴바 외장 드라이브 추출 유틸
+# DiskOUT — 메뉴바 외장 드라이브 추출 유틸
 
 **v0.4.0+** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
 
@@ -64,17 +64,17 @@ diskOUT/
 ├── Localizable.xcstrings        # ko + en 번역 (Xcode String Catalog)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
-├── EjectDrives.entitlements     # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
+├── DiskOUT.entitlements     # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
 ├── project.yml                  # xcodegen 설정 (sandbox OFF)
-├── EjectDrives.xcodeproj/       # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
+├── DiskOUT.xcodeproj/       # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
 ├── archive/                     # 폐기된 sandbox/helper 시절 코드 — 빌드 미사용, .gitignore 됨
 │   ├── DiskArbitrationBackend.swift
-│   ├── EjectDrives.entitlements (sandbox=true 시절)
+│   ├── EjectDrives.entitlements (sandbox=true 시절 — historical 파일명)
 │   ├── Helper/
 │   ├── HelperClient.swift
 │   └── Shared/HelperProtocol.swift
 ├── README.md                    # 이 파일
-└── EjectDrives_*.md             # 풀버전 기획/분석 문서들
+└── DiskOUT_*.md             # 풀버전 기획/분석 문서들
 ```
 
 ## 빌드 + 설치
@@ -83,22 +83,22 @@ diskOUT/
 
 ```bash
 cd ~/Documents/diskOUT
-xcodegen generate                  # project.yml → EjectDrives.xcodeproj
+xcodegen generate                  # project.yml → DiskOUT.xcodeproj
 ```
 
 ### 매 빌드
 
 ```bash
 cd ~/Documents/diskOUT
-xcodebuild -project EjectDrives.xcodeproj -scheme EjectDrives -configuration Release \
-  -derivedDataPath /tmp/EjectDrives-derived build
-pkill -f EjectDrives
-rm -rf ~/Applications/EjectDrives.app
-cp -R /tmp/EjectDrives-derived/Build/Products/Release/EjectDrives.app ~/Applications/
-open ~/Applications/EjectDrives.app
+xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
+  -derivedDataPath /tmp/DiskOUT-derived build
+pkill -f DiskOUT
+rm -rf ~/Applications/DiskOUT.app
+cp -R /tmp/DiskOUT-derived/Build/Products/Release/DiskOUT.app ~/Applications/
+open ~/Applications/DiskOUT.app
 ```
 
-또는 Xcode 열어서 `EjectDrives.xcodeproj` → `Cmd+R`.
+또는 Xcode 열어서 `DiskOUT.xcodeproj` → `Cmd+R`.
 
 ### 안전 설치 (롤백 가능)
 
@@ -107,30 +107,30 @@ open ~/Applications/EjectDrives.app
 ```bash
 # 1. 빌드
 cd ~/Documents/diskOUT
-xcodebuild -project EjectDrives.xcodeproj -scheme EjectDrives -configuration Debug build
+xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build
 
 # 2. 종료 + 백업 + 교체
-pkill -f EjectDrives
-mv ~/Applications/EjectDrives.app ~/Applications/EjectDrives.app.prev.bak
-DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name "EjectDrives.app" -type d | head -1)
-cp -R "$DERIVED" ~/Applications/EjectDrives.app
-xattr -cr ~/Applications/EjectDrives.app   # provenance/quarantine 정리
-open ~/Applications/EjectDrives.app
+pkill -f DiskOUT
+mv ~/Applications/DiskOUT.app ~/Applications/DiskOUT.app.prev.bak
+DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name "DiskOUT.app" -type d | head -1)
+cp -R "$DERIVED" ~/Applications/DiskOUT.app
+xattr -cr ~/Applications/DiskOUT.app   # provenance/quarantine 정리
+open ~/Applications/DiskOUT.app
 
 # 3. 검증 (메뉴 동작, 로그 확인)
 log show --predicate 'subsystem == "com.yongza.ejectdrives"' --info --last 1m
 
 # 4a. 문제 없으면 백업 제거
-rm -rf ~/Applications/EjectDrives.app.prev.bak
+rm -rf ~/Applications/DiskOUT.app.prev.bak
 
 # 4b. 문제 있으면 롤백
-pkill -f EjectDrives
-rm -rf ~/Applications/EjectDrives.app
-mv ~/Applications/EjectDrives.app.prev.bak ~/Applications/EjectDrives.app
-open ~/Applications/EjectDrives.app
+pkill -f DiskOUT
+rm -rf ~/Applications/DiskOUT.app
+mv ~/Applications/DiskOUT.app.prev.bak ~/Applications/DiskOUT.app
+open ~/Applications/DiskOUT.app
 ```
 
-> Debug 빌드는 `~/Library/Developer/Xcode/DerivedData/EjectDrives-<hash>/Build/Products/Debug/` 에 생성됨. Release 는 `Release/`. xcodebuild 의 `-derivedDataPath` 를 안 줄 때만 default 위치 사용.
+> Debug 빌드는 `~/Library/Developer/Xcode/DerivedData/DiskOUT-<hash>/Build/Products/Debug/` 에 생성됨. Release 는 `Release/`. xcodebuild 의 `-derivedDataPath` 를 안 줄 때만 default 위치 사용.
 
 ### 배포 메모 (2026-05-07)
 
@@ -158,7 +158,7 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 
 ## 로그인 시 자동 실행
 
-메뉴에서 **"로그인 시 자동 실행"** 토글 → `SMAppService.mainApp` 으로 시스템 자동 등록. macOS 가 `.requiresApproval` 을 반환하면 메뉴에는 체크 표시와 함께 **"로그인 항목 허용 필요"** 가 붙는다. 이 상태에서는 시스템 설정 → 일반 → 로그인 항목에서 EjectDrives 를 허용해야 실제 로그인 실행이 활성화된다.
+메뉴에서 **"로그인 시 자동 실행"** 토글 → `SMAppService.mainApp` 으로 시스템 자동 등록. macOS 가 `.requiresApproval` 을 반환하면 메뉴에는 체크 표시와 함께 **"로그인 항목 허용 필요"** 가 붙는다. 이 상태에서는 시스템 설정 → 일반 → 로그인 항목에서 DiskOUT 를 허용해야 실제 로그인 실행이 활성화된다.
 
 ## 옵션 바꾸고 싶을 때
 
@@ -182,7 +182,7 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 - **재마운트 신뢰도**: 자동 추출에 성공한 디스크만 wake 후 `diskutil mountDisk` 로 재마운트한다. 재인식 안 되는 디스크는 사용자 분리로 간주해 silent 처리한다. 물리적으로 이미 빠진 디스크는 앱이 다시 마운트할 수 없다.
 - **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
 - **`pmset sleep = 0` 환경에서 화면 꺼짐 ≠ system sleep**: v0.2.x 까지는 화면만 꺼져도 추출 안 됨. v0.3.0 의 "화면 꺼질 때도 자동 추출" 토글로 보완 (명시적 opt-in). 트레이드오프: 자리 잠깐 비울 때마다 추출/재마운트 사이클 발생 가능 — 빈번하면 disk wear / 작업 흐름 끊김.
-- **재설치 후 `로그인 항목 허용 필요` 메시지 잔존 가능**: 이전 sandbox/helper 노선 빌드를 설치했었던 머신은 BTM(Background Task Management) 에 helper daemon 등록이 stale 로 남아 있어, 새 빌드에서도 `SMAppService.mainApp.status == .requiresApproval` 로 보고된다. 시스템 설정 → 일반 → 로그인 항목 에서 EjectDrives 관련 stale entry 를 직접 OFF / 제거한 뒤 환경설정 → "Launch at login" 을 한 번 OFF/ON 하면 정정된다. (`sudo sfltool resetbtm` 은 다른 백그라운드 앱 등록도 reset 되므로 권장 안 함.)
+- **재설치 후 `로그인 항목 허용 필요` 메시지 잔존 가능**: 이전 sandbox/helper 노선 빌드를 설치했었던 머신은 BTM(Background Task Management) 에 helper daemon 등록이 stale 로 남아 있어, 새 빌드에서도 `SMAppService.mainApp.status == .requiresApproval` 로 보고된다. 시스템 설정 → 일반 → 로그인 항목 에서 DiskOUT 관련 stale entry 를 직접 OFF / 제거한 뒤 환경설정 → "Launch at login" 을 한 번 OFF/ON 하면 정정된다. (`sudo sfltool resetbtm` 은 다른 백그라운드 앱 등록도 reset 되므로 권장 안 함.)
 
 ---
 
@@ -237,7 +237,7 @@ if let win = button.window {
 
 ## 외장 드라이브 필터 (macOS 26 에서 깨진 풀버전 로직)
 
-풀버전 EjectDrives 의 원래 필터:
+풀버전 DiskOUT 의 원래 필터:
 ```swift
 guard !isInternal, isBrowsable, (isEjectable || isRemovable) else { continue }
 ```
@@ -255,7 +255,7 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 
 - **노치 모델**: status items 가 메뉴바 좌측 (앱 메뉴 옆) 에도 배치될 수 있음 — 우측이 가득 차면 노치 너머 좌측에 등장.
 - **`com.apple.provenance` xattr**: macOS 의 fileprovider 서비스 (iCloud Drive / OneDrive 등) 가 `~/Documents/` 안의 파일에 자동으로 붙임. codesign 이 이걸 보면 "resource fork, Finder information, or similar detritus not allowed" 로 사인 거부. `xattr -cr` 로 정리해도 곧 다시 붙음. **빌드는 `/tmp/` 등 fileprovider 영향 없는 곳에서 하는 게 안전.**
-- **CGWindowList 의 한계**: `kCGWindowOwnerName == "EjectDrives"` 검색으로 윈도우 0개라도 메뉴바에 떠있을 수 있음. `ControlCenter` 가 status item 의 view 를 자체 윈도우 안에 그리는 케이스가 있어 외부에서는 안 보임. **진짜 보이는지 검증은 시각적 확인 필수.**
+- **CGWindowList 의 한계**: `kCGWindowOwnerName == "DiskOUT"` 검색으로 윈도우 0개라도 메뉴바에 떠있을 수 있음. `ControlCenter` 가 status item 의 view 를 자체 윈도우 안에 그리는 케이스가 있어 외부에서는 안 보임. **진짜 보이는지 검증은 시각적 확인 필수.**
 - **`ProcessRunner` stdout/stderr drain 개선 완료**: `Process` 의 stdout/stderr 를 `readabilityHandler` 로 비동기 drain(비우기)하고 종료 후 남은 data(데이터)도 회수한다. `lsof` 는 3초 timeout(타임아웃), `pmset sleepnow` 는 5초 timeout 을 둔다. 기존 `diskutil` 호출은 동작 보존을 위해 아직 명시 timeout 없이 실행한다.
 
 ---
@@ -264,8 +264,8 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 
 App Store 출시 + 마스코트(Tako) + cosmetic IAP 까지 포함한 v1.0 계획. 관련 문서:
 
-- [EjectDrives_개발기획서.md](EjectDrives_개발기획서.md) — 기능 명세, 아키텍처, 일정
-- [EjectDrives_분석.md](EjectDrives_분석.md) — 시장 조사, 캐릭터 IAP 전략
-- [EjectDrives_애니메이션_가이드.md](EjectDrives_애니메이션_가이드.md) — 캐릭터 애니메이션 구현 (cosmetic IAP 의 핵심 자산)
+- [DiskOUT_개발기획서.md](DiskOUT_개발기획서.md) — 기능 명세, 아키텍처, 일정
+- [DiskOUT_분석.md](DiskOUT_분석.md) — 시장 조사, 캐릭터 IAP 전략
+- [DiskOUT_애니메이션_가이드.md](DiskOUT_애니메이션_가이드.md) — 캐릭터 애니메이션 구현 (cosmetic IAP 의 핵심 자산)
 
 이 README 는 그 일부 코어 기능을 먼저 구현한 작업본.

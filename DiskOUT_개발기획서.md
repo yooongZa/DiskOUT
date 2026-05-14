@@ -1,8 +1,8 @@
-# EjectDrives 개발 기획서 & 계획안
+# DiskOUT 개발 기획서 & 계획안
 
 > 작성일: 2026-05-03
 > 작성: Claude (with yongZa)
-> 관련 문서: `EjectDrives_분석.md`
+> 관련 문서: `DiskOUT_분석.md`
 > 상태: v1.0 출시 준비 보류 — 2026-05-07 현재 App Store/sandbox 노선 포기, sandbox OFF + `diskutil` 직접 실행 경로로 회귀
 
 ---
@@ -21,9 +21,9 @@
 **"맥OS의 'Disk Not Ejected Properly' 경고를 영원히 끄는 메뉴바 유틸리티."**
 
 ### 1.2 제품명
-- 정식: **EjectDrives**
+- 정식: **DiskOUT**
 - 마스코트: **Tako** (문어)
-- 카피라이트 표기: `EjectDrives by yongZa`
+- 카피라이트 표기: `DiskOUT by yongZa`
 
 ### 1.3 플랫폼
 - macOS 13 Ventura 이상 (`SMAppService` API 요구사항)
@@ -50,7 +50,7 @@
 4. **귀여운 문어가 옆에서 함께한다**
 
 ### 2.2 차별화 포인트 (vs Jettison)
-| 항목 | Jettison | EjectDrives |
+| 항목 | Jettison | DiskOUT |
 |---|---|---|
 | 병렬 추출 | 순차 | **병렬 (5배 빠름)** |
 | 캐릭터 인터랙션 | 없음 | **Tako 마스코트 + 진화 시스템** |
@@ -143,7 +143,7 @@
 **v1.2 (출시 후 6개월)**
 - Shortcuts.app 연동
 - AppleScript 지원
-- CLI 명령어 (`ejectdrives all`)
+- CLI 명령어 (`diskout all`)
 - Port-adjacent mode (실험적)
 - 이스터에그 캐릭터 (11~20단계)
 
@@ -180,10 +180,10 @@
 ### 5.3 파일 구조 (제안)
 
 ```
-EjectDrives/
+DiskOUT/
 ├── App/
 │   ├── AppDelegate.swift           # 진입점, 라이프사이클
-│   ├── EjectDrivesApp.swift        # @main
+│   ├── DiskOUTApp.swift        # @main
 │   └── Info.plist
 ├── Core/
 │   ├── DriveManager.swift          # DiskArbitration 래퍼
@@ -250,7 +250,7 @@ EjectDrives/
 <array><string>/Volumes/</string></array>
 ```
 
-- 현재 구현: `diskutil` / `hdiutil` 직접 실행. `EjectDrives.entitlements` 는 빌드 미사용.
+- 현재 구현: `diskutil` / `hdiutil` 직접 실행. `DiskOUT.entitlements` 는 빌드 미사용.
 - App Store 재도전 조건: sandbox 안에서 `diskutil` 없이 동등한 mount/eject 안정성 확보.
 - 단축키 (`⌥⌘E`, `⌃⌘E`): Accessibility 권한 별도 요청 — 첫 실행 시 사용자 안내 다이얼로그
 
@@ -391,7 +391,7 @@ func shouldShowInList(_ disk: DADisk) -> Bool {
 **메뉴 UI 권장**
 
 ```
-🐙 EjectDrives
+🐙 DiskOUT
 ─────────────────
 USB DRIVES
 📦 SanDisk SSD              ⌘1
@@ -491,7 +491,7 @@ App Intents 통합 시 정당화 가능 카피:
 - App Store "AI Apps" 카테고리 노출 가능 (운영 시)
 
 #### 5.7.5 결론
-**v1.0에는 App Intents 1개만.** 나머지는 다 거름. 1인 개발자가 AI 기능 욕심 부리면 코어 기능 품질이 떨어짐. EjectDrives의 본질은 **"빠르고 조용한 추출"**이지 AI 어시스턴트가 아님.
+**v1.0에는 App Intents 1개만.** 나머지는 다 거름. 1인 개발자가 AI 기능 욕심 부리면 코어 기능 품질이 떨어짐. DiskOUT의 본질은 **"빠르고 조용한 추출"**이지 AI 어시스턴트가 아님.
 
 ---
 
@@ -508,7 +508,7 @@ App Intents 통합 시 정당화 가능 카피:
 ### 6.2 드롭다운 메뉴
 
 ```
-🐙 EjectDrives
+🐙 DiskOUT
 ─────────────────
 📦 SanDisk SSD (1.8TB)        ⌘1
 📦 Samsung T7 (500GB)         ⌘2
@@ -517,7 +517,7 @@ App Intents 통합 시 정당화 가능 카피:
 🔘 모두 추출                   ⌘⌥E
 ─────────────────
 ⚙️  환경설정...
-ℹ️  EjectDrives 정보
+ℹ️  DiskOUT 정보
 종료
 ```
 
@@ -578,7 +578,7 @@ App Intents 통합 시 정당화 가능 카피:
 ```
 Stop seeing "Disk Not Ejected Properly" forever.
 
-EjectDrives safely removes all your external drives
+DiskOUT safely removes all your external drives
 when you close the lid — silently, automatically, fast.
 
 ✓ 5x faster than macOS default (parallel ejection)
@@ -593,7 +593,7 @@ when you close the lid — silently, automatically, fast.
 "디스크가 올바르게 제거되지 않았습니다."
 이 알람, 이제 그만 보세요.
 
-뚜껑만 닫으면 EjectDrives의 Tako가
+뚜껑만 닫으면 DiskOUT의 Tako가
 모든 외장 드라이브를 알아서 안전하게 추출합니다.
 
 ✓ macOS 기본보다 5배 빠른 병렬 추출
@@ -671,7 +671,7 @@ cosmetic IAP 의 핵심 자산. v1.0 출시 후 데이터 보고 도입 시점 �
 - [ ] 데모 GIF 3종 (단일 추출, 병렬 추출, 캐릭터 인터랙션)
 - [ ] App Store 소개 텍스트 (한/영)
 - [ ] Product Hunt 자료 (헌터 섭외, 갤러리 이미지)
-- [ ] 블로그 글 1~2개 작성 ("How I built EjectDrives")
+- [ ] 블로그 글 1~2개 작성 ("How I built DiskOUT")
 
 ### 8.8 Week 11: App Store 제출
 - [ ] App Store Connect 메타데이터 입력
@@ -797,5 +797,5 @@ cosmetic IAP 의 핵심 자산. v1.0 출시 후 데이터 보고 도입 시점 �
 | Bartender | 메뉴바 앱 UI/UX 표준 |
 
 ## 부록 B: 참고 문서
-- `EjectDrives_분석.md` — 시장 분석, 냉철한 비판, 페인 포인트 정의
+- `DiskOUT_분석.md` — 시장 분석, 냉철한 비판, 페인 포인트 정의
 - 기존 코드 베이스 (`AppDelegate.swift`, `SettingsWindowController.swift`)

@@ -1,5 +1,41 @@
 # CHANGELOG
 
+## Unreleased — 2026-05-14: 앱 이름 EjectDrives → DiskOUT 으로 변경
+
+**배경**: 브랜딩 단순화 + 검색성. "EjectDrives" 는 동작 설명 그대로라 검색 노이즈가 크고, "DiskOUT" 이 짧고 외우기 쉬워 메뉴바 앱 정체성에 더 적합.
+
+### 변경 영역 (사용자 노출 + Xcode 프로젝트)
+
+- **Info.plist**: `CFBundleName`, `CFBundleDisplayName`, `NSHumanReadableCopyright` → `DiskOUT`. 메뉴바 앱 이름 / Finder 표시 이름 / About 탭 카피라이트 한꺼번에 갱신.
+- **About 탭 / Quit 메뉴 / accessibilityDescription** (`AppDelegate.swift`): 사용자 노출 문자열 (`"EjectDrives"`, `"Quit EjectDrives"`, eject 메뉴바 아이콘 a11y label) → `DiskOUT`.
+- **Localizable.xcstrings**: 사용자 노출 키 (`"Quit EjectDrives"`, `"Toggle EjectDrives on in System Settings → Login Items."`) 및 en/ko 번역값 모두 `DiskOUT` 으로 변경.
+- **Xcode 프로젝트**: `EjectDrives.xcodeproj` → `DiskOUT.xcodeproj` rename, `project.yml` 의 `name` / `targets.<name>` 갱신 후 `xcodegen generate` 로 재생성. scheme 이름 = `DiskOUT` 자동 적용. `xcodebuild -list -project DiskOUT.xcodeproj` 로 인식 확인.
+- **entitlements 파일**: `EjectDrives.entitlements` → `DiskOUT.entitlements` rename (빈 dict 유지).
+- **문서**: `README.md`, `EjectDrives_개발기획서.md`, `EjectDrives_분석.md`, `EjectDrives_애니메이션_가이드.md` 의 모든 `EjectDrives` 표기 → `DiskOUT`. 파일명도 `DiskOUT_*.md` 로 rename.
+- **CHANGELOG.md 본문**: 과거 항목 안에 등장하는 `EjectDrives` 도 일괄 `DiskOUT` 으로 변경 (단 historical 시작 로그 출력값 `` `EjectDrives launched` `` 은 코드의 실제 로그 메시지와 일치시키기 위해 원래대로 유지).
+- **.gitignore**: `/tmp` 빌드 산출물 패턴 + 충돌 복사본 예시 주석 `DiskOUT` 으로 갱신 (구 `EjectDrives-derived/` 패턴은 호환 위해 함께 보존).
+
+### 의도적으로 유지한 영역
+
+- **Bundle ID `com.yongza.ejectdrives`** — `PRODUCT_BUNDLE_IDENTIFIER`, Logger subsystem, DispatchQueue label, BTM 등록, 기존 `UserDefaults` / `SMAppService` / 키체인 호환성을 위해 그대로 둠. Bundle ID 를 바꾸면 사용자가 새 앱처럼 인식되어 환경설정·로그인 항목 등록을 처음부터 다시 해야 한다.
+- **내부 심볼 / 코멘트 일부** — `archive/` 안의 폐기된 sandbox/helper 시절 코드 (`EjectDrivesHelper`, `EjectDrivesHelperProtocol`, `kEjectDrivesHelperMachServiceName`) 는 historical artifact 라 변경 안 함.
+- **로그 메시지 `"EjectDrives launched"`** (`AppDelegate.swift:135`) — Console.app 으로만 보이는 디버그 로그, 사용자 노출 아님. Bundle ID/subsystem 과 일관성 유지 차원에서 그대로 둠.
+- **파일 헤더 주석**: `// DiskOUT — ... (구 EjectDrives)` 형태로 historical 정보만 남김.
+
+### 확인 필요 / 다음 단계
+
+- ⚠️ **Bundle ID 와 표시 이름이 불일치한 상태**. 향후 Developer ID / App Store 배포 시 일관성을 잡을지 (그때는 사용자 데이터 마이그레이션 비용 감수) 별도 결정 필요.
+- ⚠️ **`~/Applications/EjectDrives.app` 기존 설치본**: 새 빌드는 `DiskOUT.app` 으로 생성됨. 다음 빌드/설치 시 기존 `.app` 수동 제거 + LoginItem 토글 한 번 OFF/ON 권장.
+- ⚠️ **앱 아이콘 자산**: 현재는 SF Symbol `eject.fill` 만 사용하므로 영향 없음. 향후 별도 아이콘 추가 시 새 이름에 맞춰 갱신.
+- ⚠️ **macOS BTM 잔재**: 기존 EjectDrives 등록 + 신규 DiskOUT 등록이 둘 다 BTM 에 올라가 `로그인 항목 허용 필요` 메시지가 나올 수 있음. 시스템 설정 → 일반 → 로그인 항목에서 EjectDrives stale entry 제거 후 DiskOUT 만 활성화.
+
+### 검증
+
+- `xcodebuild -list -project DiskOUT.xcodeproj` → `Targets: DiskOUT`, `Schemes: DiskOUT` 정상 인식 확인.
+- 빌드 자체는 사용자가 별도 검증 (`xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release build`).
+
+---
+
 ## Unreleased — 2026-05-13: sleep eject "비정상 추출" 알림 감소
 
 **배경**: 디스플레이 sleep 진입 시 `Extreme SSD` (APFS multi-volume container) 에 대해 macOS "디스크가 제대로 추출되지 않음" 알림이 4번 떴다. 로그 분석 결과 sleep eject 가 처음부터 `force` 옵션으로 시작 → DA volume-only force unmount(1s) 타임아웃 → `diskutil unmountDisk force`(10s) 타임아웃 → `diskutil eject force` 로 강제 추출되었기 때문. 강제 추출 단계까지 도달하면 macOS 가 비정상 추출로 인식하고, sub-volume 마다 알림을 띄운다.
@@ -25,7 +61,7 @@
 
 | 항목 | 결과 |
 |---|---|
-| `xcodebuild -project EjectDrives.xcodeproj -scheme EjectDrives -configuration Debug build` | BUILD SUCCEEDED |
+| `xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build` | BUILD SUCCEEDED |
 | 호출부 / 시그니처 정합성 (`grep diskArbitrationForceUnmountForSleep`) | 잔재 0건 |
 
 실제 알림 감소는 다음 sleep 사이클 이후 `log show --predicate 'subsystem == "com.yongza.ejectdrives"' --last 1h` 로 Step A/B 도달 여부를 확인하면서 검증한다.
@@ -54,33 +90,33 @@
 - **About 탭 추가**: 환경설정 창에 정보 탭 신설 — 버전, 빌드 번호, copyright, "알림은 의도적으로 무음" 안내 한 줄. 사용자가 자기 버전 확인할 곳이 없던 문제 해결.
 - **메뉴 vs 환경설정 토글 중복 정리**: 양쪽에 같은 토글이 떠 있어 어디서 켰는지 혼동되던 문제. 메뉴엔 자주 토글하는 *"잠자기 시 자동 추출"* 만 유지, *"화면 꺼질 때 자동 추출"* / *"Music·Photos 자동 종료"* / *"로그인 시 자동 실행"* 은 환경설정 전용으로 이동. 단 `SMAppService` 가 `.requiresApproval` 을 반환하면 메뉴에 ⚠ 경고 row 만 노출.
 - **"추출하고 잠자기" 단축키 옵션 추가**: `SettingsStore.ejectAndSleepHotkey` (기본 Off). 환경설정 → Hotkeys 탭에서 4 개 preset 중 선택 가능. eject / mount 와 같은 preset 선택 시 alert 후 무시.
-- **"Quit" → "Quit EjectDrives"** macOS 표준 라벨. 한국어 "EjectDrives 종료".
+- **"Quit" → "Quit DiskOUT"** macOS 표준 라벨. 한국어 "DiskOUT 종료".
 
 ### 코드 위생 / 빌드 정합성
 
-- **미사용 파일 archive 이동**: `Helper/`, `HelperClient.swift`, `Shared/HelperProtocol.swift`, `DiskArbitrationBackend.swift`, 구 `EjectDrives.entitlements` (sandbox=true) 를 `archive/` 디렉토리로 이동. `.gitignore` 에 `archive/` 추가. helper 시절 잔재가 빌드에 다시 포함되는 사고 방지.
-- **`EjectDrives 2.xcodeproj` / `EjectDrives 3.xcodeproj` 삭제**: iCloud 동기화 충돌 잔재. `.gitignore` 패턴은 있었으나 디스크에 그대로였다. 동시에 `.gitignore` 의 sync conflict 패턴을 `* [0-9].xcodeproj/` 로 일반화.
+- **미사용 파일 archive 이동**: `Helper/`, `HelperClient.swift`, `Shared/HelperProtocol.swift`, `DiskArbitrationBackend.swift`, 구 `DiskOUT.entitlements` (sandbox=true) 를 `archive/` 디렉토리로 이동. `.gitignore` 에 `archive/` 추가. helper 시절 잔재가 빌드에 다시 포함되는 사고 방지.
+- **`DiskOUT 2.xcodeproj` / `DiskOUT 3.xcodeproj` 삭제**: iCloud 동기화 충돌 잔재. `.gitignore` 패턴은 있었으나 디스크에 그대로였다. 동시에 `.gitignore` 의 sync conflict 패턴을 `* [0-9].xcodeproj/` 로 일반화.
 - **dead code 삭제**: `UnmountedExternal.firstVolumeName(in:)` 정의는 있었으나 호출 0 회. 메뉴용 `toggleLoginItem`, `toggleDisplaySleepEject`, `toggleLibraryAppManagement` 핸들러도 메뉴 정리 후 dead 가 되어 함께 삭제.
-- **`project.yml` 에 entitlements 명시**: 빈 dict (`properties: {}`) 로 명시해, 향후 누군가 helper / DA backend 를 다시 빌드할 때 entitlements 가 자동 생성되어 sandbox=true 가 묻어 들어가는 함정 방지. 새 `EjectDrives.entitlements` 는 빈 plist.
+- **`project.yml` 에 entitlements 명시**: 빈 dict (`properties: {}`) 로 명시해, 향후 누군가 helper / DA backend 를 다시 빌드할 때 entitlements 가 자동 생성되어 sandbox=true 가 묻어 들어가는 함정 방지. 새 `DiskOUT.entitlements` 는 빈 plist.
 - **Settings window 닫힘 cleanup**: `windowWillClose` 시 controller 를 nil 로 해제. 다음번 ⌘, 시 fresh state 로 다시 띄움.
 
 ### 다국어
 
-- 새 키 11 개 한 / 영 추가 (`About`, `Off`, `Quit EjectDrives`, `Right-click menu bar icon to eject all`, `Allow Accessibility for global hotkeys`, `Allow notifications to see eject results`, `Hotkey conflict`, 충돌 alert 본문 2 개, About 탭 hint, 우클릭 토글 tooltip).
+- 새 키 11 개 한 / 영 추가 (`About`, `Off`, `Quit DiskOUT`, `Right-click menu bar icon to eject all`, `Allow Accessibility for global hotkeys`, `Allow notifications to see eject results`, `Hotkey conflict`, 충돌 alert 본문 2 개, About 탭 hint, 우클릭 토글 tooltip).
 
 ### 검증
 
 | 항목 | 결과 |
 |---|---|
-| `xcodegen generate` + Debug build (`/tmp/EjectDrives-review-build`) | 성공 |
+| `xcodegen generate` + Debug build (`/tmp/DiskOUT-review-build`) | 성공 |
 | `jq empty Localizable.xcstrings` | 성공 |
-| `~/Applications/EjectDrives.app` fresh install + launch | 성공 |
+| `~/Applications/DiskOUT.app` fresh install + launch | 성공 |
 | 시작 로그 (`log show --predicate 'subsystem == "com.yongza.ejectdrives"'`) | `EjectDrives launched`, `IOKit power sleep observer registered`, `Accessibility trusted = true`, `globalKeyMonitor = REGISTERED`, `DiskMenuSnapshot.load 0.131s drives=["Extreme SSD","SYSJO"]` |
 
 ### 알려진 후속 작업
 
 - **App Icon**: `Assets.xcassets/AppIcon.appiconset` + `project.yml` 연결 미완료. 사용자가 아이콘 자산 결정 후 별도 진행.
-- **`sfltool dumpbtm` 잔재**: BTM 에 sandbox/helper 시절 등록 (`URL: file:///Applications/EjectDrives.app/`, `Embedded Item: 16.com.yongza.ejectdrives.helper`) 이 disallowed 상태로 남아 있어, 새 빌드의 `SMAppService.mainApp.status` 가 `.requiresApproval` 로 보고된다. 사용자가 시스템 설정 → 일반 → 로그인 항목에서 stale entry 를 직접 정리해야 한다 (`sudo sfltool resetbtm` 은 다른 백그라운드 앱 등록도 reset 되므로 권장 안 함).
+- **`sfltool dumpbtm` 잔재**: BTM 에 sandbox/helper 시절 등록 (`URL: file:///Applications/DiskOUT.app/`, `Embedded Item: 16.com.yongza.ejectdrives.helper`) 이 disallowed 상태로 남아 있어, 새 빌드의 `SMAppService.mainApp.status` 가 `.requiresApproval` 로 보고된다. 사용자가 시스템 설정 → 일반 → 로그인 항목에서 stale entry 를 직접 정리해야 한다 (`sudo sfltool resetbtm` 은 다른 백그라운드 앱 등록도 reset 되므로 권장 안 함).
 
 ---
 
@@ -90,7 +126,7 @@
 
 ### 결정 사항
 
-- **App Sandbox OFF**: `project.yml` 과 `EjectDrives.xcodeproj` 모두 `ENABLE_APP_SANDBOX = NO`.
+- **App Sandbox OFF**: `project.yml` 과 `DiskOUT.xcodeproj` 모두 `ENABLE_APP_SANDBOX = NO`.
 - **Helper daemon 제거**: `HelperClient`, `HelperDaemon`, helper target, LaunchDaemons copy phase 를 빌드에서 제거. 미추적 helper 파일은 남아있지만 현재 빌드 대상이 아니다.
 - **DiskArbitrationBackend 빌드 제외**: DA/IOKit sandbox 실험 코드는 파일로 남아있지만 현재 target sources 에서 제외.
 - **디스크 작업은 `diskutil` 직접 실행으로 복원**:
@@ -136,23 +172,23 @@
 | 항목 | 결과 |
 |---|---|
 | Debug build | 성공 |
-| Debug build (`/tmp/EjectDrives-lsof-build`) | 성공 |
-| Debug build (`/tmp/EjectDrives-sleep-build`) | 성공 |
-| Debug build (`/tmp/EjectDrives-docs-build`) | 성공 |
-| Debug build (`/tmp/EjectDrives-async-menu`) | 성공 |
-| Release build (`/tmp/EjectDrives-async-menu-release`) | 성공 |
-| Debug build (`/tmp/EjectDrives-refresh-fix-debug`) | 성공 |
-| Release build (`/tmp/EjectDrives-refresh-fix-release`) | 성공 |
+| Debug build (`/tmp/DiskOUT-lsof-build`) | 성공 |
+| Debug build (`/tmp/DiskOUT-sleep-build`) | 성공 |
+| Debug build (`/tmp/DiskOUT-docs-build`) | 성공 |
+| Debug build (`/tmp/DiskOUT-async-menu`) | 성공 |
+| Release build (`/tmp/DiskOUT-async-menu-release`) | 성공 |
+| Debug build (`/tmp/DiskOUT-refresh-fix-debug`) | 성공 |
+| Release build (`/tmp/DiskOUT-refresh-fix-release`) | 성공 |
 | Debug build (2026-05-10 sleep/remount fixes) | 성공 |
 | `codesign -d --entitlements` | sandbox entitlement 없음 (`get-task-allow` 만 존재) |
 | Developer ID signing(개발자 ID 서명) | timestamp 포함 서명 zip 생성 가능 확인. `spctl` 은 notarization 미완료 상태라 `Unnotarized Developer ID` 로 reject |
 | `diskutil list -plist external` | 정상 |
 | `hdiutil info -plist` | 정상 |
-| `sample <EjectDrives PID>` | sleep task 가 `hdiutil info -plist` 무제한 대기 중인 call stack 확인 후 timeout 수정 |
+| `sample <DiskOUT PID>` | sleep task 가 `hdiutil info -plist` 무제한 대기 중인 call stack 확인 후 timeout 수정 |
 | `diskutil mountDisk disk7/disk8` | 이미 마운트된 상태에서 success |
 | `lsof -Fpcfn` 출력 형태 | parser(파서) 입력 형식 확인 |
 | `jq empty Localizable.xcstrings` | 성공 |
-| `git diff --check -- AppDelegate.swift Localizable.xcstrings README.md CHANGELOG.md EjectDrives_*.md` | 성공 |
+| `git diff --check -- AppDelegate.swift Localizable.xcstrings README.md CHANGELOG.md DiskOUT_*.md` | 성공 |
 | 메뉴 생성 시간 | stale cache 상태에서도 먼저 `0.013~0.014s` 에 메뉴 표시, background refresh 완료 후 `0.008s` 로 재구성 |
 | SD card 추출 후 stale cache 복구 | 기존 stuck 실행본에서 CPU 약 200% 및 `refreshing=true` 지속 확인. 수정 빌드 재시작 후 `DiskMenuSnapshot.load: 2.550s drives=["SSD_W", "SYSJO"] refreshError=-`, CPU `0.0%` 확인 |
 | 로그인 항목 메뉴 상태 | `.requiresApproval` 상태에서 `✓ 로그인 시 자동 실행 (로그인 항목 허용 필요)` 표시 |
@@ -182,7 +218,7 @@
 
 - **Mac App Store 단일 노선**. Developer ID + GitHub Releases 노선은 폐기. 이중 SKU 운영 부담 (sandbox ON/OFF 두 빌드, 코드 분기) 이 1인 운영에 큼.
 - **유료화 모델 확정**: 핵심 기능 전부 무료. 유료 = 캐릭터 애니메이션 / 사운드 등 cosmetic IAP. 출시 후 2~3개월 시점에 IAP 도입.
-- **App Sandbox ON 으로 복원**. App Store 가 강제하는 요건. 현재 `EjectDrives.entitlements` = `app-sandbox=true` + `device.usb` + `temporary-exception /Volumes/`.
+- **App Sandbox ON 으로 복원**. App Store 가 강제하는 요건. 현재 `DiskOUT.entitlements` = `app-sandbox=true` + `device.usb` + `temporary-exception /Volumes/`.
 
 ### 제거된 것
 
@@ -306,7 +342,7 @@ Jettison 비교 분석에서 도출된 *진짜 위험* 3가지 — Time Machine 
 - `status == .requiresApproval` 케이스 (사용자가 시스템 설정에서 허용 안 한 상태) 처리:
   - 토글 상태에 따라 toolTip 으로 *"시스템 설정에서 허용 필요"* 안내
   - register 직후 status 가 requiresApproval 이면 알림 + `SMAppService.openSystemSettingsLoginItems()` 로 시스템 설정 자동 오픈
-- **이전 README 의 수동 안내 폐기** — 사용자가 `~/Applications/EjectDrives.app` 을 직접 시스템 설정에 추가하던 절차 → 메뉴 토글 한 번으로 끝.
+- **이전 README 의 수동 안내 폐기** — 사용자가 `~/Applications/DiskOUT.app` 을 직접 시스템 설정에 추가하던 절차 → 메뉴 토글 한 번으로 끝.
 
 ### 다국어 — `Localizable.xcstrings` (Xcode 15+ String Catalog)
 
@@ -319,7 +355,7 @@ Jettison 비교 분석에서 도출된 *진짜 위험* 3가지 — Time Machine 
 - **한국어 톤**: 기존 어투 보존. *"모두 추출"* / *"마운트 완료"* / *"추출 실패: %@"*
 
 빌드 결과:
-- `EjectDrives.app/Contents/Resources/{en,ko}.lproj/Localizable.strings` 자동 컴파일
+- `DiskOUT.app/Contents/Resources/{en,ko}.lproj/Localizable.strings` 자동 컴파일
 - `Info.plist` 의 `CFBundleLocalizations = [en, ko]` 박힘
 - 시스템 언어 한국어/영어 자동 전환 (사용자가 시스템 설정 → 언어 및 지역 변경 시)
 
@@ -362,7 +398,7 @@ Jettison 비교 분석에서 도출된 *진짜 위험* 3가지 — Time Machine 
 | **MountMate** (무료, OSS) | ✓ | ✓ | (불명) | 단축키 `⌘⇧M` / `⌘⇧U` |
 | Ejectify (€6.99, OSS) | ✗ | ✗ | ✗ | 자동 unmount + auto remount on wake 만 |
 | EjectBar (무료) | ✗ | ✗ | ✗ | 추출 위주 |
-| **EjectDrives v0.3.0** | ✗ | ✗ | ✗ | 우리만 빠져있던 갭 |
+| **DiskOUT v0.3.0** | ✗ | ✗ | ✗ | 우리만 빠져있던 갭 |
 
 → Jettison 패턴 (별도 MOUNT 섹션 + ⌘+클릭 Finder) 채택.
 
@@ -488,7 +524,7 @@ v0.2.x 까지는 **system sleep** 만 처리. 그런데 다음 환경에서 갭:
 
 - `pmset -g` 의 `sleep = 0` (자동 system sleep 비활성)
 - 데스크탑 / 외장 모니터 + Mac mini / 백그라운드 작업 돌리는 환경에서 흔함
-- 화면이 꺼져도 (display sleep) 시스템은 awake → EjectDrives 동작 X
+- 화면이 꺼져도 (display sleep) 시스템은 awake → DiskOUT 동작 X
 - 그 상태에서 도킹/외장 분리 = ungraceful disconnect (`danglingVolumeList` 등록, "Disk Not Ejected Properly" 알림)
 
 실제 사고 사례: 2026-05-05 22:40 — 사용자가 "화면 꺼짐 = sleep" 으로 오인하고 도킹 분리. SYSJO/SSD_W 두 디스크 강제 unmount.
@@ -555,11 +591,11 @@ display sleep eject 는 강력하지만 **default = false**. 이유:
 ### 설치 / 검증 기록
 
 - **2026-05-05 23:05** — 안전 설치 절차로 교체 완료
-  - 기존 v0.2.0 (PID 67951) 종료 → `~/Applications/EjectDrives.app.v0.2.0.bak` 백업
+  - 기존 v0.2.0 (PID 67951) 종료 → `~/Applications/DiskOUT.app.v0.2.0.bak` 백업
   - DerivedData 의 Debug 빌드 (`23:02` 산출물) 를 `~/Applications/` 로 복사 + `xattr -cr` 로 provenance 정리
   - 새 PID 63837 으로 정상 실행, `globalKeyMonitor REGISTERED` / `Accessibility trusted = true` 확인
 - **검증 환경** — macOS 26.4.1 (Apple Silicon), `pmset sleep = 0`, `displaysleep = 20` 분
-- **알림 권한** — 여전히 denied (`authStatus=1`). 알림 매트릭스 검증 원하면 시스템 설정 → 알림 → EjectDrives 켜야 함
+- **알림 권한** — 여전히 denied (`authStatus=1`). 알림 매트릭스 검증 원하면 시스템 설정 → 알림 → DiskOUT 켜야 함
 - **롤백 절차** — README "안전 설치" 섹션 참조
 
 ---
@@ -785,14 +821,14 @@ v0.1.0 에서 토글 끈 적 있는 사용자도 그 상태 그대로 승계. �
 
 - **증상**: `FileManager.mountedVolumeURLs` 로 가져온 URL 들에서 외장하드들이 필터링됨 ("연결된 외장 드라이브 없음")
 - **진단**: `volumeIsEjectable` 과 `volumeIsRemovable` 둘 다 `false` 로 보고됨
-- **원인**: macOS 26 에서 Thunderbolt 외장 SSD 와 일부 USB 디바이스가 `ejectable/removable=false`. 풀버전 EjectDrives 의 원래 필터 (`isEjectable || isRemovable`) 가 깨짐
+- **원인**: macOS 26 에서 Thunderbolt 외장 SSD 와 일부 USB 디바이스가 `ejectable/removable=false`. 풀버전 DiskOUT 의 원래 필터 (`isEjectable || isRemovable`) 가 깨짐
 - **해결**: 필터 완화 — `!isInternal && isBrowsable && isLocal`. `isLocal` 가드로 네트워크 마운트만 제외, 외장 디스크는 전부 통과
 
 #### 3. `com.apple.provenance` xattr 로 codesign 거부
 
 - **증상**: codesign(코드사인 = 코드 서명) 시 "resource fork, Finder information, or similar detritus not allowed" 에러
 - **원인**: macOS 의 fileprovider 서비스 (iCloud Drive 등) 가 `~/Documents/` 안 파일에 자동으로 `com.apple.provenance` extended attribute(확장 속성) 부착. `xattr -cr` 로 정리해도 곧 다시 붙음
-- **해결**: 빌드를 `/tmp/` 등 fileprovider 영향 없는 곳에서 수행. `xcodebuild -derivedDataPath /tmp/EjectDrives-derived`
+- **해결**: 빌드를 `/tmp/` 등 fileprovider 영향 없는 곳에서 수행. `xcodebuild -derivedDataPath /tmp/DiskOUT-derived`
 
 #### 4. 단축키 등록 실패 (Carbon HotKey, macOS Sequoia+)
 
@@ -878,7 +914,7 @@ v0.1.0 에서 토글 끈 적 있는 사용자도 그 상태 그대로 승계. �
 
 #### 14. NSLog 가 unified logging 에 안 들어감
 
-- **증상**: `log show --predicate 'eventMessage CONTAINS "[EjectDrives]"'` 검색 결과 0건. NSLog 호출은 했는데 unified logging(통합 로깅) 시스템에 흔적 없음
+- **증상**: `log show --predicate 'eventMessage CONTAINS "[DiskOUT]"'` 검색 결과 0건. NSLog 호출은 했는데 unified logging(통합 로깅) 시스템에 흔적 없음
 - **원인**: macOS 26 에서 NSLog 가 stderr 로만 가고 unified logging 으로 forwarding(포워딩 = 전달) 안 되는 케이스. LSUIElement 앱은 stderr 가 dropped(드롭드 = 폐기) 될 수 있음
 - **해결**: `NSLog` 전부 → `os.Logger` API 로 변환. subsystem(서브시스템 = 검색용 식별자) = `com.yongza.ejectdrives`, category(카테고리) = `app`. `log show --predicate 'subsystem == "com.yongza.ejectdrives"'` 로 정확히 추적 가능
 
@@ -1007,5 +1043,5 @@ log level:
 
 ### Repo
 
-- GitHub: https://github.com/yooongZa/EjectDrives (private)
+- GitHub: https://github.com/yooongZa/DiskOUT (private)
 - 빌드 / 사용법: [README.md](README.md) 참조

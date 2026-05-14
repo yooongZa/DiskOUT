@@ -288,11 +288,11 @@
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "성공: %@" } }
       }
     },
-    "Toggle EjectDrives on in System Settings → Login Items." : {
+    "Toggle DiskOUT on in System Settings → Login Items." : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Toggle EjectDrives on in System Settings → Login Items." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정에서 EjectDrives 의 로그인 항목 토글을 켜주세요." } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Toggle DiskOUT on in System Settings → Login Items." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정에서 DiskOUT 의 로그인 항목 토글을 켜주세요." } }
       }
     },
     "Unknown error" : {
@@ -568,11 +568,11 @@
         "ko" : { "stringUnit" : { "state" : "translated", "value" : "사용 안 함" } }
       }
     },
-    "Quit EjectDrives" : {
+    "Quit DiskOUT" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit EjectDrives" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "EjectDrives 종료" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit DiskOUT" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT 종료" } }
       }
     },
     "Right-click menu bar icon to eject all" : {

@@ -1,4 +1,4 @@
-name: EjectDrives
+name: DiskOUT
 options:
   bundleIdPrefix: com.yongza
   deploymentTarget:
@@ -16,7 +16,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
-  EjectDrives:
+  DiskOUT:
     type: application
     platform: macOS
     sources:
@@ -26,21 +26,22 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleName: EjectDrives
-        CFBundleDisplayName: EjectDrives
+        CFBundleName: DiskOUT
+        CFBundleDisplayName: DiskOUT
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSMinimumSystemVersion: "13.0"
         LSUIElement: true
         NSPrincipalClass: NSApplication
         LSApplicationCategoryType: public.app-category.utilities
-        NSHumanReadableCopyright: "EjectDrives by yongZa"
+        NSHumanReadableCopyright: "DiskOUT by yongZa"
         CFBundleLocalizations:
           - en
           - ko
         CFBundleDevelopmentRegion: en
     settings:
       base:
+        # Bundle ID 는 사용자 데이터(UserDefaults·LoginItem·키체인) 호환성 위해 유지
         PRODUCT_BUNDLE_IDENTIFIER: com.yongza.ejectdrives
         DEVELOPMENT_TEAM: 495S4FVMCB
         CODE_SIGN_IDENTITY: "Apple Development"
@@ -51,5 +52,5 @@ targets:
       # sandbox 노선 폐기 — 빈 entitlements 로 명시.
       # 향후 누군가 Helper / DA backend 다시 빌드할 때 entitlements 가 자동 생성되어
       # sandbox=true 가 들어가는 함정을 방지한다 (xcodegen 의 entitlements 자동 생성 동작).
-      path: EjectDrives.entitlements
+      path: DiskOUT.entitlements
       properties: {}

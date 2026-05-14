@@ -1,9 +1,9 @@
-# EjectDrives 메뉴바 캐릭터 애니메이션 구현 가이드
+# DiskOUT 메뉴바 캐릭터 애니메이션 구현 가이드
 
 > 작성일: 2026-05-03
 > 작성: Claude (with yongZa)
 > 대상: macOS 13+ / Swift 5.9+ / AppKit
-> 관련 문서: `EjectDrives_분석.md` (섹션 9), `EjectDrives_개발기획서.md` (섹션 6.5)
+> 관련 문서: `DiskOUT_분석.md` (섹션 9), `DiskOUT_개발기획서.md` (섹션 6.5)
 
 ---
 

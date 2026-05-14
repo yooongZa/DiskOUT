@@ -1,6 +1,6 @@
 //
 //  AppDelegate.swift
-//  EjectDrives — 혼자 쓰는 초간단 버전
+//  DiskOUT — 혼자 쓰는 초간단 버전 (구 EjectDrives)
 //
 //  - 메뉴바 아이콘 + 드라이브 목록 + 모두 추출
 //  - 잠자기 진입 시 자동 추출 + wake 시 자동 재마운트 한 쌍
@@ -95,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var shouldEjectBeforeTerminate = false
     private var pendingTerminateReplyApp: NSApplication?
     private lazy var cachedDefaultIcon: NSImage? = {
-        let img = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: "Eject Drives")
+        let img = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: "DiskOUT")
         img?.isTemplate = true
         return img
     }()
@@ -451,7 +451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         settings.image = menuSymbol("gearshape", fallback: "gear")
         menu.addItem(settings)
 
-        let quit = NSMenuItem(title: String(localized: "Quit EjectDrives"),
+        let quit = NSMenuItem(title: String(localized: "Quit DiskOUT"),
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
         menu.addItem(quit)
@@ -2269,9 +2269,9 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         let info = Bundle.main.infoDictionary
         let version = (info?["CFBundleShortVersionString"] as? String) ?? "?"
         let build = (info?["CFBundleVersion"] as? String) ?? "?"
-        let copyright = (info?["NSHumanReadableCopyright"] as? String) ?? "EjectDrives by yongZa"
+        let copyright = (info?["NSHumanReadableCopyright"] as? String) ?? "DiskOUT by yongZa"
 
-        let title = NSTextField(labelWithString: "EjectDrives")
+        let title = NSTextField(labelWithString: "DiskOUT")
         title.font = .boldSystemFont(ofSize: 18)
         let versionLabel = NSTextField(labelWithString: "v\(version) (build \(build))")
         let copyrightLabel = NSTextField(labelWithString: copyright)

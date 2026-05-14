@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  EjectDrives entitlements (sandbox OFF 노선).
+  DiskOUT entitlements (sandbox OFF 노선).
   현재는 빈 dict 가 의도적 — diskutil/hdiutil/lsof 직접 실행 + IOKit/DA framework 사용에
   추가 entitlement 필요 없음. 향후 sandbox 재도전 시 device.usb / files /Volumes/ 등 추가.
 -->

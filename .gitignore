@@ -13,9 +13,10 @@ xcuserdata/
 *.xcent
 
 # /tmp build path used in README
+DiskOUT-derived/
 EjectDrives-derived/
 
-# macOS sync conflict duplicates (예: "EjectDrives 2.xcodeproj", "EjectDrives 3.xcodeproj" 등)
+# macOS sync conflict duplicates (예: "DiskOUT 2.xcodeproj", "DiskOUT 3.xcodeproj" 등)
 * [0-9].xcodeproj/
 * [0-9]/
 
