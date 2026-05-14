@@ -5,9 +5,11 @@
 맥 외장 드라이브를 한방에 안전하게 추출 / 마운트하는 메뉴바 앱.
 현재는 **Mac App Store / sandbox 노선을 포기**하고, 개인 사용 및 향후 Developer ID 배포를 전제로 `diskutil` 직접 실행 방식으로 회귀했다.
 
-## 현재 상태 (2026-05-13 기준)
+## 현재 상태 (2026-05-14 기준)
 
 ✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), refresh stuck recovery(갱신 고착 복구), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. sleep/display sleep/"추출하고 잠자기" 경로는 `Disk Arbitration API` 의 **정상(non-force) unmount 를 먼저 시도**하고 (whole-disk option 우선) 실패 시에만 force / `diskutil` fallback 으로 떨어진다. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
+
+✅ **DA-event-driven 인벤토리 + sleep eject OS race-skip (2026-05-14)** — SD 카드 삽입 등으로 macOS `storagekitd` (시스템 싱글톤) 가 새 디스크 프로빙으로 막혀 `diskutil list -plist external` 이 3s timeout 났던 문제 fix. `DAInventory` (long-lived `DASession` + appeared/disappeared/changed 콜백) 가 외장 디스크 목록을 in-process 메모리에 유지 → 메뉴 갱신은 외부 daemon 비의존. sleep eject 도 각 fallback 단계 직전 DA 인벤토리로 "OS 가 먼저 unmount 했는지" 확인 → 락 경쟁 회피. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "DA 이벤트 기반 인벤토리" 항목 참고.
 
 ✅ **sleep eject "비정상 추출" 알림 감소 (2026-05-13)** — APFS multi-volume container 디스크에서 알림이 sub-volume 마다 떴던 문제 fix. sleep eject 가 처음부터 `force` 로 시작하는 대신 정상 unmount 단계를 1번 거치고, force 단계도 whole-disk option 우선으로 sub-volume 들을 한꺼번에 처리. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "sleep eject 알림 감소" 항목 참고.
 
@@ -29,7 +31,7 @@
 
 | 기능 | 설명 |
 |---|---|
-| 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임. 갱신 실패 시 기존 cache 를 유지하고 실패 row(행)를 표시 |
+| 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임. 갱신 실패 시 기존 cache 를 유지하고 실패 row(행)를 표시. **갱신 source 는 DA event-driven 인벤토리가 1순위** → SD 카드 삽입으로 `storagekitd` 가 막혀도 메뉴 즉시 정상 |
 | 개별 추출 | 드라이브 이름 클릭 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
 | **추출하고 잠자기** | 메뉴 항목. sleep 계열 volume-first force unmount(볼륨 우선 강제 마운트 해제) 경로로 전체 추출 후, 모두 성공할 때만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |

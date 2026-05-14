@@ -130,6 +130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         setupSleepObserver()
         setupPowerSleepObserver()
         setupClamshellObserver()
+        // DA inventory 가 0.5s 내 ready 되면 DiskMenuSnapshotCache.warm() 가 자동으로
+        // DA 경로 사용. 그 전엔 diskutil fallback. 순서 보장 위해 start() 가 warm() 보다 먼저.
+        DAInventory.shared.start()
         DiskMenuSnapshotCache.warm()
         installHotkey()
         log.notice("EjectDrives launched")
@@ -931,6 +934,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let operation = operationID ?? "-"
         let forceTarget = wholeDiskBSDName ?? volumePath
 
+        // OS race-skip: 다른 흐름(macOS sleep, kDADiskUnmountOptionWhole 의 sibling unmount,
+        // 사용자 수동 추출 등) 으로 이 volume 이 이미 사라졌으면 force fallback 시퀀스 전체 skip.
+        // 락 경쟁 회피 — 1~6s 헛수고 방지.
+        if !DAInventory.shared.isVolumePresent(at: volumePath) {
+            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) skip pre-Step-A — volume already gone (DA inventory) at \(volumePath, privacy: .public)")
+            return (true, nil)
+        }
+
         if SettingsStore.forceFallbackEnabled {
             // Step A: 정상 DA unmount (force=false, whole disk 우선) — 성공 시 macOS 의 비정상 추출 알림이 뜨지 않음.
             let daNormal = diskArbitrationUnmountForSleep(volumePath: volumePath,
@@ -941,6 +952,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                           context: context)
             if daNormal.success {
                 return daNormal
+            }
+            if !DAInventory.shared.isVolumePresent(at: volumePath) {
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) volume gone after Step A — treat as success (OS unmounted concurrently)")
+                return (true, nil)
             }
             log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA normal unmount failed, fallback to DA force unmount — \(daNormal.errorMessage ?? "?", privacy: .public)")
 
@@ -954,6 +969,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             if daForce.success {
                 return daForce
             }
+            if !DAInventory.shared.isVolumePresent(at: volumePath) {
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) volume gone after Step B — treat as success (OS unmounted concurrently)")
+                return (true, nil)
+            }
             log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA force unmount failed, fallback to diskutil unmountDisk force — \(daForce.errorMessage ?? "?", privacy: .public)")
 
             log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) unmountDisk force first target=\(forceTarget, privacy: .public)")
@@ -963,6 +982,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             if unmount.success {
                 log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) force unmount succeeded target=\(forceTarget, privacy: .public)")
                 return unmount
+            }
+            if !DAInventory.shared.isVolumePresent(at: volumePath) {
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) volume gone after Step C — treat as success (OS unmounted concurrently)")
+                return (true, nil)
             }
             log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) force unmount failed target=\(forceTarget, privacy: .public), fallback to diskutil eject force — \(unmount.errorMessage ?? "?", privacy: .public)")
 
@@ -974,6 +997,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) force eject succeeded target=\(forceTarget, privacy: .public)")
                 return force
             }
+            if !DAInventory.shared.isVolumePresent(at: volumePath) {
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) volume gone after Step D — treat as success (OS unmounted concurrently)")
+                return (true, nil)
+            }
             log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) force eject failed target=\(forceTarget, privacy: .public), fallback to normal eject — \(force.errorMessage ?? "?", privacy: .public)")
 
             let normal = runDiskutil(["eject", volumePath],
@@ -981,6 +1008,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                      timeout: 3.0)
             if normal.success {
                 return normal
+            }
+            if !DAInventory.shared.isVolumePresent(at: volumePath) {
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) volume gone after Step E — treat as success (OS unmounted concurrently)")
+                return (true, nil)
             }
 
             let forceMessage = force.errorMessage ?? "diskutil eject force failed"
@@ -2974,6 +3005,19 @@ private struct DiskMenuSnapshot {
 
     static func load() -> DiskMenuSnapshot {
         let started = Date()
+
+        // 1) 가장 빠르고 안정적: DA 이벤트 기반 인벤토리 (in-process, 외부 daemon 비의존).
+        //    SD 카드 삽입 등으로 storagekitd 가 막혀도 영향 없음.
+        if let inv = DAInventory.shared.snapshot() {
+            let elapsed = Date().timeIntervalSince(started)
+            log.info("DiskMenuSnapshot.load: DA \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(inv.drives.map { $0.name }, privacy: .public) unmounted=\(inv.unmounted.map { $0.displayName }, privacy: .public)")
+            return DiskMenuSnapshot(drives: inv.drives,
+                                    unmounted: inv.unmounted,
+                                    createdAt: Date(),
+                                    refreshError: nil)
+        }
+
+        // 2) DA 인벤토리 미준비 (cold start) → 기존 diskutil 경로로 fallback.
         let diskList = DiskUtilExternalList.load()
         let drives: [ExternalDrive]
         let unmounted: [UnmountedExternal]
@@ -2986,6 +3030,7 @@ private struct DiskMenuSnapshot {
                                                knownMountedBSDs: mounted.mountedWholeDiskBSDs)
             refreshError = nil
         } else {
+            // 3) diskutil 도 timeout → mountedVolumeURLs 만으로 최선 표시.
             drives = ExternalDrive.listFromMountedVolumes()
             unmounted = []
             refreshError = drives.isEmpty ? "diskutil list -plist external failed or timed out" : nil
@@ -2995,7 +3040,7 @@ private struct DiskMenuSnapshot {
         }
 
         let elapsed = Date().timeIntervalSince(started)
-        log.info("DiskMenuSnapshot.load: \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.map { $0.name }, privacy: .public) unmounted=\(unmounted.map { $0.displayName }, privacy: .public) refreshError=\(refreshError ?? "-", privacy: .public)")
+        log.info("DiskMenuSnapshot.load: diskutil \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.map { $0.name }, privacy: .public) unmounted=\(unmounted.map { $0.displayName }, privacy: .public) refreshError=\(refreshError ?? "-", privacy: .public)")
         return DiskMenuSnapshot(drives: drives,
                                 unmounted: unmounted,
                                 createdAt: Date(),
@@ -3277,7 +3322,7 @@ struct ExternalDrive {
     /// Time Machine 백업 디스크 식별 — file 존재 검사만.
     /// - APFS Time Machine: 루트의 `.com.apple.timemachine.donotpresent` 파일
     /// - Legacy HFS+: `Backups.backupdb/` 디렉토리
-    private static func isTimeMachineDisk(volumeURL: URL) -> Bool {
+    fileprivate static func isTimeMachineDisk(volumeURL: URL) -> Bool {
         let fm = FileManager.default
         let marker1 = volumeURL.appendingPathComponent(".com.apple.timemachine.donotpresent")
         if fm.fileExists(atPath: marker1.path) { return true }
@@ -3359,6 +3404,240 @@ struct UnmountedExternal {
         return unmounted
     }
 
+}
+
+// MARK: - DA-Event-Driven Disk Inventory
+
+/// 외장 디스크 인벤토리 — DiskArbitration 콜백으로 실시간 갱신하는 in-process 캐시.
+///
+/// **목적**: `diskutil list -plist external` shellout 제거. SD 카드 등 새 디스크 삽입 직후
+/// macOS 의 `storagekitd` 가 프로빙으로 바빠 `diskutil` 호출이 3초 timeout 나는 문제 회피.
+/// DA 콜백은 외부 daemon 의존성 없이 in-process 로 도착해 SD 인덱싱과 무관하게 즉시 반영.
+///
+/// 사용:
+/// - 앱 launch 시 `start()` 1회 호출 (DA 세션 등록 + 기존 디스크 enumeration).
+/// - `snapshot()` — mounted/unmounted 외장 목록. ready 전엔 nil → 호출자가 diskutil fallback.
+/// - `isVolumePresent(at:)` — sleep eject 의 "OS 가 먼저 unmount 했는지" 빠른 race-skip 체크.
+private final class DAInventory {
+    static let shared = DAInventory()
+
+    private struct DiskInfo {
+        let bsd: String
+        let wholeDiskBSD: String
+        let isWholeDisk: Bool
+        let isInternal: Bool
+        let busProtocol: String?
+        let mountPath: String?
+        let volumeName: String?
+        let volumeUUID: String?
+        let mediaContent: String?
+    }
+
+    private let lock = NSLock()
+    private var disks: [String: DiskInfo] = [:]
+    private var ready = false
+    private var session: DASession?
+    private let queue = DispatchQueue(label: "com.yongza.ejectdrives.da-inventory", qos: .utility)
+
+    private static let systemContents: Set<String> = [
+        "EFI", "Microsoft Reserved", "Apple_Boot",
+        "Apple_KernelCoreDump", "Recovery",
+        "Apple_RAID", "Apple_RAID_Offline"
+    ]
+    private static let systemNames: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
+
+    func start() {
+        queue.async { [weak self] in self?.startOnQueue() }
+    }
+
+    private func startOnQueue() {
+        guard session == nil else { return }
+        guard let s = DASessionCreate(kCFAllocatorDefault) else {
+            log.error("DAInventory: DASessionCreate failed")
+            return
+        }
+        DASessionSetDispatchQueue(s, queue)
+        session = s
+
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+
+        DARegisterDiskAppearedCallback(s, nil, { (disk, ctx) in
+            guard let ctx else { return }
+            let inv = Unmanaged<DAInventory>.fromOpaque(ctx).takeUnretainedValue()
+            inv.handleAppearedOrChanged(disk: disk, kind: "appeared")
+        }, ctx)
+
+        DARegisterDiskDisappearedCallback(s, nil, { (disk, ctx) in
+            guard let ctx else { return }
+            let inv = Unmanaged<DAInventory>.fromOpaque(ctx).takeUnretainedValue()
+            inv.handleDisappeared(disk: disk)
+        }, ctx)
+
+        DARegisterDiskDescriptionChangedCallback(s, nil, nil, { (disk, _, ctx) in
+            guard let ctx else { return }
+            let inv = Unmanaged<DAInventory>.fromOpaque(ctx).takeUnretainedValue()
+            inv.handleAppearedOrChanged(disk: disk, kind: "changed")
+        }, ctx)
+
+        // DA 는 등록 직후 모든 기존 disk 에 대해 appeared 이벤트를 즉시 보낸다.
+        // 0.5s 후 ready 마킹 — 그 전엔 snapshot() 이 nil 반환해 호출자가 diskutil fallback 으로.
+        queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.markReady()
+        }
+        log.notice("DAInventory: started")
+    }
+
+    private func markReady() {
+        lock.lock()
+        let count = disks.count
+        let mounted = disks.values.filter { $0.mountPath != nil }.count
+        ready = true
+        lock.unlock()
+        log.notice("DAInventory: ready disks=\(count, privacy: .public) mounted=\(mounted, privacy: .public)")
+    }
+
+    private func handleAppearedOrChanged(disk: DADisk, kind: String) {
+        guard let info = parseDescription(disk: disk) else { return }
+        lock.lock()
+        let prevMount = disks[info.bsd]?.mountPath
+        disks[info.bsd] = info
+        lock.unlock()
+        if prevMount != info.mountPath {
+            log.info("DAInventory: \(kind, privacy: .public) bsd=\(info.bsd, privacy: .public) name=\(info.volumeName ?? "-", privacy: .public) mount=\(info.mountPath ?? "-", privacy: .public) was=\(prevMount ?? "-", privacy: .public) protocol=\(info.busProtocol ?? "-", privacy: .public) internal=\(info.isInternal, privacy: .public)")
+        } else {
+            log.debug("DAInventory: \(kind, privacy: .public) bsd=\(info.bsd, privacy: .public) name=\(info.volumeName ?? "-", privacy: .public) mount=\(info.mountPath ?? "-", privacy: .public)")
+        }
+    }
+
+    private func handleDisappeared(disk: DADisk) {
+        guard let bsdC = DADiskGetBSDName(disk) else { return }
+        let bsd = String(cString: bsdC)
+        lock.lock()
+        let removed = disks.removeValue(forKey: bsd)
+        lock.unlock()
+        if let removed {
+            log.info("DAInventory: disappeared bsd=\(bsd, privacy: .public) name=\(removed.volumeName ?? "-", privacy: .public)")
+        }
+    }
+
+    private func parseDescription(disk: DADisk) -> DiskInfo? {
+        guard let bsdC = DADiskGetBSDName(disk) else { return nil }
+        let bsd = String(cString: bsdC)
+        guard let descCF = DADiskCopyDescription(disk) else { return nil }
+        let dict = descCF as NSDictionary
+
+        let isWhole = (dict[kDADiskDescriptionMediaWholeKey] as? NSNumber)?.boolValue ?? false
+        let isInternal = (dict[kDADiskDescriptionDeviceInternalKey] as? NSNumber)?.boolValue ?? false
+        let busProtocol = dict[kDADiskDescriptionDeviceProtocolKey] as? String
+        let mediaContent = dict[kDADiskDescriptionMediaContentKey] as? String
+        let volumeName = dict[kDADiskDescriptionVolumeNameKey] as? String
+        let mountPath = (dict[kDADiskDescriptionVolumePathKey] as? URL)?.path
+
+        var volumeUUID: String? = nil
+        if let uuidObj = dict[kDADiskDescriptionVolumeUUIDKey] {
+            // CFUUID — toll-free bridging 안 되므로 명시적 캐스트 후 string 화.
+            let cfUUID = uuidObj as! CFUUID
+            volumeUUID = CFUUIDCreateString(kCFAllocatorDefault, cfUUID) as String?
+        }
+
+        let wholeDiskBSD: String
+        if isWhole {
+            wholeDiskBSD = bsd
+        } else if let match = bsd.range(of: #"^disk\d+"#, options: .regularExpression) {
+            wholeDiskBSD = String(bsd[match])
+        } else {
+            wholeDiskBSD = bsd
+        }
+
+        return DiskInfo(
+            bsd: bsd,
+            wholeDiskBSD: wholeDiskBSD,
+            isWholeDisk: isWhole,
+            isInternal: isInternal,
+            busProtocol: busProtocol,
+            mountPath: mountPath,
+            volumeName: volumeName,
+            volumeUUID: volumeUUID,
+            mediaContent: mediaContent
+        )
+    }
+
+    /// nil 반환 = 인벤토리 아직 ready 아님 → 호출자가 diskutil fallback 으로.
+    func snapshot() -> (drives: [ExternalDrive], unmounted: [UnmountedExternal])? {
+        lock.lock()
+        guard ready else { lock.unlock(); return nil }
+        let snap = disks
+        lock.unlock()
+
+        // wholeDisk BSD 별 그룹핑
+        var groups: [String: [DiskInfo]] = [:]
+        for info in snap.values {
+            groups[info.wholeDiskBSD, default: []].append(info)
+        }
+
+        var drives: [ExternalDrive] = []
+        var mountedWholeDiskBSDs = Set<String>()
+
+        for (wholeBSD, group) in groups {
+            // whole-disk 엔트리에서 internal/protocol 판단 (없으면 group 의 첫 항목)
+            let probe = group.first { $0.isWholeDisk } ?? group.first!
+            if probe.isInternal { continue }
+            if let p = probe.busProtocol, p == "Disk Image" || p == "Virtual Interface" { continue }
+
+            for vol in group {
+                guard let path = vol.mountPath, !path.isEmpty else { continue }
+                guard let name = vol.volumeName, !name.isEmpty else { continue }
+                if Self.systemNames.contains(name) { continue }
+                if let content = vol.mediaContent, Self.systemContents.contains(content) { continue }
+                if DiskImages.isKnownDiskImageMountPath(path) { continue }
+
+                let url = URL(fileURLWithPath: path)
+                drives.append(ExternalDrive(
+                    name: name,
+                    url: url,
+                    kind: .disk,
+                    volumeUUID: vol.volumeUUID,
+                    isTimeMachine: ExternalDrive.isTimeMachineDisk(volumeURL: url)
+                ))
+                mountedWholeDiskBSDs.insert(wholeBSD)
+            }
+        }
+
+        // unmounted 후보 — whole-disk 그룹 중 mount 된 sub-volume 0개 + name 있는 후보 1개+
+        var unmounted: [UnmountedExternal] = []
+        for (wholeBSD, group) in groups {
+            if mountedWholeDiskBSDs.contains(wholeBSD) { continue }
+            let probe = group.first { $0.isWholeDisk } ?? group.first!
+            if probe.isInternal { continue }
+            if let p = probe.busProtocol, p == "Disk Image" || p == "Virtual Interface" { continue }
+
+            let firstNamed = group.first { vol in
+                guard let n = vol.volumeName, !n.isEmpty,
+                      !Self.systemNames.contains(n) else { return false }
+                if let c = vol.mediaContent, Self.systemContents.contains(c) { return false }
+                return true
+            }
+            guard let candidate = firstNamed else { continue }
+            unmounted.append(UnmountedExternal(
+                bsdName: wholeBSD,
+                displayName: candidate.volumeName ?? wholeBSD,
+                kind: .disk
+            ))
+        }
+
+        return (drives, unmounted)
+    }
+
+    /// `false` 만 반환할 때 호출자가 안전하게 skip 가능 — ready 전이거나 mounted 면 항상 true.
+    /// (즉 "확실히 사라졌다" 는 강한 신호일 때만 false.)
+    func isVolumePresent(at path: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if !ready { return true }  // uncertain → assume present
+        for info in disks.values where info.mountPath == path {
+            return true
+        }
+        return false
+    }
 }
 
 // MARK: - Sleep Eject Toggle (UserDefaults)

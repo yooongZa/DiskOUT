@@ -1,5 +1,55 @@
 # CHANGELOG
 
+## Unreleased — 2026-05-14: DA 이벤트 기반 인벤토리 + sleep eject OS race-skip
+
+**배경**: 사용자 보고 — SD 카드 삽입 직후 (07:02) 외장하드 메뉴가 깨지고 sleep eject 가 모두 실패. 로그 분석 결과 두 가지 독립 원인:
+
+1. `DiskMenuSnapshot.load()` 가 `diskutil list -plist external` shellout 에 의존 → SD 인덱싱으로 macOS `storagekitd` (시스템 싱글톤 daemon) 가 새 디스크 프로빙으로 바쁘면 우리 호출이 3s timeout. 앱이 스레드 100개로 던져도 OS 안에서 직렬화 — 앱 차원에선 회피 불가.
+2. `diskutilEjectForSleep` 가 `systemWillSleep` 받자마자 force unmount 시퀀스 (Step A→B→C→D→E, 최대 19s) 진입. 동시에 macOS sleep 시퀀스도 unmount 시도 → 같은 락 두고 경쟁 → 1~6s 헛수고 후 "Failed to find disk" (이미 OS 가 unmount 했음).
+
+### 변경
+
+#### 1. DA-event-driven `DAInventory` 신설 ([AppDelegate.swift](AppDelegate.swift))
+
+- `DARegisterDiskAppearedCallback` / `DiskDisappearedCallback` / `DiskDescriptionChangedCallback` 등록한 long-lived `DASession` 으로 외장 디스크 인벤토리를 in-process 메모리에 유지.
+- `DAInventory.shared.start()` — `applicationDidFinishLaunching` 에서 1회 호출. DA 가 등록 직후 모든 기존 디스크에 대해 appeared 이벤트 즉시 dispatch → 0.5s 후 `ready`.
+- `snapshot()` — wholeDisk BSD 별 그룹핑으로 mounted `[ExternalDrive]` + unmounted `[UnmountedExternal]` 반환. 기존 diskutil 경로와 동일한 필터 (internal 제외 / `Disk Image` · `Virtual Interface` 프로토콜 제외 / EFI · Recovery · Apple_Boot 같은 system content 제외 / CoreSimulator 경로 제외).
+- `isVolumePresent(at:)` — sleep eject race-skip 용. ready 전엔 `true` (불확실 → 진행), ready 후 mount 사라졌으면 `false`.
+
+#### 2. `DiskMenuSnapshot.load()` 우선순위 재구성
+
+```
+1) DAInventory.shared.snapshot()  ← in-process, 외부 daemon 비의존, SD 인덱싱과 무관
+2) diskutil list -plist external   ← DA 인벤토리 미준비 (cold start 0.5s) 시 fallback
+3) FileManager.mountedVolumeURLs   ← diskutil 도 timeout 시 최후 fallback
+```
+
+→ 평상시 모든 메뉴 갱신은 (1) 에서 즉시 처리. SD 카드 삽입 직후에도 `storagekitd` 와 무관하게 메뉴 정상.
+
+#### 3. `diskutilEjectForSleep` 에 OS race-skip 체크 5곳 삽입
+
+각 fallback 단계 직전 + Step A 진입 직전에 `DAInventory.shared.isVolumePresent(at: volumePath)` 확인. 다른 흐름 (macOS sleep 자체 unmount, `kDADiskUnmountOptionWhole` 의 sibling unmount, 사용자 수동 추출) 으로 이 volume 이 이미 사라졌으면 즉시 `(true, nil)` 리턴 — 1~6s 헛수고 + "Failed to find disk" 에러 회피.
+
+#### 4. `ExternalDrive.isTimeMachineDisk` 가시성 변경
+
+`private static` → `fileprivate static` — `DAInventory.snapshot()` 에서 호출 가능하도록.
+
+### 검증
+
+| 항목 | 결과 |
+|---|---|
+| `xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build` | BUILD SUCCEEDED |
+
+실제 SD 인덱싱 시나리오 검증은 다음 SD 삽입 사이클에서 `log show --predicate 'subsystem == "com.yongza.ejectdrives"'` 로 (a) `DiskMenuSnapshot.load: DA Xs` 가 메인 경로로 동작하는지, (b) `diskutil list -plist external failed: timed out` 빈도가 줄었는지, (c) sleep eject 시 `volume gone after Step X` 로그로 race-skip 동작 확인.
+
+### 영향 / 향후
+
+- `hdiutil info` (DiskImages.mountedPathsOrNil) 호출은 fallback 경로에 그대로 — DA 가 `DABusProtocol == "Disk Image"` 로 1차 필터하므로 평상시엔 호출 안 됨.
+- `DiskMenuSnapshotCache.warm()` 의 cache 5s TTL 는 그대로 — DA snapshot 도 같은 TTL 사용 (불필요한 매 메뉴 오픈마다 DA 재집계 회피).
+- 차후 정리: `ExternalDrive.list()` / `ExternalDrive.listFromMountedVolumes()` 도 DA 우선 경로로 통일 가능 (현재는 DiskMenuSnapshot 만 변경).
+
+---
+
 ## Unreleased — 2026-05-14: 앱 이름 EjectDrives → DiskOUT 으로 변경
 
 **배경**: 브랜딩 단순화 + 검색성. "EjectDrives" 는 동작 설명 그대로라 검색 노이즈가 크고, "DiskOUT" 이 짧고 외우기 쉬워 메뉴바 앱 정체성에 더 적합.
