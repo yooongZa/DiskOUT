@@ -1,5 +1,48 @@
 # CHANGELOG
 
+## Unreleased — 2026-05-14: 메뉴바 아이콘에 마운트된 외장 개수 표시
+
+**배경**: 메뉴바 아이콘이 고정 ⏏ 심볼이라 현재 상태를 알 수 없었다. 연결된 외장 개수에 따라 아이콘이 바뀌길 원함 — 최종 목표는 알 → 올챙이 → 개구리 진화 (`DiskOUT_분석.md` §9.6 진화 시스템, `DiskOUT_개발기획서.md` [F1]). 진화 캐릭터는 에셋 작업이 크므로 **1차로 숫자 표시**부터 구현.
+
+### 변경 ([AppDelegate.swift](AppDelegate.swift))
+
+#### 1. 고정 ⏏ → 마운트된 외장 "디바이스" 개수 숫자
+
+- `cachedDefaultIcon` (eject.fill 템플릿 이미지) 제거. 메뉴바 버튼을 `button.image` 대신 `button.title` (텍스트) 로 표시 — `applyCountTitle()` 신설.
+- 처음엔 `<n>.circle.fill` SF Symbol 로 구현했으나 Apple 이 0~50 까지만 제공 → **텍스트 title 로 전환**해 상한 제거 (임의 수 표시 가능, `variableLength` 라 폭 자동 조정).
+- 추출 중 회전 화살표·결과 ✓/✗ 같은 임시 심볼 (`flashIcon` / `setPersistentIcon`) 은 그대로 우선. 심볼 표시 시 `button.title = ""` 로 비워 "⏏3" 겹침 방지, 임시 심볼이 끝나면 `applyCountTitle()` 로 숫자 복귀.
+
+#### 2. 카운트 단위 — 물리 디스크 (whole-disk BSD)
+
+- `mountedExternalDeviceCount(drives:)` — `ExternalDrive.wholeDiskBSDName` 으로 집계. 한 디스크에 파티션이 여러 개 마운트돼 있어도 1개. RAID / APFS 합성 볼륨은 합성 컨테이너의 whole-disk 로 잡혀 자연스럽게 1개.
+- 예: 8TB RAID 박스 (disk6 + disk7 → RAID disk8 → APFS disk13 = "SYSJO" 볼륨) 는 박스 1개 = 1 로 카운트 → "꽂은 물리 장치 수" 와 일치.
+
+#### 3. 자가 보정 트리거 — `DAInventory.onInventoryChanged` 훅 신설
+
+- 초기 구현은 mount/unmount 노티 + 고정 딜레이 후 **단발 샘플링** → RAID 볼륨처럼 느리게 마운트되는 디스크가 샘플링 시점에 아직 인벤토리에 없으면 카운트가 낮게 나오고 그대로 멈추는 레이스 발생 (실제 4 개인데 3 표시).
+- `DAInventory` 가 디스크 appeared / disappeared / mount 경로 변경 시마다 `onInventoryChanged` 콜백 발화 — mount 상태 변화에만 (count 무관한 description 변경 제외). consumer 가 받아 카운트 재계산 → 느린 디스크가 늦게 떠도 **자동 보정**.
+- `applicationDidFinishLaunching` 에서 `DAInventory.start()` **이전에** 훅을 걸어 초기 enumeration 이벤트 (기존 디스크들) 도 빠짐없이 수신.
+
+#### 4. 갱신 경로 / 주기
+
+- `refreshMountedDriveCountIcon` 이 `DAInventory.shared.snapshot()` 을 직접 조회 — DA 콜백 직후 호출되므로 변경분이 이미 반영돼 있다. DA 미준비 (cold start) 시에만 `DiskMenuSnapshotCache` (diskutil 폴백) 경유.
+- `scheduleMountedDriveCountRefresh` 0.3s debounce — RAID 조립·다중 파티션 등 연쇄 이벤트를 마지막 기준 1 회로 합침.
+- 트리거: **DA 인벤토리 변경 (주 경로)** + NSWorkspace mount/unmount 노티 + launch (0.7s) + wake (1.0s). 주기적 폴링 없음 — 순수 이벤트 기반.
+- 결과 아이콘 (`setPersistentIcon`) 표시 중에는 카운트만 저장하고 숫자는 안 덮어씀 — `resetIcon` 시점에 최신 카운트로 복귀.
+
+### 검증
+
+| 항목 | 결과 |
+|---|---|
+| `xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build` | BUILD SUCCEEDED (경고 0) |
+| 실사용 — 외장 4 개 환경 (USB SSD 3 + 8TB RAID 박스 1) | 디바이스 4 개로 정확히 집계. RAID 박스의 "SYSJO" 볼륨이 disk6 + disk7 → 합성 disk13 으로 1 개 처리 확인 |
+| 레이스 재현 / 수정 검증 | 수정 전: RAID 볼륨이 늦게 마운트 → **3 에서 멈춤**. `onInventoryChanged` 훅 추가 후: 늦게 떠도 3 → 4 자가 보정 |
+| 메뉴바 픽셀 육안 확인 | ⚠️ 자동 확인 미완 — `screencapture` 화면 녹화 권한 없음 + DiskOUT 이 `LSUIElement` 라 computer-use 타겟 불가 + `log show` 출력 없음. 사용자 육안 확인으로 대체 (숫자 표시 + 카운트 값 정상) |
+
+### 향후
+
+- 숫자 → 캐릭터 진화 (알 / 올챙이 / 개구리 …) 표시. `applyCountTitle()` 한 곳만 에셋 이미지로 교체하면 되도록 격리해 둠.
+
 ## Unreleased — 2026-05-14: DA 이벤트 기반 인벤토리 + sleep eject OS race-skip
 
 **배경**: 사용자 보고 — SD 카드 삽입 직후 (07:02) 외장하드 메뉴가 깨지고 sleep eject 가 모두 실패. 로그 분석 결과 두 가지 독립 원인:

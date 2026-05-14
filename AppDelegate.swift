@@ -94,11 +94,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var powerOffEjectCompleted = false
     private var shouldEjectBeforeTerminate = false
     private var pendingTerminateReplyApp: NSApplication?
-    private lazy var cachedDefaultIcon: NSImage? = {
-        let img = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: "DiskOUT")
-        img?.isTemplate = true
-        return img
-    }()
+    /// 현재 마운트된 외장 저장장치(물리 디바이스) 개수 — 메뉴바에 숫자(텍스트)로 표시.
+    /// launch / mount·unmount 노티 / wake 시 갱신. main thread 에서만 접근.
+    private var mountedDriveCount: Int = 0
+    /// count 아이콘 refresh debounce 토큰 — 다중 파티션 디스크의 연쇄 노티 coalescing.
+    private var countIconRefreshToken: Int = 0
     /// 마지막으로 확인한 알림 권한 상태. `getNotificationSettings` 가 비동기라 메뉴에서
     /// 동기 표시할 수 없어 캐싱. launch / menu 열 때 background refresh.
     private var lastKnownNotificationStatus: UNAuthorizationStatus = .notDetermined
@@ -132,8 +132,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         setupClamshellObserver()
         // DA inventory 가 0.5s 내 ready 되면 DiskMenuSnapshotCache.warm() 가 자동으로
         // DA 경로 사용. 그 전엔 diskutil fallback. 순서 보장 위해 start() 가 warm() 보다 먼저.
+        // 메뉴바 숫자 자가 보정: DA 인벤토리 변경 시마다 재계산. start() 보다 먼저 hook 을
+        // 걸어야 초기 enumeration 이벤트(기존 디스크들)도 빠짐없이 받는다.
+        DAInventory.shared.onInventoryChanged = { [weak self] in
+            DispatchQueue.main.async { self?.scheduleMountedDriveCountRefresh() }
+        }
         DAInventory.shared.start()
         DiskMenuSnapshotCache.warm()
+        // launch 시 초기 1회 — DA hook 이 enumeration 중 트리거하지만, DA 가 끝내 ready
+        // 안 되는 환경 대비 안전망.
+        scheduleMountedDriveCountRefresh(after: 0.7)
         installHotkey()
         log.notice("EjectDrives launched")
     }
@@ -147,7 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = cachedDefaultIcon
+            applyCountTitle()
             // 좌클릭 + 우클릭 둘 다 button.action 으로 받음.
             // action handler 안에서 NSApp.currentEvent.type 으로 분기.
             button.target = self
@@ -516,14 +524,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             newImg.isTemplate = true
+            button.title = ""        // 숫자 title 제거 — 심볼만 표시
             button.image = newImg
             self.iconFlashGeneration += 1
             let myGen = self.iconFlashGeneration
             DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
-                guard let self = self, let button = self.statusItem.button else { return }
+                guard let self = self else { return }
                 // 그 사이 다른 flashIcon / setPersistentIcon / resetIcon 호출되었으면 skip.
                 guard self.iconFlashGeneration == myGen else { return }
-                button.image = self.cachedDefaultIcon
+                self.applyCountTitle()
             }
         }
     }
@@ -543,6 +552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             img.isTemplate = true
+            button.title = ""        // 숫자 title 제거 — 결과 심볼만 표시
             button.image = img
             self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
             let myGen = self.iconFlashGeneration
@@ -553,13 +563,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
-    /// 메뉴바 아이콘을 default ⏏ 로 reset. lastResultSymbol 도 clear.
+    /// 메뉴바를 현재 마운트 개수(숫자)로 reset. lastResultSymbol 도 clear.
     private func resetIcon() {
         lastResultSymbol = nil
         DispatchQueue.main.async { [weak self] in
-            guard let self = self, let button = self.statusItem.button else { return }
-            button.image = self.cachedDefaultIcon
+            guard let self = self else { return }
+            self.applyCountTitle()
             self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
+        }
+    }
+
+    // MARK: - Mounted Drive Count
+
+    /// 메뉴바 버튼을 현재 마운트 개수(숫자 텍스트)로 표시.
+    /// image 는 비우고 `button.title` 만 사용 — title 은 길이 제한이 없어 0~∞ 어떤 수든 표시 가능
+    /// (SF Symbol `<n>.circle.fill` 은 0~50 만 있어 폐기). variableLength 라 폭은 자동 조정.
+    /// 반드시 main thread 에서 호출.
+    private func applyCountTitle() {
+        guard let button = statusItem.button else { return }
+        button.image = nil
+        button.title = "\(mountedDriveCount)"
+    }
+
+    /// 마운트된 외장 "디바이스" 개수 — 물리 디스크(whole-disk BSD) 단위 집계.
+    /// 한 디스크에 파티션이 여러 개 마운트돼 있어도 1개로 카운트.
+    /// RAID/합성(APFS) 볼륨은 합성 컨테이너의 whole-disk 로 잡혀 자연스럽게 1개.
+    /// statfs 가 전부 실패하는 비정상 케이스에선 volume 수로 폴백.
+    private static func mountedExternalDeviceCount(drives: [ExternalDrive]) -> Int {
+        let devices = Set(drives.compactMap { $0.wholeDiskBSDName })
+        return devices.isEmpty ? drives.count : devices.count
+    }
+
+    /// 외장 디바이스 개수를 갱신하고 메뉴바 아이콘에 반영. 반드시 main thread 에서 호출.
+    /// 결과 아이콘 (setPersistentIcon) 표시 중이면 count 만 저장 — resetIcon 시점에 최신값 반영.
+    private func updateMountedDriveCount(_ count: Int) {
+        let changed = count != mountedDriveCount
+        mountedDriveCount = count
+        guard lastResultSymbol == nil else {
+            if changed {
+                log.info("drive count → \(count, privacy: .public) (deferred — result icon showing)")
+            }
+            return
+        }
+        applyCountTitle()
+        iconFlashGeneration += 1   // 진행중인 flashIcon 지연 reset 무효화
+        if changed {
+            log.info("drive count → \(count, privacy: .public), menu bar title updated")
+        }
+    }
+
+    /// 백그라운드에서 마운트 개수를 다시 계산해 메뉴바 숫자에 반영.
+    /// 데이터 소스: DA 인벤토리(in-process, 항상 최신) 우선 — DA 콜백 직후 호출되므로
+    /// 변경분이 이미 반영돼 있다. DA 미준비(cold start)면 캐시(diskutil 폴백)로.
+    private func refreshMountedDriveCountIcon() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let count: Int
+            if let snap = DAInventory.shared.snapshot() {
+                count = AppDelegate.mountedExternalDeviceCount(drives: snap.drives)
+            } else {
+                count = AppDelegate.mountedExternalDeviceCount(drives: DiskMenuSnapshotCache.current().drives)
+            }
+            DispatchQueue.main.async {
+                self?.updateMountedDriveCount(count)
+            }
+        }
+    }
+
+    /// 메뉴바 숫자 refresh 를 debounce 후 실행.
+    /// 트리거: DA 인벤토리 변경(주 경로), NSWorkspace mount/unmount 노티, launch, wake.
+    /// RAID 조립·다중 파티션 등으로 변경 이벤트가 연쇄 발생 → 마지막 이벤트 기준 1회로 합침.
+    private func scheduleMountedDriveCountRefresh(after delay: TimeInterval = 0.3) {
+        countIconRefreshToken += 1
+        let myToken = countIconRefreshToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self, self.countIconRefreshToken == myToken else { return }
+            self.refreshMountedDriveCountIcon()
         }
     }
 
@@ -1540,6 +1618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("volume changed: \(notification.name.rawValue, privacy: .public)")
         DiskMenuSnapshotCache.invalidate()
         DiskMenuSnapshotCache.warm()
+        scheduleMountedDriveCountRefresh()
     }
 
     /// wake 직후:
@@ -1559,6 +1638,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 self.setPersistentIcon(symbol: symbol)
             }
         }
+        // sleep 중 디바이스가 빠지거나 wake 시 재마운트될 수 있음 → count 아이콘 재반영.
+        // 결과 아이콘 표시 중이면 updateMountedDriveCount 가 알아서 defer (count 만 저장).
+        scheduleMountedDriveCountRefresh(after: 1.0)
 
         // 2) 자동 추출된 디스크 재마운트 — 2초 후 (USB 안정화 대기)
         let toRemount = autoEjectedDisks
@@ -3439,6 +3521,11 @@ private final class DAInventory {
     private var session: DASession?
     private let queue = DispatchQueue(label: "com.yongza.ejectdrives.da-inventory", qos: .utility)
 
+    /// 인벤토리의 마운트 상태가 바뀔 때마다 호출 (디스크 appeared/disappeared/mount 경로 변경).
+    /// **DA 큐에서 호출됨** — consumer 가 main hop + debounce 처리할 것.
+    /// count 와 무관한 description 변경에는 호출 안 함 (mount 경로 변화만 트리거).
+    var onInventoryChanged: (() -> Void)?
+
     private static let systemContents: Set<String> = [
         "EFI", "Microsoft Reserved", "Apple_Boot",
         "Apple_KernelCoreDump", "Recovery",
@@ -3504,6 +3591,7 @@ private final class DAInventory {
         lock.unlock()
         if prevMount != info.mountPath {
             log.info("DAInventory: \(kind, privacy: .public) bsd=\(info.bsd, privacy: .public) name=\(info.volumeName ?? "-", privacy: .public) mount=\(info.mountPath ?? "-", privacy: .public) was=\(prevMount ?? "-", privacy: .public) protocol=\(info.busProtocol ?? "-", privacy: .public) internal=\(info.isInternal, privacy: .public)")
+            onInventoryChanged?()   // mount 상태 변화 → consumer 가 count 재계산
         } else {
             log.debug("DAInventory: \(kind, privacy: .public) bsd=\(info.bsd, privacy: .public) name=\(info.volumeName ?? "-", privacy: .public) mount=\(info.mountPath ?? "-", privacy: .public)")
         }
@@ -3517,6 +3605,7 @@ private final class DAInventory {
         lock.unlock()
         if let removed {
             log.info("DAInventory: disappeared bsd=\(bsd, privacy: .public) name=\(removed.volumeName ?? "-", privacy: .public)")
+            onInventoryChanged?()   // 디스크 사라짐 → consumer 가 count 재계산
         }
     }
 

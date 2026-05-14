@@ -12,6 +12,8 @@
 > 2026-05-10 업데이트: sleep(잠자기) / display sleep(화면 꺼짐) / "추출하고 잠자기" 는 `Disk Arbitration API` 의 `DADiskUnmount(force)` 를 volume-first(볼륨 우선) 로 병렬 시도한 뒤 `diskutil` fallback 으로 내려간다. IOKit power notification(전원 알림) 으로 sleep 을 잠깐 지연하고, 성공한 디스크만 wake/remount(깨움/재마운트) 대상으로 기록한다.
 >
 > 2026-05-10 (정비) 업데이트: 코드 검토 결과 21 개 항목을 일괄 fix — 메뉴바 표시 강제 코드 복원(macOS 26 워크어라운드), 공유 state thread safety, 단축키 충돌 자동 정정, ProcessRunner timeout hang 방지, 권한 누락 메뉴 안내, About 탭, 우클릭 추출 opt-out, 결과 아이콘 자동 reset, tryRemount 의 IORegistry 직접 검사 전환, archive 디렉토리 분리 등. 자세한 내용은 `CHANGELOG.md` 의 "MVP 정비" 항목 참조.
+>
+> 2026-05-14 업데이트: 메뉴바 아이콘([F1])을 1차로 **마운트된 외장 디바이스 개수 숫자**로 구현 — 고정 ⏏ 심볼 → `button.title` 텍스트. 물리 디스크(whole-disk) 단위 집계라 다중 파티션·RAID·APFS 합성 볼륨은 1개. Tako 캐릭터 / 진화 시스템(`DiskOUT_분석.md` §9.6)은 후속. 자세한 내용은 `CHANGELOG.md` 의 "메뉴바 아이콘에 마운트된 외장 개수 표시" 항목 참조.
 
 # Part 1. 개발 기획서 (Specification)
 

@@ -9,6 +9,8 @@
 
 ✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), refresh stuck recovery(갱신 고착 복구), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. sleep/display sleep/"추출하고 잠자기" 경로는 `Disk Arbitration API` 의 **정상(non-force) unmount 를 먼저 시도**하고 (whole-disk option 우선) 실패 시에만 force / `diskutil` fallback 으로 떨어진다. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
 
+✅ **메뉴바 아이콘 = 마운트된 외장 개수 (2026-05-14)** — 고정 ⏏ 심볼 대신 마운트된 외장 *디바이스* 개수를 숫자로 표시. 다중 파티션·RAID·APFS 합성 볼륨은 1 개로 집계 (whole-disk 기준 = "꽂은 장치 수"). `DAInventory` 변화에 이벤트 기반 자동 갱신 — 느린 RAID 볼륨이 늦게 떠도 자가 보정. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "메뉴바 아이콘에 마운트된 외장 개수 표시" 항목 참고.
+
 ✅ **DA-event-driven 인벤토리 + sleep eject OS race-skip (2026-05-14)** — SD 카드 삽입 등으로 macOS `storagekitd` (시스템 싱글톤) 가 새 디스크 프로빙으로 막혀 `diskutil list -plist external` 이 3s timeout 났던 문제 fix. `DAInventory` (long-lived `DASession` + appeared/disappeared/changed 콜백) 가 외장 디스크 목록을 in-process 메모리에 유지 → 메뉴 갱신은 외부 daemon 비의존. sleep eject 도 각 fallback 단계 직전 DA 인벤토리로 "OS 가 먼저 unmount 했는지" 확인 → 락 경쟁 회피. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "DA 이벤트 기반 인벤토리" 항목 참고.
 
 ✅ **sleep eject "비정상 추출" 알림 감소 (2026-05-13)** — APFS multi-volume container 디스크에서 알림이 sub-volume 마다 떴던 문제 fix. sleep eject 가 처음부터 `force` 로 시작하는 대신 정상 unmount 단계를 1번 거치고, force 단계도 whole-disk option 우선으로 sub-volume 들을 한꺼번에 처리. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "sleep eject 알림 감소" 항목 참고.
@@ -32,6 +34,7 @@
 | 기능 | 설명 |
 |---|---|
 | 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임. 갱신 실패 시 기존 cache 를 유지하고 실패 row(행)를 표시. **갱신 source 는 DA event-driven 인벤토리가 1순위** → SD 카드 삽입으로 `storagekitd` 가 막혀도 메뉴 즉시 정상 |
+| **메뉴바 아이콘 = 마운트 개수** | 마운트된 외장 *디바이스* 개수를 숫자(텍스트)로 표시 — 0, 1, 2 … (상한 없음). 다중 파티션·RAID·APFS 합성 볼륨은 1 개로 집계. `DAInventory` 변화에 이벤트 기반 자동 갱신 (폴링 없음). 추출 진행/결과 표시 중에는 임시 심볼(↻·✓·✗)이 우선 |
 | 개별 추출 | 드라이브 이름 클릭 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
 | **추출하고 잠자기** | 메뉴 항목. sleep 계열 volume-first force unmount(볼륨 우선 강제 마운트 해제) 경로로 전체 추출 후, 모두 성공할 때만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |
@@ -146,7 +149,7 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 
 ## 사용법
 
-- 메뉴바 좌측의 **⏏ 추출 아이콘** 클릭 → 드라이브 목록. 디스크 상태 갱신 중이면 먼저 현재 cache(캐시)를 보여주고 완료 후 자동 갱신
+- 메뉴바 좌측의 **숫자 아이콘** (= 마운트된 외장 디바이스 개수) 클릭 → 드라이브 목록. 디스크 상태 갱신 중이면 먼저 현재 cache(캐시)를 보여주고 완료 후 자동 갱신
 - 드라이브 이름 클릭 → 개별 추출
 - "모두 추출" → 전체 추출
 - "추출하고 잠자기" → volume-first force unmount 경로로 전체 추출이 모두 성공하면 시스템 잠자기 시작. 실패가 있으면 잠자기 취소
