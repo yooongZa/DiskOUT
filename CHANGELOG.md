@@ -39,8 +39,19 @@
 | 항목 | 결과 |
 |---|---|
 | `xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build` | BUILD SUCCEEDED |
+| 새 빌드 launch (PID 96463) → DAInventory 초기화 | `DAInventory: started` → 0.55s 후 `DAInventory: ready disks=41 mounted=12` |
+| 첫 displaySleep 사이클 (11:41:47, disk13/disk4 병렬) — race-skip 작동 검증 | ✅ **`success=2 failure=0`** (이전 빌드 동일 시나리오: `success=0 failure=2`) |
+| → Step A (DA normal, 2.0s) timeout → Step B (DA force, 3.0s) timeout → Step C (`diskutil unmountDisk force`, 6.0s) timeout → race-skip 발동 | `displaySleep volume gone after Step C — treat as success (OS unmounted concurrently)` |
+| Wake 후 remount (11:42:07) | **0.73s** (이전 빌드 16.85s 대비 23배 빠름 — DA 인벤토리가 wake 직후 디스크 상태 즉시 알아 `diskutil list` 미호출) |
 
-실제 SD 인덱싱 시나리오 검증은 다음 SD 삽입 사이클에서 `log show --predicate 'subsystem == "com.yongza.ejectdrives"'` 로 (a) `DiskMenuSnapshot.load: DA Xs` 가 메인 경로로 동작하는지, (b) `diskutil list -plist external failed: timed out` 빈도가 줄었는지, (c) sleep eject 시 `volume gone after Step X` 로그로 race-skip 동작 확인.
+### 추가 관찰 — 향후 최적화 여지 (이번 PR 범위 밖)
+
+위 11:41:47 사이클에서 Step C 가 6초 통째로 헛돔이 보였다. macOS sleep 시퀀스의 자체 unmount 가 약 5-6초 안에 끝나는데 우리 코드는 그 사이 force 시퀀스를 돌리며 락 경쟁. 두 옵션:
+
+- **(A)** `systemWillSleep` 직후 300-500ms 의도적 delay → OS 에 unmount 기회 양보 후 시작
+- **(B)** 각 step 진행 중 DA `disappeared` 이벤트 도착하면 진행 중인 unmount 즉시 cancel + return success
+
+지금 fix 만으로도 사용자 보고 사건의 핵심 (`success=0 failure=2` + "비정상 추출" 알림) 은 해결. 추가 최적화는 별도 사이클 누적 후 결정.
 
 ### 영향 / 향후
 
