@@ -11,6 +11,20 @@
 맥 외장 드라이브를 한방에 안전하게 추출 / 마운트하는 메뉴바 앱.
 현재는 **Mac App Store / sandbox 노선을 포기**하고, 개인 사용 및 향후 Developer ID 배포를 전제로 `diskutil` 직접 실행 방식으로 회귀했다.
 
+## 이런 앱이에요
+
+맥북에 USB · SSD · SD 카드 · 외장 RAID 같은 외부 디스크를 자주 꽂아 쓰는 사람을 위한 메뉴바 외장 추출 유틸.
+
+- **메뉴바 한 클릭 추출** — 외장 목록에서 이름 클릭 → 즉시 안전 추출. 모두 추출은 단축키 `⌥⌘E`
+- **잠자기 = 자동 추출** — 노트북 덮으면 외장이 알아서 빠짐. 도킹 분리 사고나 "비정상 추출(improperly ejected)" 알림 방지
+- **메뉴바 숫자 표시** — 지금 꽂힌 외장 개수가 한눈에. DA 이벤트 기반이라 늦게 마운트되는 RAID 도 자가 보정
+- **Time Machine 자동 보호** — TM 백업 디스크는 자동으로 자동추출 대상에서 제외 (실수로 백업 끊김 방지)
+- **DMG · disk image 자동 무시** — 마운트된 디스크 이미지는 메뉴에 안 나옴, 자동 추출 대상도 아님
+- **한국어 + 영어** — 시스템 언어 따라 자동 전환
+- **샌드박스 없는 직접 배포** — Developer ID 서명 + Apple 공증(notarization) 완료, App Store 거치지 않음
+
+전체 기능 매트릭스는 아래 [기능](#기능) 표 참고.
+
 ## 현재 상태 (2026-05-14 기준)
 
 ✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), refresh stuck recovery(갱신 고착 복구), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. sleep/display sleep/"추출하고 잠자기" 경로는 `Disk Arbitration API` 의 **정상(non-force) unmount 를 먼저 시도**하고 (whole-disk option 우선) 실패 시에만 force / `diskutil` fallback 으로 떨어진다. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
