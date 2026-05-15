@@ -1,6 +1,12 @@
+<p align="center">
+  <img src="DiskOUT-eject-transparent.png" width="220" alt="DiskOUT logo">
+</p>
+
 # DiskOUT — 메뉴바 외장 드라이브 추출 유틸
 
-**v0.4.0+** · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
+> One-click safe ejection of external drives from your macOS menu bar. Sleep eject · ko / en · Apple Silicon native.
+
+**v0.4.0+** · 다운로드: [Releases](https://github.com/yooongZa/DiskOUT/releases) · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
 
 맥 외장 드라이브를 한방에 안전하게 추출 / 마운트하는 메뉴바 앱.
 현재는 **Mac App Store / sandbox 노선을 포기**하고, 개인 사용 및 향후 Developer ID 배포를 전제로 `diskutil` 직접 실행 방식으로 회귀했다.
