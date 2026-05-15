@@ -23,7 +23,5 @@ EjectDrives-derived/
 # Deprecated experimental code (kept locally for reference)
 archive/
 
-# Local-only working files
-DiskOUT_*.md
-CLAUDE.md
+# Claude Code per-machine settings (not project instructions)
 .claude/

@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 2026-05-15: 첫 공개 배포
+
+**배경**: 그동안 누적된 Unreleased 작업 (v0.4.0 base 위의 5월 7~14일 패치들) 을 v0.4.0 DMG 로 묶어 첫 공개 배포.
+
+### GitHub 공개 + Release
+
+- `yooongZa/DiskOUT` 신규 공개 (public). v0.4.0 첫 [GitHub Release](https://github.com/yooongZa/DiskOUT/releases/tag/v0.4.0) 게시.
+- 첨부 DMG (`DiskOUT-0.4.0.dmg`, ~3 MB) 는 Developer ID 서명 + Apple notarytool 공증 + stapled — 다운로드 후 바로 실행 가능 (Gatekeeper 오프라인 통과).
+- README 정비 — 영문 한 줄 소개 + 로고 임베드 + "이런 앱이에요" 사용자 친화 섹션 추가.
+- GitHub Topics 8개 추가 (`macos` / `menubar` / `swift` / `external-drive` / `eject` / `apple-silicon` / `macos-app` / `disk-utility`).
+- 라이센스는 명시하지 않음 — 추후 유료화 가능성 때문에 의도적으로 "All rights reserved" 상태 유지.
+
+### 사용자 facing
+
+- 누구나 [Releases 페이지](https://github.com/yooongZa/DiskOUT/releases) 에서 DMG 다운로드 → `/Applications` 으로 드래그 → 실행.
+- 시스템 요구사항: macOS 13.0+ (Apple Silicon 네이티브, Intel 동작).
+- 처음 실행 시 알림 권한 + (선택) 손쉬운 사용 권한 요구.
+
 ## Unreleased — 2026-05-14: 메뉴바 아이콘에 마운트된 외장 개수 표시
 
 **배경**: 메뉴바 아이콘이 고정 ⏏ 심볼이라 현재 상태를 알 수 없었다. 연결된 외장 개수에 따라 아이콘이 바뀌길 원함 — **1차로 숫자 표시**부터 구현 (후속 비주얼은 별도 검토).

@@ -1,55 +1,175 @@
-<p align="center">
-  <img src="DiskOUT-eject-transparent.png" width="220" alt="DiskOUT logo">
-</p>
+<div align="center">
 
-# DiskOUT — 메뉴바 외장 드라이브 추출 유틸
+<img src="DiskOUT-eject-transparent.png" width="180" alt="DiskOUT">
 
-> One-click safe ejection of external drives from your macOS menu bar. Sleep eject · ko / en · Apple Silicon native.
+# DiskOUT
 
-**v0.4.0+** · 다운로드: [Releases](https://github.com/yooongZa/DiskOUT/releases) · 자세한 변경사항 / 발생했던 이슈 / 기술 배경 → [CHANGELOG.md](CHANGELOG.md)
+### 메뉴바에서 외장 드라이브를 한 번에 안전 추출
 
-맥 외장 드라이브를 한방에 안전하게 추출 / 마운트하는 메뉴바 앱.
-현재는 **Mac App Store / sandbox 노선을 포기**하고, 개인 사용 및 향후 Developer ID 배포를 전제로 `diskutil` 직접 실행 방식으로 회귀했다.
+One-click safe ejection of external drives from your macOS menu bar.<br>
+Sleep eject · ko / en · Apple Silicon native.
 
-## 이런 앱이에요
+<br>
 
-맥북에 USB · SSD · SD 카드 · 외장 RAID 같은 외부 디스크를 자주 꽂아 쓰는 사람을 위한 메뉴바 외장 추출 유틸.
+[![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-- **메뉴바 한 클릭 추출** — 외장 목록에서 이름 클릭 → 즉시 안전 추출. 모두 추출은 단축키 `⌥⌘E`
-- **잠자기 = 자동 추출** — 노트북 덮으면 외장이 알아서 빠짐. 도킹 분리 사고나 "비정상 추출(improperly ejected)" 알림 방지
-- **메뉴바 숫자 표시** — 지금 꽂힌 외장 개수가 한눈에. DA 이벤트 기반이라 늦게 마운트되는 RAID 도 자가 보정
-- **Time Machine 자동 보호** — TM 백업 디스크는 자동으로 자동추출 대상에서 제외 (실수로 백업 끊김 방지)
-- **DMG · disk image 자동 무시** — 마운트된 디스크 이미지는 메뉴에 안 나옴, 자동 추출 대상도 아님
-- **한국어 + 영어** — 시스템 언어 따라 자동 전환
-- **샌드박스 없는 직접 배포** — Developer ID 서명 + Apple 공증(notarization) 완료, App Store 거치지 않음
+![macOS](https://img.shields.io/badge/macOS-14%2B-lightgrey?logo=apple)
+![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
+![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
+![Notarized](https://img.shields.io/badge/Apple-notarized-22C55E)
 
-전체 기능 매트릭스는 아래 [기능](#기능) 표 참고.
+[다운로드](https://github.com/yooongZa/DiskOUT/releases/latest) ·
+[변경 내역](CHANGELOG.md) ·
+[이슈 / 피드백](https://github.com/yooongZa/DiskOUT/issues)
 
-## 현재 상태 (2026-05-14 기준)
+</div>
 
-✅ **sandbox OFF + `diskutil` 직접 실행 경로로 복원**. macOS 26.4.1 (Apple Silicon) 에서 Debug/Release build, `diskutil mountDisk`, `diskutil list -plist external`, 메뉴 snapshot cache(스냅샷 캐시), async menu refresh(비동기 메뉴 갱신), refresh stuck recovery(갱신 고착 복구), `lsof` 실패 진단, "추출하고 잠자기" 빌드 확인 완료. sleep/display sleep/"추출하고 잠자기" 경로는 `Disk Arbitration API` 의 **정상(non-force) unmount 를 먼저 시도**하고 (whole-disk option 우선) 실패 시에만 force / `diskutil` fallback 으로 떨어진다. logout/restart/shutdown 전 자동 추출은 코드가 남아 있지만 현재 default OFF.
+---
 
-✅ **메뉴바 아이콘 = 마운트된 외장 개수 (2026-05-14)** — 고정 ⏏ 심볼 대신 마운트된 외장 *디바이스* 개수를 숫자로 표시. 다중 파티션·RAID·APFS 합성 볼륨은 1 개로 집계 (whole-disk 기준 = "꽂은 장치 수"). `DAInventory` 변화에 이벤트 기반 자동 갱신 — 느린 RAID 볼륨이 늦게 떠도 자가 보정. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "메뉴바 아이콘에 마운트된 외장 개수 표시" 항목 참고.
+## 이런 분께
 
-✅ **DA-event-driven 인벤토리 + sleep eject OS race-skip (2026-05-14)** — SD 카드 삽입 등으로 macOS `storagekitd` (시스템 싱글톤) 가 새 디스크 프로빙으로 막혀 `diskutil list -plist external` 이 3s timeout 났던 문제 fix. `DAInventory` (long-lived `DASession` + appeared/disappeared/changed 콜백) 가 외장 디스크 목록을 in-process 메모리에 유지 → 메뉴 갱신은 외부 daemon 비의존. sleep eject 도 각 fallback 단계 직전 DA 인벤토리로 "OS 가 먼저 unmount 했는지" 확인 → 락 경쟁 회피. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "DA 이벤트 기반 인벤토리" 항목 참고.
+> 맥북에 **USB · SSD · SD 카드 · 외장 RAID** 같은 외부 디스크를 자주 꽂아 쓰는 분.<br>
+> 노트북 가방에 넣을 때 매번 "안전하게 제거" 클릭하는 게 귀찮은 분.<br>
+> 도킹 분리 / "비정상 추출(improperly ejected)" 알림에 한 번이라도 데인 분.
 
-✅ **sleep eject "비정상 추출" 알림 감소 (2026-05-13)** — APFS multi-volume container 디스크에서 알림이 sub-volume 마다 떴던 문제 fix. sleep eject 가 처음부터 `force` 로 시작하는 대신 정상 unmount 단계를 1번 거치고, force 단계도 whole-disk option 우선으로 sub-volume 들을 한꺼번에 처리. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "sleep eject 알림 감소" 항목 참고.
+DiskOUT 는 그런 분들을 위해 만든, 작고 빠른 메뉴바 유틸.
 
-✅ **MVP 정비 완료 (2026-05-10)** — 코드 검토 결과 21 개 항목 일괄 fix. 메뉴바 표시 강제 코드 복원, 공유 state thread safety, 단축키 충돌 자동 정정, `ProcessRunner` timeout hang 방지, 권한 누락 메뉴 안내, About 탭, 우클릭 추출 opt-out, 결과 아이콘 자동 reset 등. 자세한 내용은 [CHANGELOG.md](CHANGELOG.md) 의 "MVP 정비" 항목 참고.
+---
 
-| 항목 | 값 |
+## 핵심 3가지
+
+### 한 클릭, 또는 단축키 한 번
+
+메뉴바 아이콘 클릭 → 외장 목록 → 이름 클릭 = 즉시 안전 추출.
+키보드 잡고 있다면 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> 한 번에 전체 추출.
+
+### 잠자기 = 자동 추출
+
+노트북 덮으면 외장이 알아서 빠짐. 가방에 던지기 전 일일이 클릭하지 않아도 됨.
+깨우면 자동으로 다시 마운트 — 사용자는 **무감각하게** 외장 보호를 받음.
+
+### 메뉴바에 외장 개수 표시
+
+고정된 ⏏ 아이콘 대신 **숫자**로 표시. 지금 몇 개 꽂혀 있는지 한눈에.
+RAID · 다중 파티션 · APFS 합성 볼륨도 "꽂은 장치 수" 기준 1 개로 합쳐서 셈.
+
+---
+
+## 안심하고 쓸 수 있게
+
+|  |  |
 |---|---|
-| Bundle ID | `com.yongza.ejectdrives` |
-| 사인 | `Apple Development: sukmack@gmail.com` (개발 빌드, 자동) |
-| Hardened Runtime | YES |
-| App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
-| 배포 노선 | **App Store 보류/포기**. 현재는 sandbox 없는 개인/Developer ID 계열 배포 전제 |
-| Developer ID 상태 | `Developer ID Application: roh yongwook (495S4FVMCB)` 서명 가능 확인. Notarization(공증)은 `notarytool` credential(자격 증명) 미설정으로 미완료 |
-| 빌드 시스템 | Xcodegen + xcodebuild |
-| 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
-| 디스크 작업 | 기본 수동 추출은 `/usr/sbin/diskutil` 직접 실행 (`eject`, `unmount force`, `mountDisk`, `list -plist external`, `info -plist`). sleep/display sleep/"추출하고 잠자기"는 `Disk Arbitration API` 의 정상(non-force) unmount 를 whole-disk option 으로 먼저 시도 → 실패 시 force unmount → 그래도 실패하면 `diskutil unmountDisk force` / `eject force` fallback. disk image(DMG/CoreSimulator) 필터는 `/usr/bin/hdiutil info -plist` 1초 timeout + `diskutil info` fallback. 실패 진단은 `/usr/sbin/lsof`, 수동 sleep 요청은 `/usr/bin/pmset sleepnow` |
+| **Time Machine 자동 보호** | TM 백업 디스크는 자동 추출 대상에서 자동 제외 — 실수로 백업 끊김 방지 |
+| **DMG · 디스크 이미지 무시** | 마운트된 디스크 이미지는 메뉴에도 안 뜨고, 자동 추출 대상도 아님 |
+| **"비정상 추출" 알림 없음** | sleep 추출은 정상 unmount(마운트 해제) 를 먼저 시도 — macOS 의 "improperly ejected" 알림이 안 뜸 |
+| **Per-disk 옵트아웃** | 자동 추출에서 빼고 싶은 디스크만 개별 토글. Volume UUID 기반이라 케이블 슬롯 바뀌어도 유지 |
+| **광고 · 추적 · 네트워크 0** | 외장 디스크 다루는 일에만 집중. 외부 통신 없음 |
+| **Developer ID + Apple 공증** | Gatekeeper(게이트키퍼) 통과 — "확인되지 않은 개발자" 경고 없이 그냥 열림 |
 
-## 기능
+---
+
+## 다운로드
+
+<div align="center">
+
+### [최신 릴리즈 받기 →](https://github.com/yooongZa/DiskOUT/releases/latest)
+
+`DiskOUT-X.Y.Z.dmg` · 약 3MB · Apple Silicon 전용
+
+</div>
+
+### 설치 (30 초)
+
+1. DMG 더블클릭 → **응용 프로그램** 폴더로 드래그
+2. 첫 실행 시 macOS 가 한 번 묻습니다 → **열기** 클릭
+3. 메뉴바에 숫자 아이콘이 뜸 (꽂힌 외장이 없으면 `0`)
+
+### 시스템 요구사항
+
+- macOS 14 (Sonoma) 이상
+- Apple Silicon (M1 / M2 / M3 / M4)
+
+---
+
+## 사용법
+
+| 동작 | 방법 |
+|---|---|
+| 개별 추출 | 메뉴바 아이콘 → 드라이브 이름 클릭 |
+| 모두 추출 | 메뉴 "모두 추출" 또는 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> |
+| 즉시 모두 추출 | 메뉴바 아이콘 **우클릭** |
+| 추출 + 잠자기 | 메뉴 "추출하고 잠자기" — 모두 성공해야 잠자기 시작 |
+| 마운트 안 된 외장 마운트 | 메뉴 하단 섹션 클릭 또는 <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> |
+| 마운트 + Finder 열기 | 마운트 안 된 외장에 <kbd>⌘</kbd>+클릭 |
+| 환경설정 | 메뉴 "환경설정..." 또는 <kbd>⌘</kbd><kbd>,</kbd> |
+
+### 자동 실행
+
+메뉴의 **"로그인 시 자동 실행"** 토글 → 시스템 자동 등록. macOS 가 추가 승인을 요청하면 시스템 설정 → 일반 → 로그인 항목에서 한 번 허용해주면 됩니다.
+
+---
+
+## FAQ
+
+<details>
+<summary><b>App Store(앱 스토어) 에 안 올라온 이유는?</b></summary>
+
+mount / eject 같은 디스크 조작은 sandbox(샌드박스) 환경에서 제약이 많습니다. 안정성을 충분히 확보하기 어려워 Developer ID 직접 배포 노선으로 갔습니다. 대신 Apple 공증(notarization) 을 받아서 Gatekeeper 는 문제 없이 통과합니다.
+
+</details>
+
+<details>
+<summary><b>안전한가요? 데이터 손실 위험은?</b></summary>
+
+수동 추출은 `diskutil eject` 표준 경로를 사용합니다 (Finder 의 "추출"과 동일). 자동(잠자기) 추출은 정상 unmount 를 먼저 시도하고, 실패할 때만 force 단계로 떨어집니다. 사용 중인 디스크는 점유 프로세스를 진단해서 알림에 표시합니다.
+
+단, force 단계까지 가도 추출되지 않는 디스크는 그대로 두고 알림만 띄웁니다 — 데이터 위험을 감수하면서 강제 추출하지 않습니다.
+
+</details>
+
+<details>
+<summary><b>무료인가요?</b></summary>
+
+현재는 무료 다운로드입니다. 향후 정책 변경 가능성을 위해 라이센스는 "All rights reserved" 로 두었지만, 개인 사용자가 받아 쓰는 데는 제한 없습니다.
+
+</details>
+
+<details>
+<summary><b>Intel Mac 도 되나요?</b></summary>
+
+현재 빌드는 Apple Silicon 전용입니다. Intel 빌드는 계획에 없습니다.
+
+</details>
+
+<details>
+<summary><b>"비정상 추출" 알림이 떠요</b></summary>
+
+DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도하기 때문에 보통은 알림이 뜨지 않습니다. 그래도 뜬다면 보통 다음 경우입니다.
+
+- **사용 중인 앱이 있어 정상 unmount 실패 → force fallback 으로 진행**: 메뉴의 "force fallback" 토글이 ON 일 때.
+- **macOS 가 먼저 추출을 시작한 케이스**: 잠자기 직전 다른 시스템 컴포넌트가 먼저 시도.
+
+해결: 외장에 액세스하던 앱을 종료한 뒤 잠자기, 또는 환경설정에서 force fallback 을 OFF.
+
+</details>
+
+---
+
+## 알려진 제한
+
+- **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS 가 sleep(잠자기) 자체를 안 들어감 → 자동 추출도 트리거 안 됨. 어차피 dock(도크) 분리도 안 일어나므로 안전.
+- **사용 중 드라이브**: 1차 정상 추출 실패 시 force unmount(강제 마운트 해제) 를 시도하지만, 점유 앱이 있는 경우 데이터 위험을 여전히 주의해야 합니다.
+- **사용자가 슬립 중 외장만 뽑아간 경우**: 우리 앱이 잡을 수 있는 영역이 아닙니다. 슬립 중 안전 추출이 필요하면 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> 추천 — wake(깨우기) + 추출 한 번에.
+- **재마운트 신뢰도**: 자동 추출에 성공한 디스크만 wake 후 재마운트합니다. 물리적으로 이미 빠진 디스크는 앱이 다시 마운트할 수 없습니다.
+
+자세한 기술적 제한 사항은 [CHANGELOG.md](CHANGELOG.md) 참고.
+
+---
+
+## 전체 기능
+
+<details>
+<summary>기능 매트릭스 펼치기</summary>
 
 | 기능 | 설명 |
 |---|---|
@@ -58,30 +178,50 @@
 | 개별 추출 | 드라이브 이름 클릭 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
 | **추출하고 잠자기** | 메뉴 항목. sleep 계열 volume-first force unmount(볼륨 우선 강제 마운트 해제) 경로로 전체 추출 후, 모두 성공할 때만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |
-| 전역 단축키 (추출) | 기본 `⌥⌘E` (한/영 IME 무관, 물리 키 코드 비교). 환경설정에서 E 기반 preset(프리셋) 변경 가능 |
-| 전역 단축키 (마운트) | 기본 `⌃⌘E` — 마운트 안 된 외장 일괄 마운트. 환경설정에서 변경 가능 |
+| 전역 단축키 (추출) | 기본 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (한/영 IME 무관, 물리 키 코드 비교). 환경설정에서 E 기반 preset(프리셋) 변경 가능 |
+| 전역 단축키 (마운트) | 기본 <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> — 마운트 안 된 외장 일괄 마운트. 환경설정에서 변경 가능 |
 | 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭. 환경설정 → Eject Behavior 에서 끄면 우클릭이 메뉴를 띄움 (실수 추출 방지 opt-out) |
-| **마운트 안 된 외장 마운트** | 메뉴에 "마운트 안 된 외장" 섹션 자동 노출 (후보 있을 때만). 클릭 = 마운트, ⌘+클릭 = 마운트 + Finder 열기 |
+| **마운트 안 된 외장 마운트** | 메뉴에 "마운트 안 된 외장" 섹션 자동 노출 (후보 있을 때만). 클릭 = 마운트, <kbd>⌘</kbd>+클릭 = 마운트 + Finder 열기 |
 | **마운트/미마운트 상태 정합성** | `diskutil list -plist external` 한 snapshot(스냅샷)에서 mounted(마운트됨) / unmounted(마운트 안 됨)를 함께 계산해, 실제 마운트가 없는데 mounted 섹션에 남는 stale state(오래된 상태)를 줄임 |
 | **디스크 종류 아이콘** | `diskutil info -plist` 의 SD card 신호가 확인되면 `sdcard` 아이콘, 그 외 외장은 `externaldrive` 계열 아이콘 사용 |
 | **잠자기 진입 시** 자동 추출 | 메뉴 토글. IOKit power notification(전원 알림)으로 sleep(잠자기)을 잠깐 지연하고, 각 디스크에 대해 정상 DA unmount(whole-disk 우선) → DA force unmount(whole-disk 우선) → `diskutil unmountDisk force` → `eject force` 순서로 시도. 정상 unmount 가 통과하면 macOS 비정상 추출 알림이 뜨지 않음 |
-| **화면 꺼질 때도 자동 추출** (v0.3.0, 옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. sleep 계열 정상→force→`diskutil` 5 단계 경로 사용. 빈번한 발동 우려로 명시적 opt-in |
+| **화면 꺼질 때도 자동 추출** (옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. sleep 계열 정상→force→`diskutil` 5 단계 경로 사용. 빈번한 발동 우려로 명시적 opt-in |
 | **wake / 화면 켜질 때 자동 재마운트** | 자동 추출에 성공한 디스크만 재마운트. enumerate(열거) 안 되면 사용자가 분리한 것으로 보고 silent |
 | **DMG / sparseimage 제외** | 마운트된 이미지는 `hdiutil info -plist` 1초 timeout + `diskutil info` fallback, unmounted 후보는 `BusProtocol == "Disk Image"` 로 제외 |
-| 추출 경로 | 수동 추출은 1차 `diskutil eject <volumePath>` → 실패 시 `diskutil unmount force <volumePath>` fallback. sleep/display sleep/"추출하고 잠자기"는 **정상 DA unmount (whole disk 우선, 2s)** → **DA force unmount (whole disk 우선, 3s)** → `diskutil unmountDisk force` (6s) → `diskutil eject force` (5s) → `diskutil eject` (3s) 5단계. 정상 unmount 가 통과하면 macOS 비정상 추출 알림이 뜨지 않는다. APFS multi-volume container 도 whole-disk option 으로 한 번에 처리. 최종 실패 시 수동 경로는 `lsof` 로 점유 process(프로세스) / open file(열린 파일) 진단을 알림에 추가 |
-| 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시. 매트릭스는 [CHANGELOG.md](CHANGELOG.md) v0.2.1 |
+| 추출 경로 | 수동 추출은 1차 `diskutil eject <volumePath>` → 실패 시 `diskutil unmount force <volumePath>` fallback. sleep/display sleep/"추출하고 잠자기"는 **정상 DA unmount (whole disk 우선, 2s)** → **DA force unmount (whole disk 우선, 3s)** → `diskutil unmountDisk force` (6s) → `diskutil eject force` (5s) → `diskutil eject` (3s) 5단계. 정상 unmount 가 통과하면 macOS 비정상 추출 알림이 뜨지 않는다. APFS multi-volume container 도 whole-disk option 으로 한 번에 처리. 최종 실패 시 수동 경로는 `lsof` 로 점유 process / open file 진단을 알림에 추가 |
+| 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/⚠/✗. 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 | **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 사용. `.requiresApproval` 상태도 체크 표시 + "로그인 항목 허용 필요" 라벨로 표시 |
-| **환경설정 창** | `⌘,` 또는 메뉴의 "환경설정..."에서 로그인 실행, sleep/display sleep 추출, Music/Photos 종료, 단축키 (Eject all / Mount all / Eject and Sleep), 알림, force fallback(강제 fallback), 우클릭=모두 추출 토글, About(버전/저작권) 설정. 메뉴엔 자주 토글하는 *"잠자기 시 자동 추출"* 만 노출 — 나머지는 환경설정 전용 |
+| **환경설정 창** | <kbd>⌘</kbd><kbd>,</kbd> 또는 메뉴의 "환경설정..."에서 로그인 실행, sleep/display sleep 추출, Music/Photos 종료, 단축키 (Eject all / Mount all / Eject and Sleep), 알림, force fallback, 우클릭=모두 추출 토글, About(버전/저작권) 설정 |
 | **단축키 충돌 자동 정정** | 추출 / 마운트 / 추출하고 잠자기 단축키가 같은 preset 으로 저장되면 충돌 감지 + 다른 preset 으로 자동 이동 + alert |
 | **권한 누락 메뉴 안내** | Accessibility(손쉬운 사용) / 알림 권한이 미허용 상태면 메뉴 상단에 ⚠ 경고 row 표시. 클릭하면 시스템 설정의 해당 페이지로 이동 |
-| **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 toggle(토글). 기본은 모두 ON |
-| **다국어 (ko + en)** | `Localizable.xcstrings` 73개 키. 시스템 언어 따라 자동 전환. 향후 일본어/중국어 추가 가능 |
+| **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 토글. 기본은 모두 ON |
+| **다국어 (ko + en)** | `Localizable.xcstrings` 73개 키. 시스템 언어 따라 자동 전환 |
 | **Per-disk 자동 추출 제외** | 디스크 메뉴 항목 ▶ submenu 의 *"자동 추출 제외"* 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + *(Time Machine)* 표기 |
 | **외장 라이브러리 앱 처리** | 메뉴 토글 (default OFF). ON 이면 sleep 직전 Music / Photos 자동 quit (외장 라이브러리 lock 풀어 추출 가능), wake 후 백그라운드 자동 relaunch |
 
-## 파일 구성
+</details>
+
+---
+
+## 개발자 안내
+
+<details>
+<summary>빌드 · 설치 · 기술 메모 펼치기</summary>
+
+### 기술 스택
+
+| 항목 | 값 |
+|---|---|
+| Bundle ID | `com.yongza.ejectdrives` |
+| Hardened Runtime | YES |
+| App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
+| 빌드 시스템 | Xcodegen + xcodebuild |
+| 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
+| 디스크 작업 | 수동 추출은 `/usr/sbin/diskutil` 직접 실행. sleep/display sleep/"추출하고 잠자기"는 `Disk Arbitration API` 의 정상 unmount → force unmount → `diskutil` fallback 의 5단계 경로 |
+
+### 파일 구성
 
 ```
 diskOUT/
@@ -89,29 +229,23 @@ diskOUT/
 ├── Localizable.xcstrings        # ko + en 번역 (Xcode String Catalog)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
-├── DiskOUT.entitlements     # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
+├── DiskOUT.entitlements         # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
 ├── project.yml                  # xcodegen 설정 (sandbox OFF)
-├── DiskOUT.xcodeproj/       # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
-├── archive/                     # 폐기된 sandbox/helper 시절 코드 — 빌드 미사용, .gitignore 됨
-│   ├── DiskArbitrationBackend.swift
-│   ├── EjectDrives.entitlements (sandbox=true 시절 — historical 파일명)
-│   ├── Helper/
-│   ├── HelperClient.swift
-│   └── Shared/HelperProtocol.swift
-├── CHANGELOG.md                 # 변경 내역
-└── README.md                    # 이 파일
+├── DiskOUT.xcodeproj/           # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
+├── CHANGELOG.md
+└── README.md
 ```
 
-## 빌드 + 설치
+### 빌드
 
-### 한 번만
+**한 번만 (프로젝트 생성)**
 
 ```bash
 cd ~/Documents/diskOUT
 xcodegen generate                  # project.yml → DiskOUT.xcodeproj
 ```
 
-### 매 빌드
+**매 빌드**
 
 ```bash
 cd ~/Documents/diskOUT
@@ -123,11 +257,11 @@ cp -R /tmp/DiskOUT-derived/Build/Products/Release/DiskOUT.app ~/Applications/
 open ~/Applications/DiskOUT.app
 ```
 
-또는 Xcode 열어서 `DiskOUT.xcodeproj` → `Cmd+R`.
+또는 Xcode 열어서 `DiskOUT.xcodeproj` → <kbd>⌘</kbd><kbd>R</kbd>.
 
-### 안전 설치 (롤백 가능)
+**안전 설치 (롤백 가능)**
 
-새 빌드 검증 안 끝났을 때 권장. 기존 .app 을 먼저 백업 후 교체.
+새 빌드 검증이 안 끝났을 때 권장. 기존 .app 을 먼저 백업 후 교체.
 
 ```bash
 # 1. 빌드
@@ -142,7 +276,7 @@ cp -R "$DERIVED" ~/Applications/DiskOUT.app
 xattr -cr ~/Applications/DiskOUT.app   # provenance/quarantine 정리
 open ~/Applications/DiskOUT.app
 
-# 3. 검증 (메뉴 동작, 로그 확인)
+# 3. 검증
 log show --predicate 'subsystem == "com.yongza.ejectdrives"' --info --last 1m
 
 # 4a. 문제 없으면 백업 제거
@@ -155,39 +289,9 @@ mv ~/Applications/DiskOUT.app.prev.bak ~/Applications/DiskOUT.app
 open ~/Applications/DiskOUT.app
 ```
 
-> Debug 빌드는 `~/Library/Developer/Xcode/DerivedData/DiskOUT-<hash>/Build/Products/Debug/` 에 생성됨. Release 는 `Release/`. xcodebuild 의 `-derivedDataPath` 를 안 줄 때만 default 위치 사용.
+### 옵션 변경 위치
 
-### 배포 메모 (2026-05-07)
-
-Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/eject 안정성이 sandbox + DA/SMAppService helper 조합에서 충분히 확보되지 않았기 때문.
-
-현재 기준 배포 방향:
-
-1. 개발/개인 사용: `Apple Development` + sandbox OFF
-2. 외부 배포가 필요하면: Developer ID + notarization 검토
-3. App Store 재도전은 `diskutil mount/eject` 없이 동등 안정성을 확보할 때만 재검토
-
-## 사용법
-
-- 메뉴바 좌측의 **숫자 아이콘** (= 마운트된 외장 디바이스 개수) 클릭 → 드라이브 목록. 디스크 상태 갱신 중이면 먼저 현재 cache(캐시)를 보여주고 완료 후 자동 갱신
-- 드라이브 이름 클릭 → 개별 추출
-- "모두 추출" → 전체 추출
-- "추출하고 잠자기" → volume-first force unmount 경로로 전체 추출이 모두 성공하면 시스템 잠자기 시작. 실패가 있으면 잠자기 취소
-- `⌥⌘E` → 어디서든 전체 추출 (기본값, 환경설정에서 변경 가능)
-- 메뉴바 아이콘 우클릭 → 즉시 모두 추출 (메뉴 안 거침)
-- 메뉴 하단 "마운트 안 된 외장" 섹션 (후보 있을 때만 자동 노출) → 클릭으로 개별 마운트, **⌘+클릭** = 마운트 + Finder 열기
-- `⌃⌘E` → 마운트 안 된 외장 일괄 마운트 (기본값, 환경설정에서 변경 가능)
-- "잠자기 시 자동 추출" 토글 → ON 이면 모든 sleep 진입 시 자동 추출. wake 후엔 자동 재마운트로 사용자 무감각 UX
-- 사용자 단축키 / 메뉴 클릭 추출 시엔 wake 후 재마운트 안 함 (사용자 의도 존중)
-- "환경설정..." 또는 `⌘,` → 단축키, 알림, force fallback, 자동 실행/자동 추출 계열 옵션 변경
-
-## 로그인 시 자동 실행
-
-메뉴에서 **"로그인 시 자동 실행"** 토글 → `SMAppService.mainApp` 으로 시스템 자동 등록. macOS 가 `.requiresApproval` 을 반환하면 메뉴에는 체크 표시와 함께 **"로그인 항목 허용 필요"** 가 붙는다. 이 상태에서는 시스템 설정 → 일반 → 로그인 항목에서 DiskOUT 를 허용해야 실제 로그인 실행이 활성화된다.
-
-## 옵션 바꾸고 싶을 때
-
-대부분은 메뉴의 **환경설정...** 에서 바로 바꾼다. 코드 수정이 필요한 항목만 아래에 남긴다.
+대부분은 메뉴의 **환경설정...** 에서 바로 변경. 코드 수정이 필요한 항목만:
 
 | 바꿀 것 | 위치 |
 |---|---|
@@ -198,46 +302,9 @@ Mac App Store 노선은 현재 보류/포기. 이유는 핵심 기능인 mount/e
 
 키 코드는 Carbon `Events.h` 의 `kVK_ANSI_*` 상수 참조.
 
-## 알려진 제한
+### 진단 메모 — `NSStatusBarWindow` height = 0
 
-- **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS 가 sleep 자체를 안 들어감 → `willSleep` 노티 발생 X → 자동 추출도 트리거 안 됨. **자동으로 안전하게 보호됨** (어차피 dock 분리 안 일어남).
-- **사용 중 드라이브**: 1차 `diskutil eject` 실패 시 `diskutil unmount force` 를 시도한다. force 는 완전한 eject(power off)가 아니라 mount 해제 fallback 이므로, 점유 앱이 있는 경우 사용자 데이터 위험을 여전히 주의해야 한다.
-- **`lsof` 실패 진단**: 최종 추출 실패 뒤 best-effort(최선 노력)로 점유 process / open file 을 표시한다. macOS privacy(개인정보 보호) 정책 때문에 일부 앱/경로는 **Full Disk Access(전체 디스크 접근)** 권한 없이는 확인이 제한될 수 있다.
-- **logout/restart/shutdown 전 자동 추출**: macOS 가 원래 종료 과정에서 볼륨 정리를 시도하고, 사용자 질문 기준 기능 가치가 낮아 현재 `powerOffAutoEjectEnabled = false` 로 꺼져 있다. 사용자에게 보이는 동작은 없다.
-- **재마운트 신뢰도**: 자동 추출에 성공한 디스크만 wake 후 `diskutil mountDisk` 로 재마운트한다. 재인식 안 되는 디스크는 사용자 분리로 간주해 silent 처리한다. 물리적으로 이미 빠진 디스크는 앱이 다시 마운트할 수 없다.
-- **사용자 분리 시나리오 4번** (sleep 중에 외장하드만 뽑아서 가져감): 우리 앱이 잡을 수 없는 영역. 깨우고 추출 대신 `⌥⌘E` 단축키 추천 — 슬립 중에도 wake + 추출 한 번에.
-- **`pmset sleep = 0` 환경에서 화면 꺼짐 ≠ system sleep**: v0.2.x 까지는 화면만 꺼져도 추출 안 됨. v0.3.0 의 "화면 꺼질 때도 자동 추출" 토글로 보완 (명시적 opt-in). 트레이드오프: 자리 잠깐 비울 때마다 추출/재마운트 사이클 발생 가능 — 빈번하면 disk wear / 작업 흐름 끊김.
-- **재설치 후 `로그인 항목 허용 필요` 메시지 잔존 가능**: 이전 sandbox/helper 노선 빌드를 설치했었던 머신은 BTM(Background Task Management) 에 helper daemon 등록이 stale 로 남아 있어, 새 빌드에서도 `SMAppService.mainApp.status == .requiresApproval` 로 보고된다. 시스템 설정 → 일반 → 로그인 항목 에서 DiskOUT 관련 stale entry 를 직접 OFF / 제거한 뒤 환경설정 → "Launch at login" 을 한 번 OFF/ON 하면 정정된다. (`sudo sfltool resetbtm` 은 다른 백그라운드 앱 등록도 reset 되므로 권장 안 함.)
-
----
-
-# 빌드 / 설치 히스토리 (2026-05-04 진단 기록)
-
-처음 swiftc 단독 빌드로 진행하다 메뉴바에 status item 이 표시되지 않는 문제 발생. 다음 단계들을 거쳐 해결.
-
-## 시도한 것들 (시간 순)
-
-| # | 시도 | 결과 |
-|---|---|---|
-| 1 | `swiftc AppDelegate.swift -parse-as-library` | 빌드 성공, 프로세스 launch, **메뉴바에 안 보임** |
-| 2 | ad-hoc 사인 (`codesign --sign -`) + `xattr -cr` | 동일 |
-| 3 | `Apple Development: sukmack@gmail.com` 인증서로 사인 | 동일 |
-| 4 | `Developer ID Application` + Hardened Runtime | 동일 |
-| 5 | `main.swift` 분리 + `setActivationPolicy(.accessory)` 를 `app.run()` 전에 호출 | 동일 |
-| 6 | `Info.plist` 에 `NSPrincipalClass = NSApplication` 추가 | 동일 |
-| 7 | `PkgInfo` 파일 (`APPL????`) 추가 | 동일 |
-| 8 | `CFBundleInfoDictionaryVersion = "6.0"` + `CFBundleSupportedPlatforms` 추가 | 동일 |
-| 9 | `lsregister` 로 LaunchServices DB 재등록 + `ControlCenter` 재시작 | 동일 |
-| 10 | `~/Documents/` 안에서 빌드 → `/tmp/` 로 이동 (iCloud fileprovider 의 `com.apple.provenance` xattr 가 codesign 망가뜨리는 문제 회피) | 사인은 정상 됨, 여전히 메뉴바 안 보임 |
-| 11 | `xcodegen` + `xcodebuild` 로 정식 Xcode 빌드 (`provisioning profile` + entitlements 자동 임베드) | 동일 |
-| 12 | **App Sandbox + entitlements** (`com.apple.security.app-sandbox`, `device.usb`, `temporary-exception.files /Volumes/`) | 동일 |
-| 13 | **`NSStatusBarWindow` 의 `setFrame` + `orderFrontRegardless()` 강제 호출** ✅ | **메뉴바 표시 해결!** |
-| 14 | App Sandbox 비활성화 (혼자 쓰는 앱, 무관 확인) | entitlements 깨끗해짐 |
-| 15 | **`ExternalDrive.list()` 필터 완화** ✅ | **외장 드라이브 인식 해결!** |
-
-## 결정적 진단 — `NSStatusBarWindow` 의 height = 0
-
-코드는 100% 정상 동작 (STEP 1~6 모든 NSLog 출력, statusItem/button/image 다 정상 생성) 하는데도 메뉴바에 안 보였음. 진단 결과:
+초기 빌드 중 메뉴바에 status item 이 표시되지 않는 문제 발생. 코드는 100% 정상 동작 (NSLog 출력, statusItem / button / image 모두 정상 생성) 인데 메뉴바엔 안 보였음. 진단:
 
 ```
 DIAG: NSApp.windows.count=1
@@ -245,9 +312,9 @@ DIAG window: class=NSStatusBarWindow frame=(0.0, 0.0, 32.0, 0.0) visible=true le
                                                             ^^^ height=0
 ```
 
-`NSStatusBarWindow` 가 우리 process 안에는 만들어졌지만 `WindowServer` 에 등록 안 되거나 height=0 으로 갇혀있었음. macOS 26 의 새 정책 또는 status item 시스템의 미묘한 변경으로 추정.
+`NSStatusBarWindow` 가 process 안에는 만들어졌지만 `WindowServer` 에 등록되지 않거나 height=0 으로 갇혀 있었음. macOS 26 의 새 정책 또는 status item 시스템의 미묘한 변경으로 추정.
 
-## 우회 코드 (`AppDelegate.swift` 의 `setupStatusItem`)
+**우회 코드** (`AppDelegate.swift` 의 `setupStatusItem`):
 
 ```swift
 if let win = button.window {
@@ -258,27 +325,41 @@ if let win = button.window {
 }
 ```
 
-**이 두 줄이 빠지면 메뉴바에 안 보임.** macOS 26 에서 `NSStatusBar.system.statusItem(...)` 으로 만든 status item 의 window 를 명시적으로 frame 강제 설정 + WindowServer 에 등록 강제 해줘야 표시됨.
+이 두 줄이 빠지면 메뉴바에 표시되지 않음.
 
-## 외장 드라이브 필터 (macOS 26 에서 깨진 기존 로직)
+### 진단 메모 — 외장 드라이브 필터
 
 원래 필터:
+
 ```swift
 guard !isInternal, isBrowsable, (isEjectable || isRemovable) else { continue }
 ```
 
-**macOS 26 에서는 Thunderbolt 외장 SSD / 일부 USB 가 `isEjectable=false, isRemovable=false` 로 보고됨** (사용자 환경 진단: `SYSJO`, `업무백업` 두 외장 드라이브 모두 ejectable/removable 둘 다 false).
+macOS 26 에서는 Thunderbolt 외장 SSD / 일부 USB 가 `isEjectable=false, isRemovable=false` 로 보고되는 케이스 발견. 수정:
 
-수정된 필터:
 ```swift
 guard !isInternal, isBrowsable, isLocal else { continue }
 ```
 
-`isLocal` 가드로 네트워크 마운트 (예: 다른 Mac 의 `skynet` 공유) 만 제외. 외장 디스크는 모두 통과.
+`isLocal` 가드로 네트워크 마운트만 제외. 외장 디스크는 모두 통과.
 
-## 다른 깨알 정보
+### 다른 깨알 정보
 
 - **노치 모델**: status items 가 메뉴바 좌측 (앱 메뉴 옆) 에도 배치될 수 있음 — 우측이 가득 차면 노치 너머 좌측에 등장.
 - **`com.apple.provenance` xattr**: macOS 의 fileprovider 서비스 (iCloud Drive / OneDrive 등) 가 `~/Documents/` 안의 파일에 자동으로 붙임. codesign 이 이걸 보면 "resource fork, Finder information, or similar detritus not allowed" 로 사인 거부. `xattr -cr` 로 정리해도 곧 다시 붙음. **빌드는 `/tmp/` 등 fileprovider 영향 없는 곳에서 하는 게 안전.**
-- **CGWindowList 의 한계**: `kCGWindowOwnerName == "DiskOUT"` 검색으로 윈도우 0개라도 메뉴바에 떠있을 수 있음. `ControlCenter` 가 status item 의 view 를 자체 윈도우 안에 그리는 케이스가 있어 외부에서는 안 보임. **진짜 보이는지 검증은 시각적 확인 필수.**
-- **`ProcessRunner` stdout/stderr drain 개선 완료**: `Process` 의 stdout/stderr 를 `readabilityHandler` 로 비동기 drain(비우기)하고 종료 후 남은 data(데이터)도 회수한다. `lsof` 는 3초 timeout(타임아웃), `pmset sleepnow` 는 5초 timeout 을 둔다. 기존 `diskutil` 호출은 동작 보존을 위해 아직 명시 timeout 없이 실행한다.
+- **CGWindowList 의 한계**: `kCGWindowOwnerName == "DiskOUT"` 검색으로 윈도우 0개라도 메뉴바에 떠 있을 수 있음. `ControlCenter` 가 status item 의 view 를 자체 윈도우 안에 그리는 케이스가 있어 외부에서는 안 보임.
+- **`ProcessRunner` stdout/stderr drain**: `Process` 의 stdout/stderr 를 `readabilityHandler` 로 비동기 drain 하고 종료 후 남은 data 도 회수. `lsof` 는 3초 timeout, `pmset sleepnow` 는 5초 timeout.
+
+</details>
+
+---
+
+<div align="center">
+
+**DiskOUT** · © 2026 yongza · All rights reserved
+
+[릴리즈](https://github.com/yooongZa/DiskOUT/releases) ·
+[변경 내역](CHANGELOG.md) ·
+[이슈](https://github.com/yooongZa/DiskOUT/issues)
+
+</div>
