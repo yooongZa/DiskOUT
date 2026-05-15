@@ -260,9 +260,9 @@ if let win = button.window {
 
 **이 두 줄이 빠지면 메뉴바에 안 보임.** macOS 26 에서 `NSStatusBar.system.statusItem(...)` 으로 만든 status item 의 window 를 명시적으로 frame 강제 설정 + WindowServer 에 등록 강제 해줘야 표시됨.
 
-## 외장 드라이브 필터 (macOS 26 에서 깨진 풀버전 로직)
+## 외장 드라이브 필터 (macOS 26 에서 깨진 기존 로직)
 
-풀버전 DiskOUT 의 원래 필터:
+원래 필터:
 ```swift
 guard !isInternal, isBrowsable, (isEjectable || isRemovable) else { continue }
 ```
@@ -282,15 +282,3 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 - **`com.apple.provenance` xattr**: macOS 의 fileprovider 서비스 (iCloud Drive / OneDrive 등) 가 `~/Documents/` 안의 파일에 자동으로 붙임. codesign 이 이걸 보면 "resource fork, Finder information, or similar detritus not allowed" 로 사인 거부. `xattr -cr` 로 정리해도 곧 다시 붙음. **빌드는 `/tmp/` 등 fileprovider 영향 없는 곳에서 하는 게 안전.**
 - **CGWindowList 의 한계**: `kCGWindowOwnerName == "DiskOUT"` 검색으로 윈도우 0개라도 메뉴바에 떠있을 수 있음. `ControlCenter` 가 status item 의 view 를 자체 윈도우 안에 그리는 케이스가 있어 외부에서는 안 보임. **진짜 보이는지 검증은 시각적 확인 필수.**
 - **`ProcessRunner` stdout/stderr drain 개선 완료**: `Process` 의 stdout/stderr 를 `readabilityHandler` 로 비동기 drain(비우기)하고 종료 후 남은 data(데이터)도 회수한다. `lsof` 는 3초 timeout(타임아웃), `pmset sleepnow` 는 5초 timeout 을 둔다. 기존 `diskutil` 호출은 동작 보존을 위해 아직 명시 timeout 없이 실행한다.
-
----
-
-# 풀버전 기획
-
-App Store 출시 + 마스코트(Tako) + cosmetic IAP 까지 포함한 v1.0 계획. 관련 문서:
-
-- [DiskOUT_개발기획서.md](DiskOUT_개발기획서.md) — 기능 명세, 아키텍처, 일정
-- [DiskOUT_분석.md](DiskOUT_분석.md) — 시장 조사, 캐릭터 IAP 전략
-- [DiskOUT_애니메이션_가이드.md](DiskOUT_애니메이션_가이드.md) — 캐릭터 애니메이션 구현 (cosmetic IAP 의 핵심 자산)
-
-이 README 는 그 일부 코어 기능을 먼저 구현한 작업본.

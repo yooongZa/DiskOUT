@@ -20,13 +20,10 @@ EjectDrives-derived/
 * [0-9].xcodeproj/
 * [0-9]/
 
-# 폐기된 sandbox/helper 실험 코드 — 빌드 미사용. 보존만 (필요 시 archive/ 안에서 복원)
+# Deprecated experimental code (kept locally for reference)
 archive/
 
-# 내부 개발 문서 (공개 저장소 미포함 — DiskOUT_분석.md / _개발기획서.md / _애니메이션_가이드.md 등)
-# CHANGELOG.md, README.md 는 prefix 가 다르므로 영향 없음
+# Local-only working files
 DiskOUT_*.md
-
-# Claude Code 프로젝트 지침 / 로컬 설정 — 내부 정보 포함, 공개 저장소 미포함
 CLAUDE.md
 .claude/

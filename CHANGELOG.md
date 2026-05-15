@@ -2,7 +2,7 @@
 
 ## Unreleased — 2026-05-14: 메뉴바 아이콘에 마운트된 외장 개수 표시
 
-**배경**: 메뉴바 아이콘이 고정 ⏏ 심볼이라 현재 상태를 알 수 없었다. 연결된 외장 개수에 따라 아이콘이 바뀌길 원함 — 최종 목표는 알 → 올챙이 → 개구리 진화 (`DiskOUT_분석.md` §9.6 진화 시스템, `DiskOUT_개발기획서.md` [F1]). 진화 캐릭터는 에셋 작업이 크므로 **1차로 숫자 표시**부터 구현.
+**배경**: 메뉴바 아이콘이 고정 ⏏ 심볼이라 현재 상태를 알 수 없었다. 연결된 외장 개수에 따라 아이콘이 바뀌길 원함 — **1차로 숫자 표시**부터 구현 (후속 비주얼은 별도 검토).
 
 ### 변경 ([AppDelegate.swift](AppDelegate.swift))
 
@@ -38,10 +38,6 @@
 | 실사용 — 외장 4 개 환경 (USB SSD 3 + 8TB RAID 박스 1) | 디바이스 4 개로 정확히 집계. RAID 박스의 "SYSJO" 볼륨이 disk6 + disk7 → 합성 disk13 으로 1 개 처리 확인 |
 | 레이스 재현 / 수정 검증 | 수정 전: RAID 볼륨이 늦게 마운트 → **3 에서 멈춤**. `onInventoryChanged` 훅 추가 후: 늦게 떠도 3 → 4 자가 보정 |
 | 메뉴바 픽셀 육안 확인 | ⚠️ 자동 확인 미완 — `screencapture` 화면 녹화 권한 없음 + DiskOUT 이 `LSUIElement` 라 computer-use 타겟 불가 + `log show` 출력 없음. 사용자 육안 확인으로 대체 (숫자 표시 + 카운트 값 정상) |
-
-### 향후
-
-- 숫자 → 캐릭터 진화 (알 / 올챙이 / 개구리 …) 표시. `applyCountTitle()` 한 곳만 에셋 이미지로 교체하면 되도록 격리해 둠.
 
 ## Unreleased — 2026-05-14: DA 이벤트 기반 인벤토리 + sleep eject OS race-skip
 
@@ -321,7 +317,7 @@
 ### 결정 사항
 
 - **Mac App Store 단일 노선**. Developer ID + GitHub Releases 노선은 폐기. 이중 SKU 운영 부담 (sandbox ON/OFF 두 빌드, 코드 분기) 이 1인 운영에 큼.
-- **유료화 모델 확정**: 핵심 기능 전부 무료. 유료 = 캐릭터 애니메이션 / 사운드 등 cosmetic IAP. 출시 후 2~3개월 시점에 IAP 도입.
+- **유료화 모델 확정**: 핵심 기능 전부 무료 (자세한 유료화 전략은 별도 문서).
 - **App Sandbox ON 으로 복원**. App Store 가 강제하는 요건. 현재 `DiskOUT.entitlements` = `app-sandbox=true` + `device.usb` + `temporary-exception /Volumes/`.
 
 ### 제거된 것
