@@ -98,8 +98,8 @@ diskOUT/
 │   ├── Helper/
 │   ├── HelperClient.swift
 │   └── Shared/HelperProtocol.swift
-├── README.md                    # 이 파일
-└── DiskOUT_*.md             # 풀버전 기획/분석 문서들
+├── CHANGELOG.md                 # 변경 내역
+└── README.md                    # 이 파일
 ```
 
 ## 빌드 + 설치
