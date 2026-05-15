@@ -1,6 +1,90 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Allow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "허용" } }
+      }
+    },
+    "Auto-start DiskOUT when you log in" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto-start DiskOUT when you log in" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 시 DiskOUT 자동 시작" } }
+      }
+    },
+    "Couldn't update login item" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't update login item" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 항목을 변경하지 못했습니다" } }
+      }
+    },
+    "DiskOUT Permissions" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT Permissions" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT 권한 설정" } }
+      }
+    },
+    "DiskOUT's core features work without any permissions. The ones below are optional — turn on what you want." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT's core features work without any permissions. The ones below are optional — turn on what you want." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT 핵심 기능은 권한 없이도 동작합니다. 아래는 선택적으로 켤 수 있는 기능이에요." } }
+      }
+    },
+    "Done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Done" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "완료" } }
+      }
+    },
+    "Eject all drives anywhere with ⌥⌘E" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all drives anywhere with ⌥⌘E" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "어디서든 ⌥⌘E로 모든 드라이브 추출" } }
+      }
+    },
+    "Global hotkey" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Global hotkey" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "전역 단축키" } }
+      }
+    },
+    "Needs approval in System Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Needs approval in System Settings" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정에서 승인 필요" } }
+      }
+    },
+    "Open System Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open System Settings" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정 열기" } }
+      }
+    },
+    "See eject results at a glance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "See eject results at a glance" } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 결과를 한눈에 확인" } }
+      }
+    },
+    "You can reopen this anytime from the menu bar icon's menu." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "You can reopen this anytime from the menu bar icon's menu." } },
+        "ko" : { "stringUnit" : { "state" : "translated", "value" : "메뉴바 아이콘 메뉴에서 언제든 다시 열 수 있어요." } }
+      }
+    },
     "%@\nDisks detected but won't mount. Try Disk Utility." : {
       "extractionState" : "manual",
       "localizations" : {

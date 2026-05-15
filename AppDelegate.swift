@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var globalKeyMonitor: Any?
     private var localKeyMonitor: Any?
     private var settingsWindowController: SettingsWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
     private var lastEjectAt: Date = .distantPast
     private var lastMountAt: Date = .distantPast
     /// 마지막 추출 결과 symbol (wake 후 복원용). nil 이면 default ⏏ 표시.
@@ -102,6 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 마지막으로 확인한 알림 권한 상태. `getNotificationSettings` 가 비동기라 메뉴에서
     /// 동기 표시할 수 없어 캐싱. launch / menu 열 때 background refresh.
     private var lastKnownNotificationStatus: UNAuthorizationStatus = .notDetermined
+    /// 알림 권한을 launch 시가 아니라 "첫 알림 직전"에 1회 요청하기 위한 가드.
+    private var didRequestNotificationAuthorization = false
 
     // MARK: - Lifecycle
 
@@ -110,19 +113,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        if SettingsStore.notificationsEnabled {
-            center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-                log.notice("requestAuthorization: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
-            }
-
-            // 권한 상태 진단 + 메뉴 표시용 캐싱
-            center.getNotificationSettings { [weak self] settings in
-                log.notice("notif settings: authStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alert=\(settings.alertSetting.rawValue, privacy: .public) center=\(settings.notificationCenterSetting.rawValue, privacy: .public)")
-                // authStatus: 0=notDetermined 1=denied 2=authorized 3=provisional 4=ephemeral
-                // alert/center: 0=notSupported 1=disabled 2=enabled
-                DispatchQueue.main.async {
-                    self?.lastKnownNotificationStatus = settings.authorizationStatus
-                }
+        // 알림 권한은 launch 시 요청하지 않는다 — 사용자가 아무것도 안 했는데 팝업이 뜨는 안티패턴.
+        // 요청 시점: 온보딩 카드의 "허용" 버튼, 또는 첫 알림 직전 (ensureNotificationAuthorizationRequested).
+        // 여기선 메뉴 권한 경고 표시용으로 현재 상태만 읽어 캐싱.
+        center.getNotificationSettings { [weak self] settings in
+            log.notice("notif settings: authStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alert=\(settings.alertSetting.rawValue, privacy: .public) center=\(settings.notificationCenterSetting.rawValue, privacy: .public)")
+            // authStatus: 0=notDetermined 1=denied 2=authorized 3=provisional 4=ephemeral
+            DispatchQueue.main.async {
+                self?.lastKnownNotificationStatus = settings.authorizationStatus
             }
         }
 
@@ -144,6 +142,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         scheduleMountedDriveCountRefresh(after: 0.7)
         installHotkey()
         log.notice("EjectDrives launched")
+
+        // 권한 온보딩 — 콘텐츠 버전이 올라갔거나 처음이면 1회 표시. 비차단 (앱은 이미 동작 중).
+        // 메뉴바 아이콘이 자리잡은 뒤 살짝 지연해서 띄운다.
+        let onboardingDone = SettingsStore.onboardingCompletedVersion
+        log.notice("onboarding gate: completedVersion=\(onboardingDone, privacy: .public) appVersion=\(OnboardingWindowController.version, privacy: .public)")
+        if onboardingDone < OnboardingWindowController.version {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.showOnboardingWindow()
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -259,26 +267,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         var warnings: [(String, Selector)] = []
         if !isAccessibilityTrusted {
             warnings.append((String(localized: "Allow Accessibility for global hotkeys"),
-                             #selector(openAccessibilitySettings)))
+                             #selector(openPermissionsFromMenu)))
         }
         if SettingsStore.notificationsEnabled,
            lastKnownNotificationStatus == .denied {
             warnings.append((String(localized: "Allow notifications to see eject results"),
-                             #selector(openNotificationSettings)))
+                             #selector(openPermissionsFromMenu)))
         }
         return warnings
-    }
-
-    @objc private func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    @objc private func openNotificationSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
-            NSWorkspace.shared.open(url)
-        }
     }
 
     @objc private func openLoginItemSettings() {
@@ -493,6 +489,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             })
         }
         settingsWindowController?.show()
+    }
+
+    /// 권한 온보딩 창 표시 (첫 실행 시 자동, 메뉴 권한 경고행에서 수동). 비차단.
+    private func showOnboardingWindow() {
+        log.notice("onboarding: showOnboardingWindow() called")
+        if onboardingWindowController == nil {
+            onboardingWindowController = OnboardingWindowController(
+                onClosed: { [weak self] in self?.onboardingWindowController = nil },
+                onAccessibilityGranted: { [weak self] in
+                    // 손쉬운 사용 권한이 부여된 순간 — 단축키 모니터 재설치로 재시작 없이 활성화.
+                    self?.installHotkey()
+                }
+            )
+        }
+        onboardingWindowController?.show()
+    }
+
+    @objc private func openPermissionsFromMenu() {
+        showOnboardingWindow()
     }
 
     /// Time Machine 디스크 처음 등장 시 자동으로 ExcludedVolumes 에 등록 + 1회 알림.
@@ -2001,6 +2016,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     // MARK: - Notifications
 
+    /// 알림 권한을 맥락 기반으로 1회 요청 — 첫 알림을 보낼 때. launch 시 무조건 요청하는 안티패턴 대체.
+    /// `requestAuthorization` 은 최초 1회만 실제 프롬프트, 이후엔 결정값만 반환 (재호출 안전).
+    private func ensureNotificationAuthorizationRequested() {
+        guard !didRequestNotificationAuthorization else { return }
+        didRequestNotificationAuthorization = true
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            log.notice("contextual notification auth: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
+        }
+    }
+
     /// archived=true 면 알림 센터에 보관 (사후 확인 가치 있는 negative event 등),
     /// false 면 banner 만 잠깐 표시되고 사라짐 (즉시 인지 가능한 positive event 등).
     /// userInfo 에 flag 를 박아 willPresent 콜백에서 옵션 분기.
@@ -2023,6 +2048,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
         }
+        // 첫 알림을 보내는 시점에 권한을 맥락 기반으로 요청 (launch 시 무조건 요청 대체).
+        ensureNotificationAuthorizationRequested()
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -2057,8 +2084,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             self.localKeyMonitor = nil
         }
 
+        // 손쉬운 사용 프롬프트는 여기서 띄우지 않는다 — 온보딩 창의 "허용" 버튼이 1회 담당.
+        // 무프롬프트 체크만: 권한 없으면 global monitor 는 등록돼도 이벤트를 못 받고,
+        // 권한 부여 시 OnboardingWindowController 가 installHotkey() 를 재호출해 활성화한다.
         let trusted = AXIsProcessTrustedWithOptions([
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false
         ] as CFDictionary)
         log.notice("Accessibility trusted = \(trusted, privacy: .public)")
 
@@ -2194,11 +2224,24 @@ private enum SettingsStore {
         static let mountHotkey = "settings.hotkey.mount"
         static let ejectAndSleepHotkey = "settings.hotkey.ejectAndSleep"
         static let rightClickEjectEnabled = "settings.statusItem.rightClickEject.enabled"
+        static let onboardingCompletedVersion = "settings.onboarding.completedVersion"
     }
 
     private static func bool(for key: String, default defaultValue: Bool) -> Bool {
         if let value = UserDefaults.standard.object(forKey: key) as? Bool { return value }
         return defaultValue
+    }
+
+    private static func int(for key: String, default defaultValue: Int) -> Int {
+        if let value = UserDefaults.standard.object(forKey: key) as? Int { return value }
+        return defaultValue
+    }
+
+    /// 사용자가 마지막으로 완료(또는 닫은) 권한 온보딩 콘텐츠 버전. 0 = 한 번도 안 봄.
+    /// `OnboardingWindowController.version` 보다 작으면 launch 시 1회 표시.
+    static var onboardingCompletedVersion: Int {
+        get { int(for: Key.onboardingCompletedVersion, default: 0) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.onboardingCompletedVersion) }
     }
 
     static var notificationsEnabled: Bool {
@@ -2629,6 +2672,371 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.runModal()
+    }
+}
+
+// MARK: - First-Run Permission Onboarding
+
+/// 첫 실행 시 1회 표시하는 권한 온보딩 창. 메뉴 권한 경고행에서도 다시 열 수 있다.
+///
+/// **비차단 설계**: DiskOUT 핵심 기능(sleep 자동 추출)은 권한 0개로 동작 → 이 창은 앱을 막지 않는다.
+/// 닫거나 무시해도 앱은 정상. 권한은 *부가 기능*을 켜는 것:
+/// - 손쉬운 사용 → 전역 단축키 (macOS 자동 프롬프트 없음 → 여기서 1회 유도)
+/// - 알림 → 추출 결과 피드백
+/// - 로그인 항목 → 자동 실행 (순수 선택 → 체크박스, 자동 요청 안 함)
+///
+/// 창이 열린 동안 0.5s 타이머로 권한 상태를 폴링해 카드 상태점을 실시간 갱신
+/// (손쉬운 사용은 변경 알림 API 가 없어 폴링이 정석). 닫히면 타이머 중지 +
+/// `SettingsStore.onboardingCompletedVersion` 기록 → 재노출 안 함.
+/// `SettingsWindowController` 와 같은 패턴 (순수 AppKit, 프로그래밍 방식 NSWindow).
+private final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
+
+    /// 온보딩 콘텐츠 버전. 권한이 추가되면 올려서 기존 사용자에게 1회 재노출.
+    static let version = 1
+
+    private let onClosed: () -> Void
+    private let onAccessibilityGranted: () -> Void
+
+    private var accessibilityDot: NSImageView!
+    private var accessibilityButton: NSButton!
+    private var notificationsDot: NSImageView!
+    private var notificationsButton: NSButton!
+    private var loginToggle: NSButton!
+    private var loginHint: NSTextField!
+
+    private var pollTimer: Timer?
+    private var lastAccessibilityTrusted = false
+    private var notificationStatus: UNAuthorizationStatus = .notDetermined
+    /// 사용자가 직접 닫았는지 (Done 버튼 / X 버튼). 앱 종료로 인한 닫힘과 구분.
+    private var userDismissed = false
+
+    init(onClosed: @escaping () -> Void, onAccessibilityGranted: @escaping () -> Void) {
+        self.onClosed = onClosed
+        self.onAccessibilityGranted = onAccessibilityGranted
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 456),
+                              styleMask: [.titled, .closable],
+                              backing: .buffered,
+                              defer: false)
+        window.title = String(localized: "DiskOUT Permissions")
+        window.isReleasedWhenClosed = false
+        super.init(window: window)
+        window.delegate = self
+        window.contentView = makeContentView()
+        window.center()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit { log.notice("onboarding: deinit") }
+
+    /// 창 표시 + 폴링 시작. `.accessory` 앱이지만 SettingsWindowController 와 동일하게
+    /// makeKeyAndOrderFront + NSApp.activate 로 포커스 확보 (이미 검증된 경로).
+    func show() {
+        lastAccessibilityTrusted = AXIsProcessTrusted()
+        refreshAll()
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        startPolling()
+        log.notice("onboarding: window shown")
+    }
+
+    /// X 버튼 닫기 — 사용자가 직접 닫은 것으로 표시.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        userDismissed = true
+        return true
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        log.notice("onboarding: windowWillClose userDismissed=\(self.userDismissed, privacy: .public)")
+        stopPolling()
+        // 사용자가 직접 닫았을 때만 완료로 기록 — 앱 종료 등으로 창이 닫히는 건 "봤음" 으로 안 침.
+        if userDismissed {
+            SettingsStore.onboardingCompletedVersion = OnboardingWindowController.version
+        }
+        onClosed()
+    }
+
+    // MARK: Layout
+
+    private func makeContentView() -> NSView {
+        let appIcon = NSImageView()
+        appIcon.image = NSApp.applicationIconImage
+        appIcon.imageScaling = .scaleProportionallyUpOrDown
+        appIcon.translatesAutoresizingMaskIntoConstraints = false
+        appIcon.widthAnchor.constraint(equalToConstant: 52).isActive = true
+        appIcon.heightAnchor.constraint(equalToConstant: 52).isActive = true
+
+        let headerTitle = NSTextField(labelWithString: String(localized: "DiskOUT Permissions"))
+        headerTitle.font = .boldSystemFont(ofSize: 16)
+        let headerSubtitle = NSTextField(wrappingLabelWithString:
+            String(localized: "DiskOUT's core features work without any permissions. The ones below are optional — turn on what you want."))
+        headerSubtitle.font = .systemFont(ofSize: 11)
+        headerSubtitle.textColor = .secondaryLabelColor
+        headerSubtitle.preferredMaxLayoutWidth = 336
+        let headerText = NSStackView(views: [headerTitle, headerSubtitle])
+        headerText.orientation = .vertical
+        headerText.alignment = .leading
+        headerText.spacing = 3
+        let header = NSStackView(views: [appIcon, headerText])
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 14
+
+        let accessibilityCard = makeAccessibilityCard()
+        let notificationsCard = makeNotificationsCard()
+        let loginCard = makeLoginCard()
+
+        let hint = NSTextField(wrappingLabelWithString:
+            String(localized: "You can reopen this anytime from the menu bar icon's menu."))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.preferredMaxLayoutWidth = 320
+        hint.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        let doneButton = NSButton(title: String(localized: "Done"), target: self, action: #selector(closeWindow))
+        doneButton.bezelStyle = .rounded
+        doneButton.keyEquivalent = "\r"
+        let footer = NSStackView(views: [hint, doneButton])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 12
+
+        let children: [NSView] = [header, makeSeparator(),
+                                  accessibilityCard, makeSeparator(),
+                                  notificationsCard, makeSeparator(),
+                                  loginCard, makeSeparator(),
+                                  footer]
+        let stack = NSStackView(views: children)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = NSView()
+        container.addSubview(stack)
+        var constraints: [NSLayoutConstraint] = [
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 22),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -22)
+        ]
+        for child in children {
+            constraints.append(child.widthAnchor.constraint(equalTo: stack.widthAnchor))
+        }
+        NSLayoutConstraint.activate(constraints)
+        return container
+    }
+
+    private func makeAccessibilityCard() -> NSView {
+        accessibilityDot = makeStatusDot()
+        accessibilityButton = NSButton(title: String(localized: "Allow"),
+                                       target: self, action: #selector(accessibilityButtonClicked))
+        accessibilityButton.bezelStyle = .rounded
+        return makeRow(symbol: "keyboard",
+                       title: String(localized: "Global hotkey"),
+                       detail: String(localized: "Eject all drives anywhere with ⌥⌘E"),
+                       trailing: [accessibilityDot, accessibilityButton])
+    }
+
+    private func makeNotificationsCard() -> NSView {
+        notificationsDot = makeStatusDot()
+        notificationsButton = NSButton(title: String(localized: "Allow"),
+                                       target: self, action: #selector(notificationsButtonClicked))
+        notificationsButton.bezelStyle = .rounded
+        return makeRow(symbol: "bell",
+                       title: String(localized: "Notifications"),
+                       detail: String(localized: "See eject results at a glance"),
+                       trailing: [notificationsDot, notificationsButton])
+    }
+
+    private func makeLoginCard() -> NSView {
+        loginToggle = NSButton(checkboxWithTitle: "", target: self, action: #selector(loginToggleClicked(_:)))
+        loginHint = NSTextField(labelWithString: String(localized: "Needs approval in System Settings"))
+        loginHint.font = .systemFont(ofSize: 10)
+        loginHint.textColor = .systemOrange
+        loginHint.isHidden = true
+        return makeRow(symbol: "power",
+                       title: String(localized: "Launch at login"),
+                       detail: String(localized: "Auto-start DiskOUT when you log in"),
+                       footnote: loginHint,
+                       trailing: [loginToggle])
+    }
+
+    /// 권한 행 한 줄: [아이콘  제목/설명(+각주)  ⟨여백⟩  trailing…].
+    private func makeRow(symbol: String, title: String, detail: String,
+                         footnote: NSTextField? = nil, trailing: [NSView]) -> NSView {
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        icon.symbolConfiguration = .init(pointSize: 17, weight: .regular)
+        icon.contentTintColor = .secondaryLabelColor
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.widthAnchor.constraint(equalToConstant: 26).isActive = true
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        let detailLabel = NSTextField(labelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.lineBreakMode = .byTruncatingTail
+        detailLabel.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+
+        var textViews: [NSView] = [titleLabel, detailLabel]
+        if let footnote { textViews.append(footnote) }
+        let textStack = NSStackView(views: textViews)
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 2
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        spacer.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+
+        let row = NSStackView(views: [icon, textStack, spacer] + trailing)
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.distribution = .fill
+        row.spacing = 10
+        return row
+    }
+
+    private func makeStatusDot() -> NSImageView {
+        let dot = NSImageView()
+        dot.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
+        dot.symbolConfiguration = .init(pointSize: 9, weight: .bold)
+        dot.contentTintColor = .tertiaryLabelColor
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.widthAnchor.constraint(equalToConstant: 13).isActive = true
+        return dot
+    }
+
+    private func makeSeparator() -> NSBox {
+        let sep = NSBox()
+        sep.boxType = .separator
+        return sep
+    }
+
+    // MARK: Actions
+
+    @objc private func accessibilityButtonClicked() {
+        // macOS 1회성 프롬프트 + 시스템 설정 딥링크 — 둘 다 함께 (research 권장).
+        _ = AXIsProcessTrustedWithOptions([
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
+        ] as CFDictionary)
+        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    }
+
+    @objc private func notificationsButtonClicked() {
+        if notificationStatus == .denied {
+            // 거부 후엔 앱이 다시 프롬프트 못 띄움 → 시스템 설정으로 안내.
+            openSystemSettings("x-apple.systempreferences:com.apple.preference.notifications")
+        } else {
+            SettingsStore.notificationsEnabled = true
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+                log.notice("onboarding notification auth: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
+            }
+        }
+    }
+
+    @objc private func loginToggleClicked(_ sender: NSButton) {
+        let before = LoginItem.status
+        if before == .requiresApproval {
+            LoginItem.openSystemSettings()
+            refreshAll()
+            return
+        }
+        do {
+            if before == .enabled {
+                try LoginItem.unregister()
+            } else {
+                try LoginItem.register()
+                if LoginItem.status == .requiresApproval {
+                    LoginItem.openSystemSettings()
+                }
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Couldn't update login item")
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
+        }
+        refreshAll()
+    }
+
+    @objc private func closeWindow() {
+        log.notice("onboarding: Done clicked")
+        userDismissed = true
+        window?.close()
+    }
+
+    private func openSystemSettings(_ urlString: String) {
+        if let url = URL(string: urlString) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: Live status (polling)
+
+    private func startPolling() {
+        pollTimer?.invalidate()
+        // 창이 열린 동안만 0.5s 폴링. 닫히면 stopPolling — 타이머 누수 방지.
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.refreshAll()
+        }
+    }
+
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    private func refreshAll() {
+        // 손쉬운 사용 — 변경 알림 API 가 없어 폴링으로 감지.
+        let axTrusted = AXIsProcessTrusted()
+        accessibilityDot.contentTintColor = axTrusted ? .systemGreen : .tertiaryLabelColor
+        accessibilityButton.isHidden = axTrusted
+        if axTrusted && !lastAccessibilityTrusted {
+            lastAccessibilityTrusted = true
+            onAccessibilityGranted()   // 단축키 모니터 재설치 → 재시작 없이 즉시 활성화
+        } else if !axTrusted {
+            lastAccessibilityTrusted = false
+        }
+
+        // 로그인 항목
+        let loginStatus = LoginItem.status
+        loginToggle.state = (loginStatus == .enabled || loginStatus == .requiresApproval) ? .on : .off
+        loginHint.isHidden = (loginStatus != .requiresApproval)
+
+        // 알림 — getNotificationSettings 는 비동기.
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.notificationStatus = settings.authorizationStatus
+                self.refreshNotificationCard()
+            }
+        }
+    }
+
+    private func refreshNotificationCard() {
+        switch notificationStatus {
+        case .authorized, .provisional, .ephemeral:
+            notificationsDot.contentTintColor = .systemGreen
+            notificationsButton.isHidden = true
+        case .denied:
+            notificationsDot.contentTintColor = .systemRed
+            notificationsButton.isHidden = false
+            notificationsButton.title = String(localized: "Open System Settings")
+        case .notDetermined:
+            notificationsDot.contentTintColor = .tertiaryLabelColor
+            notificationsButton.isHidden = false
+            notificationsButton.title = String(localized: "Allow")
+        @unknown default:
+            notificationsDot.contentTintColor = .tertiaryLabelColor
+            notificationsButton.isHidden = false
+            notificationsButton.title = String(localized: "Allow")
+        }
     }
 }
 

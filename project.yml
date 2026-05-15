@@ -23,6 +23,7 @@ targets:
       - path: AppDelegate.swift
       - path: main.swift
       - path: Localizable.xcstrings
+      - path: Assets.xcassets
     info:
       path: Info.plist
       properties:
