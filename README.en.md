@@ -6,7 +6,7 @@
 
 [한국어](README.md) · **English** · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
 
-### Did nothing. Disk Ejected Properly. Perfectly.
+### Introducing DiskOUT — a free Mac utility.
 
 **한국어 · English · 日本語 · 中文 (简体)** · Auto-eject on sleep · Apple Silicon native
 
@@ -28,46 +28,30 @@
 
 ---
 
-## Yesterday
+> Mac is perfect — except for the *"Disk Not Ejected Properly"* notification.
 
-> **9 AM** — "Disk Not Ejected Properly" notification storm.
-> **3 PM** — Open laptop, right-click drive, click eject, unplug SSD, put laptop in bag.
-> **11 PM** — Time Machine backup, starting from zero.
+## You do nothing. The disk ejects properly. Perfectly.
 
-## Today (with DiskOUT)
+Now close the lid, unplug, bag — and go.
 
-> **9 AM** — Zero notifications.
-> **3 PM** — Close, unplug, bag.
-> **11 PM** — Time Machine backup, completed without a hitch.
+Apple's SSD prices are insane. And they're not even upgradeable. You get by with external drives, but those *"Disk Not Ejected Properly"* notifications are exhausting. With **DiskOUT**, you don't have to see them anymore.
 
 ---
 
-— So what changed?
+## How?
 
----
+### 1️⃣ The moment your lid closes, every external safely ejects.
 
-### 1️⃣ Lid closes → drives eject. Quietly.
+Close → eject. Open → remount.
+Sleep → eject. Wake → remount.
 
-The whole point. The moment your Mac enters sleep, **every external is cleanly ejected first**.
+### 2️⃣ Eject 10 externals at once.
 
-- No menu bar click before you toss the laptop in your bag.
-- Wake up → they remount automatically. Pick up where you left off.
-- *"Disk Not Ejected Properly"* notifications? **Just stop happening.**
+One shortcut, or one right-click on the menu bar icon — all of them, gone.
 
-### 2️⃣ Five seconds → one second — <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>
+### 3️⃣ See how many drives are connected, at a glance.
 
-Three USB sticks, one SD card, a backup drive. Stop opening the menu five times.
-
-- **<kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> = eject everything.** Anywhere. Even from inside another app.
-- Or **right-click the menu bar icon** for the same thing.
-
-### 3️⃣ Bonus — your menu bar tells you what's plugged in
-
-Not a static ⏏ icon. **A number.** `1`, `2`, `3` … live count.
-
-- Glance, know.
-- RAID, multi-partition, APFS synthesized volumes all count as 1 device.
-- Progress / result shown briefly as ↻ · ✓ · ✗
+The menu bar shows the count as a number.
 
 ---
 
