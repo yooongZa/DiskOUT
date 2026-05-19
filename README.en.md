@@ -6,11 +6,11 @@
 
 [한국어](README.md) · **English** · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
 
-### One-click safe ejection of external drives from your menu bar
+### Close the lid. We'll handle the drives.
 
-A small, fast menu bar utility for macOS.
+No more *"Disk Not Ejected Properly"* notifications. Set it once, forget it.
 
-**한국어 · English · 日本語 · 中文 (简体)** · Sleep eject · Apple Silicon native
+**한국어 · English · 日本語 · 中文 (简体)** · Auto-eject on sleep · Apple Silicon native
 
 <br>
 
@@ -30,32 +30,58 @@ A small, fast menu bar utility for macOS.
 
 ---
 
-## Who it's for
+## You've been here, right?
 
-> If you regularly plug **USB sticks, external SSDs, SD cards, or RAID arrays** into your Mac.<br>
-> If clicking "Eject" before tossing your laptop in a bag feels tedious.<br>
-> If you've been bitten by dock disconnects or "Disk Not Ejected Properly" warnings.
+### 😱 You wake your Mac → *"Disk Not Ejected Properly"* notifications. Dozens of them.
 
-DiskOUT is a small, fast menu bar utility built for those moments.
+Apple Discussions has a thread for this bug. **It's 10 years old.** Still not fixed.
+
+Some users wake to **100+ notifications stacked up**, dismissing them by hand because Notification Center has no "Clear All."
+
+> *"I had 100's of these notifications and spent 10 min closing each one."* — Apple Discussions
+
+### 😮‍💨 You closed the lid before ejecting (again)
+
+You can't count how many times. The dock disconnects, the drive flails, *"Disk Not Ejected Properly"* shows up tomorrow morning.
+
+### 🎬 Your Premiere footage went offline (because the lid closed)
+
+Your library lives on the external SSD. Wake = relink every clip. Same story with Lightroom catalogs, Final Cut events, Logic projects.
+
+### 🔄 Time Machine backup interrupted. Again.
+
+Drive disconnected mid-backup → next backup starts from zero. Another hour or two of waiting.
 
 ---
 
-## Three core features
+**DiskOUT** solves all four — a small menu bar utility that does what macOS should have done a decade ago.
 
-### One click, or one shortcut
+---
 
-Click the menu bar icon → pick a drive name → ejected instantly.
-Hands on the keyboard? <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> ejects everything at once.
+## What it actually does
 
-### Sleep = auto eject
+### 1️⃣ Lid closes → drives eject. Quietly.
 
-Close the lid and your externals quietly come off. No need to click anything before tossing the laptop in your bag.
-When you wake, they remount automatically — protection runs **invisibly**.
+The whole point. The moment your Mac enters sleep, **every external is cleanly ejected first**.
 
-### Drive count on the menu bar icon
+- No menu bar click before you toss the laptop in your bag.
+- Wake up → they remount automatically. Pick up where you left off.
+- *"Disk Not Ejected Properly"* notifications? **Just stop happening.**
 
-Instead of a static ⏏ icon, the menu bar shows **how many** drives are connected. One glance tells you what's plugged in.
-RAID, multi-partition, and APFS synthesized volumes all count as 1 device.
+### 2️⃣ Five seconds → one second — <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>
+
+Three USB sticks, one SD card, a backup drive. Stop opening the menu five times.
+
+- **<kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> = eject everything.** Anywhere. Even from inside another app.
+- Or **right-click the menu bar icon** for the same thing.
+
+### 3️⃣ Bonus — your menu bar tells you what's plugged in
+
+Not a static ⏏ icon. **A number.** `1`, `2`, `3` … live count.
+
+- Glance, know.
+- RAID, multi-partition, APFS synthesized volumes all count as 1 device.
+- Progress / result shown briefly as ↻ · ✓ · ✗
 
 ---
 
