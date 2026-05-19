@@ -19,6 +19,7 @@ import IOKit
 import IOKit.pwr_mgt
 import os
 import ServiceManagement
+import Sparkle
 
 /// 통합 로깅 (unified logging) — Console.app 에서 다음 명령으로 확인:
 ///   log stream --predicate 'subsystem == "com.yongza.ejectdrives"' --info
@@ -35,6 +36,27 @@ private let clamshellSleepBit = 1 << 1
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
 
     private var statusItem: NSStatusItem!
+
+    // MARK: - Sparkle (자동 업데이트)
+    //
+    // 조용한 알림(gentle reminder) 패턴 — 자동 체크에서 새 버전 발견되어도 다이얼로그를
+    // 즉시 띄우지 않고 메뉴바 아이콘에 빨간 점 + 메뉴 안 항목으로만 표시.
+    // 사용자가 그 항목 클릭하거나 "업데이트 확인…" 메뉴 클릭 시 표준 Sparkle 다이얼로그 띄움.
+    //
+    // 구성 요소:
+    //   updaterController       : Sparkle 표준 컨트롤러 (UI = 시스템 기본 다이얼로그)
+    //   pendingUpdate           : 자동 체크에서 발견된 미설치 업데이트.
+    //                             nil ↔ 값 변화 시 메뉴바 아이콘(applyCountTitle) 즉시 갱신.
+    private var updaterController: SPUStandardUpdaterController!
+    private var pendingUpdate: SUAppcastItem? {
+        didSet {
+            // 메뉴바 빨간 점 표시/제거 — 반드시 main thread.
+            DispatchQueue.main.async { [weak self] in
+                self?.applyCountTitle()
+            }
+        }
+    }
+
     private var globalKeyMonitor: Any?
     private var localKeyMonitor: Any?
     private var settingsWindowController: SettingsWindowController?
@@ -125,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
 
         setupStatusItem()
+        setupSparkleUpdater()
         setupSleepObserver()
         setupPowerSleepObserver()
         setupClamshellObserver()
@@ -185,6 +208,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 win.orderFrontRegardless()
             }
         }
+    }
+
+    // MARK: - Sparkle Updater Setup
+
+    /// Sparkle 자동 업데이트 컨트롤러 초기화.
+    /// startingUpdater: true → 자체 스케줄 (24h, Info.plist `SUScheduledCheckInterval`) 시작.
+    /// userDriverDelegate: gentle reminder 패턴을 위해 self 가 응답.
+    private func setupSparkleUpdater() {
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: self,
+            userDriverDelegate: self
+        )
+        log.notice("Sparkle: updater started (auto-check interval=\(self.updaterController.updater.updateCheckInterval, privacy: .public)s, automaticallyChecks=\(self.updaterController.updater.automaticallyChecksForUpdates, privacy: .public))")
+    }
+
+    /// 메뉴의 "업데이트 확인…" 항목 — 사용자 직접 트리거.
+    /// userInitiated 라서 SPUStandardUserDriverDelegate 가 다이얼로그 가로채지 않음.
+    @objc func checkForUpdatesFromMenu(_ sender: Any?) {
+        log.notice("Sparkle: user-initiated check")
+        updaterController.checkForUpdates(sender)
+    }
+
+    /// 자동 체크에서 발견되어 보류 중인 업데이트 다이얼로그 표시.
+    /// checkForUpdates 를 다시 호출하면 Sparkle 이 캐시된 업데이트를 즉시 표시함.
+    @objc func showPendingUpdate(_ sender: Any?) {
+        log.notice("Sparkle: user clicked pending-update menu item")
+        updaterController.checkForUpdates(sender)
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -450,6 +501,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         menu.addItem(NSMenuItem.separator())
 
+        // Sparkle 자동 업데이트 — gentle reminder.
+        // pendingUpdate 가 있으면 (자동 체크에서 발견된 미설치 업데이트) 메뉴 안에서도 강조 표시.
+        // 메뉴바 아이콘 옆 빨간 점과 짝을 이뤄, 사용자가 메뉴 열면 즉시 발견 가능.
+        if let pending = pendingUpdate {
+            let pendingItem = NSMenuItem(
+                title: String(localized: "🔴 New version \(pending.displayVersionString) available"),
+                action: #selector(showPendingUpdate(_:)),
+                keyEquivalent: "")
+            pendingItem.target = self
+            pendingItem.toolTip = String(localized: "Click to install")
+            menu.addItem(pendingItem)
+        }
+
+        let checkUpdates = NSMenuItem(title: String(localized: "Check for Updates..."),
+                                      action: #selector(checkForUpdatesFromMenu(_:)),
+                                      keyEquivalent: "")
+        checkUpdates.target = self
+        checkUpdates.image = menuSymbol("arrow.triangle.2.circlepath", fallback: "arrow.clockwise")
+        menu.addItem(checkUpdates)
+
+        menu.addItem(NSMenuItem.separator())
+
         let settings = NSMenuItem(title: String(localized: "Settings..."),
                                   action: #selector(showSettingsWindow(_:)),
                                   keyEquivalent: ",")
@@ -489,6 +562,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             })
         }
         settingsWindowController?.show()
+    }
+
+    /// 환경설정의 언어 드롭다운에서 호출 — 새 언어 저장 + 재시작 다이얼로그.
+    /// 새 언어는 다음 launch 의 main.swift 에서 `AppleLanguages` 로 적용된다.
+    func relaunchApplicationForLanguageChange() {
+        let bundlePath = Bundle.main.bundlePath
+        log.notice("Relaunching for language change: \(bundlePath, privacy: .public)")
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        task.arguments = ["-n", bundlePath]
+        do {
+            try task.run()
+        } catch {
+            log.error("Relaunch failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        // 짧은 지연으로 새 인스턴스가 launch 되도록 한 다음 종료.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NSApp.terminate(nil)
+        }
     }
 
     /// 권한 온보딩 창 표시 (첫 실행 시 자동, 메뉴 권한 경고행에서 수동). 비차단.
@@ -591,13 +684,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // MARK: - Mounted Drive Count
 
     /// 메뉴바 버튼을 현재 마운트 개수(숫자 텍스트)로 표시.
-    /// image 는 비우고 `button.title` 만 사용 — title 은 길이 제한이 없어 0~∞ 어떤 수든 표시 가능
+    /// image 는 비우고 `button.attributedTitle` 사용 — title 은 길이 제한이 없어 0~∞ 어떤 수든 표시 가능
     /// (SF Symbol `<n>.circle.fill` 은 0~50 만 있어 폐기). variableLength 라 폭은 자동 조정.
+    ///
+    /// pendingUpdate (Sparkle 자동 체크에서 발견된 미설치 업데이트) 가 있으면 숫자 옆에 작은
+    /// systemRed `●` 추가 — gentle reminder 패턴. 사용자가 업데이트 다이얼로그를 보면
+    /// pendingUpdate 가 nil 로 돌아가며 점도 사라진다.
+    ///
     /// 반드시 main thread 에서 호출.
     private func applyCountTitle() {
         guard let button = statusItem.button else { return }
         button.image = nil
-        button.title = "\(mountedDriveCount)"
+
+        let menuFont = NSFont.menuBarFont(ofSize: 0)  // 0 = 시스템 기본 메뉴바 크기
+        let countStr = "\(mountedDriveCount)"
+
+        if pendingUpdate != nil {
+            // "3 ●" — 숫자는 메뉴바 기본 폰트, ● 만 작게 systemRed
+            let attr = NSMutableAttributedString(
+                string: countStr + " ",
+                attributes: [.font: menuFont]
+            )
+            attr.append(NSAttributedString(
+                string: "●",
+                attributes: [
+                    .foregroundColor: NSColor.systemRed,
+                    .font: NSFont.systemFont(ofSize: 8)
+                ]
+            ))
+            button.attributedTitle = attr
+        } else {
+            button.attributedTitle = NSAttributedString(
+                string: countStr,
+                attributes: [.font: menuFont]
+            )
+        }
     }
 
     /// 마운트된 외장 "디바이스" 개수 — 물리 디스크(whole-disk BSD) 단위 집계.
@@ -2225,6 +2346,7 @@ private enum SettingsStore {
         static let ejectAndSleepHotkey = "settings.hotkey.ejectAndSleep"
         static let rightClickEjectEnabled = "settings.statusItem.rightClickEject.enabled"
         static let onboardingCompletedVersion = "settings.onboarding.completedVersion"
+        static let appLanguage = "settings.appLanguage"
     }
 
     private static func bool(for key: String, default defaultValue: Bool) -> Bool {
@@ -2269,6 +2391,18 @@ private enum SettingsStore {
     static var rightClickEjectEnabled: Bool {
         get { bool(for: Key.rightClickEjectEnabled, default: true) }
         set { UserDefaults.standard.set(newValue, forKey: Key.rightClickEjectEnabled) }
+    }
+
+    /// 사용자가 강제 지정한 앱 언어. "system" / "en" / "ko" / "ja" / "zh-Hans".
+    /// 신규 설치자 기본값은 main.swift 의 smart default 가 결정 (시스템 언어 매칭 → 매칭, 아니면 "en").
+    /// SettingsStore 단독으로 getter 가 호출되는 경우는 settings 화면 정도라, 그쪽 fallback 도 "en" 으로 통일.
+    /// 사용자가 명시적으로 특정 언어를 선택하면 시스템 언어와 무관하게 강제.
+    ///
+    /// 적용 시점: main.swift 에서 NSApplication 생성 *전에* AppleLanguages 키를 set/remove.
+    /// 변경 후에는 반드시 앱 재시작 필요 (NSBundle 의 localized resource 가 launch 시점에 캐시).
+    static var appLanguage: String {
+        get { UserDefaults.standard.string(forKey: Key.appLanguage) ?? "en" }
+        set { UserDefaults.standard.set(newValue, forKey: Key.appLanguage) }
     }
 
     static var ejectHotkey: SettingsHotkeyPreset {
@@ -2328,6 +2462,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private var ejectHotkeyPopup: NSPopUpButton!
     private var mountHotkeyPopup: NSPopUpButton!
     private var ejectAndSleepHotkeyPopup: NSPopUpButton!
+    private var languagePopup: NSPopUpButton!
 
     init(onHotkeyChanged: @escaping () -> Void, onClosed: @escaping () -> Void) {
         self.onHotkeyChanged = onHotkeyChanged
@@ -2392,7 +2527,33 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         sleepToggle = checkbox(title: String(localized: "Eject on sleep"), action: #selector(toggleSleepEject(_:)))
         displaySleepToggle = checkbox(title: String(localized: "Eject on display sleep (experimental)"), action: #selector(toggleDisplaySleepEject(_:)))
         libraryAppToggle = checkbox(title: String(localized: "Quit Music/Photos before sleep"), action: #selector(toggleLibraryAppManagement(_:)))
-        return tabStack([loginToggle, sleepToggle, displaySleepToggle, libraryAppToggle])
+
+        // 언어 셀렉터 — "system" / "en" / "ko" / "ja" / "zh-Hans". 변경 시 재시작 다이얼로그.
+        // System default 다음 구분선, 그 아래 명시 언어는 native name 사전순 (macOS Settings convention).
+        // 정렬은 사용자 OS locale 따라가도록 localizedStandardCompare 사용.
+        languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        languagePopup.addItem(withTitle: String(localized: "System default"))
+        languagePopup.lastItem?.representedObject = "system"
+        languagePopup.menu?.addItem(NSMenuItem.separator())
+        let supportedLangs: [(code: String, native: String)] = [
+            ("en", "English"),
+            ("ko", "한국어"),
+            ("ja", "日本語"),
+            ("zh-Hans", "中文 (简体)"),
+        ]
+        let sortedLangs = supportedLangs.sorted {
+            $0.native.localizedStandardCompare($1.native) == .orderedAscending
+        }
+        for (code, native) in sortedLangs {
+            languagePopup.addItem(withTitle: native)
+            languagePopup.lastItem?.representedObject = code
+        }
+        languagePopup.target = self
+        languagePopup.action = #selector(languageChanged(_:))
+        languagePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
+        let languageRow = formRow(label: String(localized: "Language"), control: languagePopup)
+
+        return tabStack([loginToggle, sleepToggle, displaySleepToggle, libraryAppToggle, languageRow])
     }
 
     private func makeHotkeysView() -> NSView {
@@ -2425,7 +2586,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         let info = Bundle.main.infoDictionary
         let version = (info?["CFBundleShortVersionString"] as? String) ?? "?"
         let build = (info?["CFBundleVersion"] as? String) ?? "?"
-        let copyright = (info?["NSHumanReadableCopyright"] as? String) ?? "DiskOUT by yongZa"
+        let copyright = (info?["NSHumanReadableCopyright"] as? String) ?? "DiskOUT by LIMOD"
 
         let title = NSTextField(labelWithString: "DiskOUT")
         title.font = .boldSystemFont(ofSize: 18)
@@ -2514,7 +2675,20 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         selectHotkey(SettingsStore.ejectHotkey, in: ejectHotkeyPopup)
         selectHotkey(SettingsStore.mountHotkey, in: mountHotkeyPopup)
         selectOptionalHotkey(SettingsStore.ejectAndSleepHotkey, in: ejectAndSleepHotkeyPopup)
+        selectLanguage(SettingsStore.appLanguage, in: languagePopup)
         refreshNotificationControlState()
+    }
+
+    /// representedObject 가 lang 코드 ("system" / "en" / "ko" / "ja" / "zh-Hans") 인 항목을 popup 에서 선택.
+    private func selectLanguage(_ lang: String, in popup: NSPopUpButton) {
+        for (i, item) in popup.itemArray.enumerated() {
+            if (item.representedObject as? String) == lang {
+                popup.selectItem(at: i)
+                return
+            }
+        }
+        // 매칭 항목 없으면 "system" 으로 fallback (첫 번째 항목)
+        popup.selectItem(at: 0)
     }
 
     private func refreshNotificationControlState() {
@@ -2594,6 +2768,27 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     @objc private func toggleRightClickEject(_ sender: NSButton) {
         SettingsStore.rightClickEjectEnabled = sender.state == .on
+    }
+
+    /// 환경설정의 언어 popup 변경. 새 값이 기존과 다르면 SettingsStore 갱신 + 재시작 다이얼로그.
+    /// 사용자가 "지금 재시작" 누르면 AppDelegate 가 helper 로 새 인스턴스 띄우고 종료.
+    /// "나중에" 누르면 다음 자연 launch 부터 새 언어 적용.
+    @objc private func languageChanged(_ sender: NSPopUpButton) {
+        guard let newLang = sender.selectedItem?.representedObject as? String else { return }
+        let prevLang = SettingsStore.appLanguage
+        guard newLang != prevLang else { return }
+        SettingsStore.appLanguage = newLang
+        log.notice("Language changed: \(prevLang, privacy: .public) → \(newLang, privacy: .public)")
+
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Language changed")
+        alert.informativeText = String(localized: "DiskOUT needs to restart to apply the new language.")
+        alert.addButton(withTitle: String(localized: "Restart now"))
+        alert.addButton(withTitle: String(localized: "Later"))
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            (NSApp.delegate as? AppDelegate)?.relaunchApplicationForLanguageChange()
+        }
     }
 
     @objc private func ejectHotkeyChanged(_ sender: NSPopUpButton) {
@@ -4338,4 +4533,61 @@ enum LoginItem {
     static func openSystemSettings() {
         SMAppService.openSystemSettingsLoginItems()
     }
+}
+
+// MARK: - Sparkle Delegates (조용한 알림 패턴)
+
+/// 자동 업데이트 UX:
+///   1. Sparkle 이 24h 주기로 백그라운드 체크
+///   2. 새 버전 발견 → Sparkle 다이얼로그 띄우지 않고 우리에게 위임
+///   3. 메뉴바 아이콘에 빨간 점 + 메뉴 안 "🔴 새 버전 X.Y.Z 사용 가능" 항목 표시
+///   4. 사용자가 그 항목 클릭 → 표준 Sparkle 다이얼로그 표시 → 다운로드/설치
+///   5. 사용자가 다이얼로그 본 시점에 빨간 점 제거
+///
+/// 메뉴 안 "업데이트 확인…" 은 사용자 직접 트리거 — userInitiated=true 라
+/// 이 hook 들이 가로채지 않고 표준 다이얼로그가 바로 뜬다.
+extension AppDelegate: SPUStandardUserDriverDelegate {
+
+    /// gentle reminder 모드 활성화 — Sparkle 이 자동 체크에서 발견한 업데이트를
+    /// 즉시 다이얼로그로 띄우지 않고, willHandleShowingUpdate 로 위임한다.
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    /// 자동 체크에서 발견된 업데이트를 Sparkle 표준 다이얼로그로 띄울지 결정.
+    /// 메뉴바 앱(LSUIElement)은 immediate focus 상황이 거의 없고, 갑자기 모달이
+    /// 뜨면 사용자가 깜짝 놀란다. 항상 false → 우리가 메뉴바 알림으로 처리.
+    func standardUserDriverShouldHandleShowingScheduledUpdate(
+        _ update: SUAppcastItem,
+        andInImmediateFocus immediateFocus: Bool
+    ) -> Bool {
+        return false
+    }
+
+    /// 다이얼로그 표시 직전 호출. handleShowingUpdate=false 면 Sparkle 이 안 띄움 → 우리 차례.
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool,
+        forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        if !handleShowingUpdate {
+            log.notice("Sparkle: gentle reminder — pending update \(update.displayVersionString, privacy: .public)")
+            DispatchQueue.main.async { [weak self] in
+                self?.pendingUpdate = update
+            }
+        }
+    }
+
+    /// 사용자가 업데이트 다이얼로그 봤음 → 빨간 점 제거.
+    func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        log.notice("Sparkle: user saw update dialog for \(update.displayVersionString, privacy: .public)")
+        DispatchQueue.main.async { [weak self] in
+            self?.pendingUpdate = nil
+        }
+    }
+}
+
+extension AppDelegate: SPUUpdaterDelegate {
+    // 옵셔널 hook 들. 기본 동작으로 충분 — 향후 필요 시 추가:
+    //   - feedURLString(for:) : 동적으로 SUFeedURL 변경 (예: beta 채널)
+    //   - allowedSystemProfileKeys(for:) : 익명 텔레메트리 옵트인
+    //   - bestValidUpdate(in:for:) : 사용자 시스템에 맞는 best 버전 선택 로직 커스텀
 }

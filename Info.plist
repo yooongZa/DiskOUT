@@ -15,7 +15,9 @@
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>en</string>
+		<string>ja</string>
 		<string>ko</string>
+		<string>zh-Hans</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>DiskOUT</string>
@@ -32,8 +34,16 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>DiskOUT by yongZa</string>
+	<string>DiskOUT by LIMOD</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://yooongza.github.io/diskout-appcast/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>ObQo/BNVRTo8chYqk127BR2sOIE7NNQaYGQEEuGdIFE=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 </dict>
 </plist>

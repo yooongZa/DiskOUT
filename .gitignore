@@ -25,3 +25,6 @@ archive/
 
 # Claude Code per-machine settings (not project instructions)
 .claude/
+
+# Sparkle CLI 도구 (setup-sparkle-keys.sh 가 다운로드 — 큰 바이너리, commit 금지)
+scripts/sparkle-tools/

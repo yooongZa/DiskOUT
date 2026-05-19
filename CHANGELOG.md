@@ -1,5 +1,162 @@
 # CHANGELOG
 
+## 2026-05-19: v0.4.3 — 다국어 확장 (일본어 + 중국어 간체) + 한박자 늦음 버그 fix
+
+**배경**: v0.4.1 의 언어 스위처는 인프라만 정비하고 xcstrings 는 ko + en 만 유지. 이번 사이클에 **일본어(ja) + 중국어 간체(zh-Hans)** 두 언어 추가 + 첫 launch 의 자동 매칭 (smart default) 도입 + 언어 변경이 다음 재시작에 한박자 늦게 적용되던 버그 fix.
+
+### xcstrings 확장 — ko / en / ja / zh-Hans (4 언어 × 105 키)
+
+- 기존 ko + en 의 107 개 키에 ja / zh-Hans / de 추가 → 검토 후 de(독일어) 제거 (텍스트 길이가 영어 대비 30~50% 길어져 체크박스 라벨 잘림 위험 + 검토 비용) → 최종 4 언어, 105 키.
+- "Language…" 메뉴 항목과 `openSystemLanguageSettings(_:)` 함수 제거 (진입점을 설정 패널 하나로 통일) → 관련 키 2개 dead → 함께 정리 (107 → 105).
+- `Info.plist` 의 `CFBundleLocalizations` 갱신: `[en, ja, ko, zh-Hans]`.
+
+### Smart default — 첫 launch 자동 매칭
+
+- 기존 동작: `appLanguage` 가 없으면 fallback 이 `"en"` → 시스템 언어가 ja/zh 사용자도 첫 launch 시 영어로 표시. 일본/중국 시장 onboarding 어색.
+- 신규 동작: `main.swift` 에서 `Locale.preferredLanguages.first` 의 base language 가 지원 언어(ko/en/ja/zh-Hans) 면 그걸로, 아니면 en. 사용자가 환경설정에서 명시 선택하면 그 값 강제. 결과: 일본 macOS 사용자 첫 launch → 자동 일본어, 중국 사용자 → 자동 중국어, 그 외 → 영어.
+- 기존 사용자의 UserDefaults 저장값 (`"system" / "ko" / "en"`) 은 그대로 존중 — key 없을 때만 smart default 작동.
+
+### 팝업 UX — macOS convention 정렬
+
+- 환경설정 일반 탭의 Language 팝업 구조: `System default` → `구분선` → native name 사전순 (`localizedStandardCompare`, 사용자 OS locale 따라감) → English / 한국어 / 日本語 / 中文 (简体).
+- 메뉴바의 "Language…" 항목 (시스템 설정 위임 경로) 삭제 — 두 진입점이 의미가 다른데 같은 라벨로 혼동을 주는 UX 문제 + macOS 13/14/15/26 사이 URL scheme 불안정 (4단계 fallback 사다리 운영 중) → 설정 패널의 강제 선택 하나로 통일.
+
+### 버그 fix — 한박자 늦은 언어 변경
+
+- **증상**: 팝업에서 English 선택 → 재시작 → 여전히 한국어. 다시 中文 선택 → 재시작 → 영어로 표시. 사용자 선택이 *다음* 재시작에만 적용되는 cycle.
+- **원인**: smart default 계산에 `Bundle.main.preferredLocalizations.first` 를 쓰던 줄이 `Bundle.main` 을 lazy init 시키면서 *현재* `AppleLanguages` 값으로 localized resource cache 를 굳혀버림. 그 후 우리가 `UserDefaults.standard.set([newLang], forKey: "AppleLanguages")` 를 호출해도 Bundle 은 이미 캐시되어 무시 → 다음 launch 때 *그* 값으로 적용 (한박자 지연).
+- **수정**: `Bundle.main` 을 건드리지 않고 `Locale.preferredLanguages.first` 로 시스템 글로벌 우선 언어 직접 읽기. AppleLanguages 의 set 시점이 Bundle init 보다 *먼저* 보장됨. main.swift 주석에 ⚠️ 경고 명시 — 향후 누가 Bundle.main 다시 건드리지 않도록.
+
+### 검증
+
+- xcodebuild Release clean build ✅
+- 빌드된 .app 의 Resources: `en.lproj / ja.lproj / ko.lproj / zh-Hans.lproj` (4개, de 미포함) ✅
+- 사용자 시스템 (ko-KR): fresh first-launch 에서 AppleLanguages = `[ko]` 자동 set 확인 ✅
+- 모든 키가 정확히 4 언어 (`en / ko / ja / zh-Hans`) 를 가짐 ✅
+
+### 번역 품질 주의
+
+- 105 키 × 3 신규 언어 = 315 개 번역은 AI 작성. 기술 용어 (Eject, Mount 등) 와 macOS UI 관용어 (System Settings, 시스템 설정 등) 는 Apple 공식 로컬라이제이션 표기를 따랐으나, **출시 전 native speaker 검토 권장**. 특히 일본어의 "(実験的)" 처럼 라벨이 영어보다 길어진 곳은 일본어 OS 에서 실제 띄워보고 잘림 확인 필요.
+
+### dev 워크플로우 노트 — TCC 권한 stale (일반 사용자에는 발생 안 함)
+
+- 개발 중 `/Applications/DiskOUT.app` 을 새 binary 로 핫스왑하면 macOS 의 TCC(권한 데이터베이스) 가 잠시 stale 되어 시스템 설정의 손쉬운 사용 토글이 ON 인데도 앱은 권한 없다고 표시될 수 있음. 해결: `tccutil reset Accessibility com.yongza.ejectdrives` 후 재실행 → 권한 신규 요청. Sparkle 자동 업데이트 / DMG 설치 경로 (일반 사용자) 에는 발생 안 함.
+
+## 2026-05-18: v0.4.2 — 자동 업데이트 인프라 첫 가동 (build=2)
+
+**배경**: v0.4.1 에서 Sparkle 코드는 도입했으나 appcast 호스팅 인프라 (별도 repo + GitHub Pages) 가 미완 상태로 release. 사용자 측에서 "업데이트 확인…" 클릭 시 `https://yooongza.github.io/diskout-appcast/appcast.xml` 이 404 로 응답해 **"업데이트 정보를 수집하는 중 오류"** 다이얼로그 발생. 이 사이클에서 인프라 전체를 가동시키고 v0.4.2 첫 자동 업데이트 entry 발행.
+
+### 인프라 셋업
+
+- **`yooongZa/diskout-appcast`** public repo 생성 (`gh repo create --public --add-readme`).
+- **GitHub Pages 활성화** (`gh api -X POST /repos/.../pages -f "source[branch]=main"`).
+- `~/Documents/diskout-appcast/` clone + `_dmgs/` gitignore + 첫 push.
+
+### v0.4.2 빌드 (build=2)
+
+- **`project.yml`**: `CURRENT_PROJECT_VERSION` 1 → 2. (MARKETING_VERSION 은 0.4.2 그대로.)
+- v0.4.1 / v0.4.2 첫 빌드 둘 다 build=1 이라 `generate_appcast` 가 `Duplicate updates are not supported. Found archives 'DiskOUT-0.4.1.dmg' and 'DiskOUT-0.4.2.dmg' which contain the same bundle version.` 로 거부 — Sparkle 은 CFBundleVersion 으로 새 버전 인식.
+- v0.4.2 재빌드 + Sparkle nested binaries (`Downloader.xpc` / `Installer.xpc` / `Autoupdate` / `Updater.app` / `Sparkle.framework`) Developer ID 재서명 + main app 재서명 + DMG + notarize + staple. notarytool submission `65630a12-dff6-4e4a-91a4-5dc38acb1963` Accepted.
+
+### appcast.xml 발행
+
+- `./scripts/publish-update.sh v0.4.1` → v0.4.1 entry.
+- `./scripts/publish-update.sh v0.4.2` → v0.4.2 entry **추가**, 하지만 v0.4.1 의 enclosure URL 이 새 prefix (`/v0.4.2/`) 로 덮어써지는 **버그 발견**. `generate_appcast` 의 `--download-url-prefix` 가 단일 값이라 폴더 안 모든 DMG 의 URL 이 일괄 갱신됨.
+- 운영 패턴 변경: **appcast 에 최신 1개 버전만 유지** (옛 버전은 GitHub Release 페이지에서만 제공). `_dmgs/` 에서 옛 DMG 제거 + `appcast.xml` 삭제 후 generate_appcast 재실행 → v0.4.2 단일 entry 로 정리.
+
+### GitHub Releases
+
+- v0.4.1 / v0.4.2 둘 다 release 생성 (`gh release create vX.Y.Z --repo yooongZa/DiskOUT ... build/DiskOUT-X.Y.Z.dmg`). v0.4.1 은 마이그레이션 안내용으로 (Sparkle 가 받지 않음, 사용자가 페이지에서 직접 받음).
+
+### QA — local HTTP server 우회로 end-to-end 검증
+
+`yooongZa/DiskOUT` 가 현재 private 이라 release asset 의 anonymous 다운로드가 404. **Sparkle 은 `file://` URL 도 거부** (`The download request URL must use http or https`) 하므로 단순 file:// override 도 막힘. `python3 -m http.server 8765 --bind 127.0.0.1` 띄우고 SUFeedURL 을 `http://127.0.0.1:8765/qa-appcast.xml` 로 임시 override → 전체 흐름 (appcast fetch / 다이얼로그 / DMG 다운로드 / EdDSA + 코드사이닝 검증 / in-place 교체 / 재실행) 통과. `/Applications/DiskOUT.app` 의 `CFBundleVersion` 1 → 2 확인.
+
+### 운영 룰 (다음 release 부터)
+
+1. **매 release 마다 `CURRENT_PROJECT_VERSION` 을 올린다** — `MARKETING_VERSION` 만 올리면 Sparkle 이 같은 빌드로 인식해 업데이트 안 됨.
+2. **appcast 에는 최신 1개만 둔다** — `publish-update.sh` 의 `--download-url-prefix` 단일값 한계 회피. `_dmgs/` 에 publish 대상 DMG 만 두고 generate_appcast 호출.
+3. **`yooongZa/DiskOUT` 는 public 이어야 한다** — anonymous DMG 다운로드 필수. 현재 private 인 상태는 임시.
+
+### 잔여 작업 (이 entry 시점 기준)
+
+- `yooongZa/DiskOUT` visibility public 으로 변경 (사용자가 GitHub UI 에서 직접 진행 예정).
+- 변경 후 `curl -sIL https://github.com/yooongZa/DiskOUT/releases/download/v0.4.2/DiskOUT-0.4.2.dmg` 가 200 응답하는지 확인.
+
+## 2026-05-15: v0.4.1 — 자동 업데이트 시스템 (Sparkle 2)
+
+**배경**: v0.4.0 첫 공개 배포 후 사용자가 새 버전을 GitHub 에 가서 직접 받아야 함. 다음 release cadence 부터 손실 줄이려면 자동 업데이트 인프라 필수.
+
+### 아키텍처 — 무료 운영
+
+- **Sparkle 2.9.1** SPM 의존성 추가 ([sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle)).
+- **GitHub Pages** 가 `appcast.xml` 호스팅 (별도 repo `yooongZa/diskout-appcast`), **GitHub Releases** 가 DMG 호스팅. 둘 다 무료 무제한 트래픽 — 운영비 $0/월.
+- **EdDSA(Ed25519) 서명 + Apple Code Signing** 이중 검증. private key 는 macOS Keychain.
+
+### UX — 조용한 알림 (gentle reminder)
+
+- Sparkle 자동 다이얼로그를 가로채서, 자동 체크에서 발견된 업데이트는 **다이얼로그 즉시 안 띄움**.
+- 대신 **메뉴바 아이콘 옆 작은 systemRed `●`** + **메뉴 안 "🔴 새 버전 X.Y.Z 사용 가능"** 항목.
+- 사용자가 클릭하면 그제야 표준 Sparkle 다운로드/설치 다이얼로그 표시 → 다이얼로그 본 시점에 빨간 점 자동 제거.
+- 메뉴에 **"업데이트 확인…"** 항목 항상 표시 — 직접 트리거 가능.
+- LSUIElement (메뉴바 앱) 환경에서 모달 갑자기 뜨면 사용자 놀라는 안티패턴 회피.
+
+### 변경
+
+- **`project.yml`**: `Sparkle from: 2.9.0` SPM 추가, Info.plist 에 `SUFeedURL` / `SUPublicEDKey` / `SUEnableAutomaticChecks=true` / `SUScheduledCheckInterval=86400` 추가, `MARKETING_VERSION` 0.4.0 → 0.4.1.
+- **[AppDelegate.swift](AppDelegate.swift)**:
+  - `import Sparkle`, `updaterController: SPUStandardUpdaterController`, `pendingUpdate: SUAppcastItem?` (didSet → 메뉴바 아이콘 즉시 갱신).
+  - `setupSparkleUpdater()` — `applicationDidFinishLaunching` 에서 호출.
+  - `applyCountTitle()` — `pendingUpdate != nil` 이면 `attributedTitle` 로 "3 ●" 합성 (8pt systemRed).
+  - `populateMenu` 에 "🔴 새 버전" + "업데이트 확인…" 항목 (Settings 위 그룹).
+  - `extension AppDelegate: SPUStandardUserDriverDelegate` — `supportsGentleScheduledUpdateReminders=true`, `standardUserDriverShouldHandleShowingScheduledUpdate=false`, `willHandleShowingUpdate` 와 `DidReceiveUserAttention` 으로 빨간 점 토글.
+- **`Localizable.xcstrings`**: "Check for Updates...", "🔴 New version %@ available", "Click to install" 한국어.
+- **신규 스크립트**:
+  - `scripts/setup-sparkle-keys.sh` — Sparkle 도구 (generate_keys, generate_appcast, sign_update) 다운로드 + EdDSA 키페어 생성 (1회).
+  - `scripts/publish-update.sh vX.Y.Z` — 매 release 시 appcast.xml 갱신 + 별도 repo push.
+- **`.gitignore`**: `scripts/sparkle-tools/` (큰 바이너리, commit 금지).
+
+### 검증
+
+- `xcodebuild -configuration Debug build` → BUILD SUCCEEDED, Sparkle 2.9.1 정상 링크.
+- 첫 셋업 절차 + 트러블슈팅은 비공개 노트 `DiskOUT_업데이트_시스템.md` 참조.
+
+### 사용자 마이그레이션
+
+- v0.4.0 사용자는 이번 한 번만 GitHub Releases 에서 v0.4.1 DMG 직접 받아 설치. 그 이후로는 모든 업데이트가 자동.
+
+### 추가 — 앱 안 언어 스위처 (system / 한국어 / English)
+
+**배경**: 그동안은 시스템 언어 그대로 따라갔다. 한국 사용자가 본인 macOS 는 영어로 두면서 DiskOUT 만 한국어로 보고 싶은 케이스 (또는 반대) 를 지원하기 위해 인앱 스위처 추가.
+
+#### UX — 두 경로 동시 제공
+- **메뉴바 메뉴 → "🌐 언어 변경…"** : macOS 시스템 설정의 Language & Region → Applications 패널을 직접 연다. 사용자가 거기서 DiskOUT 만 별도 언어 선택 (Catalina(10.15)+ 표준 기능, 우리 13.0+ 모두 사용 가능). URL scheme 은 macOS 13/14/15/26 사이 미묘하게 달라서 fallback 사다리 (`com.apple.Localization-Settings.extension` → `com.apple.Localization-Settings` → `com.apple.preference.general` → `x-apple.systempreferences:`) 로 시도.
+- **환경설정 → 일반 → 언어 dropdown** : "시스템 따라가기 / 한국어 / English" 3 옵션. 선택 시 즉시 alert ("새 언어를 적용하려면 DiskOUT 을 재시작해야 합니다.") + [지금 재시작 / 나중에]. "지금 재시작" 누르면 `/usr/bin/open -n` 으로 새 인스턴스 띄우고 0.3s 후 `NSApp.terminate`.
+
+#### 구현
+- **[main.swift](main.swift)** : `NSApplication.shared` 생성 *전에* `UserDefaults.standard.set([lang], forKey: "AppleLanguages")` 적용. Bundle.main 의 localized resource 가 launch 시점에 캐시되므로 그 이전이어야 함. "system" 선택 시 `removeObject(forKey: "AppleLanguages")` 로 시스템 언어 따름.
+- **[AppDelegate.swift](AppDelegate.swift)** :
+  - `SettingsStore.appLanguage: String` ("system" / "ko" / "en") 추가
+  - `populateMenu` 에 "🌐 언어 변경…" + `openSystemLanguageSettings(_:)` (URL fallback 사다리)
+  - `relaunchApplicationForLanguageChange()` — `Process(/usr/bin/open -n bundlePath)` + 0.3s 지연 종료
+  - `SettingsWindowController.makeGeneralView` 에 `languagePopup` (NSPopUpButton, representedObject = lang code), `languageChanged(_:)` 핸들러, `selectLanguage(_:in:)` helper
+  - `refreshControls()` 에 popup sync 추가
+- **언어 fallback 동작**: xcstrings 가 ko + en 만 가지므로:
+  - 시스템 언어 ko → ko (자동)
+  - 시스템 언어 그 외 (en/ja/zh/...) → en (sourceLanguage fallback, 자동)
+  - 사용자가 "한국어" / "English" 명시 선택 → 시스템과 무관 강제
+
+#### 한국어 키 8개 추가
+"Language…", "Open System Settings → General → Language & Region", "Language", "System default", "Language changed", "DiskOUT needs to restart to apply the new language.", "Restart now", "Later". xcstrings 총 99 → 107 키.
+
+#### 검증
+- `xcodebuild -configuration Debug build` → BUILD SUCCEEDED.
+- 동작 검증: 환경설정에서 English 선택 → 재시작 → English 메뉴 확인 → 한국어 복귀 → 시스템 따라가기 복귀.
+
+### 추가 — 제작자 표기 정정 (yongZa → LIMOD)
+
+About 탭 / README 푸터 / project.yml `NSHumanReadableCopyright` / Info.plist / 비공개 노트 작성자 헤더 등 **표시용 8군데** 만 변경. 시스템 식별자 (`com.yongza.ejectdrives` Bundle ID, Logger subsystem, DispatchQueue label) 와 GitHub URL (`yooongZa/...`) 은 유지 — Bundle ID 변경 시 사용자의 UserDefaults / 키체인 / 로그인 항목 / 알림 설정 전부 초기화되므로 (관련 메모: `prefs_stale_container.md`). GitHub username 변경은 별도 결정 필요 항목 (Sparkle SUFeedURL 의 영구 redirect 가 보장 안 되어 새 빌드 배포가 필요).
+
 ## 2026-05-15: 첫 공개 배포
 
 **배경**: 그동안 누적된 Unreleased 작업 (v0.4.0 base 위의 5월 7~14일 패치들) 을 v0.4.0 DMG 로 묶어 첫 공개 배포.

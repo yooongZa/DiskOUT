@@ -6,8 +6,9 @@
 
 ### 메뉴바에서 외장 드라이브를 한 번에 안전 추출
 
-One-click safe ejection of external drives from your macOS menu bar.<br>
-Sleep eject · ko / en · Apple Silicon native.
+One-click safe ejection of external drives from your macOS menu bar.
+
+**한국어 · English · 日本語 · 中文 (简体)** · Sleep eject · Apple Silicon native
 
 <br>
 
@@ -15,6 +16,7 @@ Sleep eject · ko / en · Apple Silicon native.
 
 ![macOS](https://img.shields.io/badge/macOS-14%2B-lightgrey?logo=apple)
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
+![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
 ![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
 ![Notarized](https://img.shields.io/badge/Apple-notarized-22C55E)
 
@@ -63,8 +65,9 @@ RAID · 다중 파티션 · APFS 합성 볼륨도 "꽂은 장치 수" 기준 1 �
 | **DMG · 디스크 이미지 무시** | 마운트된 디스크 이미지는 메뉴에도 안 뜨고, 자동 추출 대상도 아님 |
 | **"비정상 추출" 알림 없음** | sleep 추출은 정상 unmount(마운트 해제) 를 먼저 시도 — macOS 의 "improperly ejected" 알림이 안 뜸 |
 | **Per-disk 옵트아웃** | 자동 추출에서 빼고 싶은 디스크만 개별 토글. Volume UUID 기반이라 케이블 슬롯 바뀌어도 유지 |
-| **광고 · 추적 · 네트워크 0** | 외장 디스크 다루는 일에만 집중. 외부 통신 없음 |
+| **광고 · 추적 0** | 외장 디스크 다루는 일에만 집중. 자동 업데이트 체크 외에는 외부 통신 없음 |
 | **Developer ID + Apple 공증** | Gatekeeper(게이트키퍼) 통과 — "확인되지 않은 개발자" 경고 없이 그냥 열림 |
+| **자동 업데이트 (조용한 알림)** | 새 버전이 나오면 메뉴바 아이콘 옆에 작은 빨간 점 + 메뉴 안 항목으로만 표시. 모달 안 뜸. EdDSA + Apple Code Signing 이중 검증 후 설치 |
 
 ---
 
@@ -196,7 +199,8 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | **단축키 충돌 자동 정정** | 추출 / 마운트 / 추출하고 잠자기 단축키가 같은 preset 으로 저장되면 충돌 감지 + 다른 preset 으로 자동 이동 + alert |
 | **권한 누락 메뉴 안내** | Accessibility(손쉬운 사용) / 알림 권한이 미허용 상태면 메뉴 상단에 ⚠ 경고 row 표시. 클릭하면 시스템 설정의 해당 페이지로 이동 |
 | **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 토글. 기본은 모두 ON |
-| **다국어 (ko + en)** | `Localizable.xcstrings` 73개 키. 시스템 언어 따라 자동 전환 |
+| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 105개 키. 첫 launch 에서 시스템 언어 자동 매칭 (지원 외 언어 사용자는 영어 fallback) + 환경설정 일반 탭의 Language 팝업에서 강제 선택 가능 |
+| **자동 업데이트 (Sparkle 2)** | 24시간 주기로 백그라운드 체크. 새 버전 발견 시 다이얼로그 안 띄우고 **메뉴바 아이콘에 작은 systemRed `●` + 메뉴 안 "🔴 새 버전 X.Y.Z 사용 가능" 항목** 으로만 표시 (gentle reminder). 사용자가 클릭하면 표준 Sparkle 다운로드/설치 다이얼로그 → 자동 재시작. EdDSA(Ed25519) + Apple Code Signing 이중 검증. appcast 호스팅은 GitHub Pages, DMG 호스팅은 GitHub Releases — 무료 운영 |
 | **Per-disk 자동 추출 제외** | 디스크 메뉴 항목 ▶ submenu 의 *"자동 추출 제외"* 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + *(Time Machine)* 표기 |
 | **외장 라이브러리 앱 처리** | 메뉴 토글 (default OFF). ON 이면 sleep 직전 Music / Photos 자동 quit (외장 라이브러리 lock 풀어 추출 가능), wake 후 백그라운드 자동 relaunch |
@@ -226,7 +230,7 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 ```
 diskOUT/
 ├── AppDelegate.swift            # 메인 로직 (diskutil 실행, 메뉴 캐시, sleep/wake 처리)
-├── Localizable.xcstrings        # ko + en 번역 (Xcode String Catalog)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 105 키)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
 ├── DiskOUT.entitlements         # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
@@ -356,7 +360,7 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 
 <div align="center">
 
-**DiskOUT** · © 2026 yongza · All rights reserved
+**DiskOUT** · © 2026 LIMOD · All rights reserved
 
 [릴리즈](https://github.com/yooongZa/DiskOUT/releases) ·
 [변경 내역](CHANGELOG.md) ·

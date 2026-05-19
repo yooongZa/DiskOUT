@@ -1,678 +1,3051 @@
 {
-  "sourceLanguage" : "en",
-  "strings" : {
-    "Allow" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "허용" } }
-      }
-    },
-    "Auto-start DiskOUT when you log in" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto-start DiskOUT when you log in" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 시 DiskOUT 자동 시작" } }
-      }
-    },
-    "Couldn't update login item" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't update login item" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 항목을 변경하지 못했습니다" } }
-      }
-    },
-    "DiskOUT Permissions" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT Permissions" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT 권한 설정" } }
-      }
-    },
-    "DiskOUT's core features work without any permissions. The ones below are optional — turn on what you want." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT's core features work without any permissions. The ones below are optional — turn on what you want." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT 핵심 기능은 권한 없이도 동작합니다. 아래는 선택적으로 켤 수 있는 기능이에요." } }
-      }
-    },
-    "Done" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Done" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "완료" } }
-      }
-    },
-    "Eject all drives anywhere with ⌥⌘E" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all drives anywhere with ⌥⌘E" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "어디서든 ⌥⌘E로 모든 드라이브 추출" } }
-      }
-    },
-    "Global hotkey" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Global hotkey" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "전역 단축키" } }
-      }
-    },
-    "Needs approval in System Settings" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Needs approval in System Settings" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정에서 승인 필요" } }
-      }
-    },
-    "Open System Settings" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open System Settings" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정 열기" } }
-      }
-    },
-    "See eject results at a glance" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "See eject results at a glance" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 결과를 한눈에 확인" } }
-      }
-    },
-    "You can reopen this anytime from the menu bar icon's menu." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "You can reopen this anytime from the menu bar icon's menu." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "메뉴바 아이콘 메뉴에서 언제든 다시 열 수 있어요." } }
-      }
-    },
-    "%@\nDisks detected but won't mount. Try Disk Utility." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@\nDisks detected but won't mount. Try Disk Utility." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "%@\n디스크는 인식되는데 mount 안 됨 — 디스크 검사 필요할 수 있음" } }
-      }
-    },
-    "%@\nDisks still mounted. Disconnect risk. Wake screen and eject manually." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@\nDisks still mounted. Disconnect risk. Wake screen and eject manually." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "%@\n디스크가 unmount 안 된 채 — 분리 시 손상 위험. 화면 켜고 메뉴에서 수동 추출 권장." } }
-      }
-    },
-    "%@\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "%@\n디스크가 unmount 안 된 채 sleep — 분리 시 손상 위험. wake 후 메뉴에서 수동 추출 권장." } }
-      }
-    },
-    "%lld drive(s) didn't eject at display sleep" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld drive(s) didn't eject at display sleep" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "화면 꺼짐 시 %lld개 디스크 추출 실패" } }
-      }
-    },
-    "%lld drive(s) didn't eject before sleep" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld drive(s) didn't eject before sleep" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "Sleep 시 %lld개 디스크 추출 실패" } }
-      }
-    },
-    "All drives ejected" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "All drives ejected" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모든 드라이브 추출 완료" } }
-      }
-    },
-    "Auto-eject excluded disks" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto-eject excluded disks" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "자동 추출 제외 디스크" } }
-      }
-    },
-    "auto-eject excluded" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "auto-eject excluded" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "자동 제외" } }
-      }
-    },
-    "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 전에 Music / Photos 자동 종료, 깨어나면 다시 실행. 외장 디스크에 라이브러리 둔 경우 유용." } }
-      }
-    },
-    "All drives mounted" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "All drives mounted" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트 완료" } }
-      }
-    },
-    "Approve in System Settings → General → Login Items" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Approve in System Settings → General → Login Items" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정 → 일반 → 로그인 항목 에서 허용 필요" } }
-      }
-    },
-    "Click to mount.  ⌘+click to also open in Finder." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Click to mount.  ⌘+click to also open in Finder." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "클릭 = 마운트.  ⌘+클릭 = 마운트 + Finder 열기." } }
-      }
-    },
-    "Couldn't eject %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't eject %@" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 실패: %@" } }
-      }
-    },
-    "Couldn't mount %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't mount %@" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 실패: %@" } }
-      }
-    },
-    "Couldn't update launch-at-login" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't update launch-at-login" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "자동 실행 설정 실패" } }
-      }
-    },
-    "Eject all  (⌥⌘E · or right-click)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all  (⌥⌘E · or right-click)" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 추출  (⌥⌘E · 또는 우클릭)" } }
-      }
-    },
-    "Exclude from auto-eject" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Exclude from auto-eject" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "자동 추출에서 제외" } }
-      }
-    },
-    "Eject failed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject failed" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 실패" } }
-      }
-    },
-    "Eject on display sleep (experimental)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject on display sleep (experimental)" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "화면 꺼질 때도 자동 추출 (실험)" } }
-      }
-    },
-    "Eject on display sleep tooltip" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "For pmset sleep=0 setups. May trigger frequent eject/remount." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "pmset sleep=0 환경에서 화면 꺼질 때 추출. 자리 잠깐 비울 때 잦은 추출/재마운트 가능." } }
-      }
-    },
-    "Eject on sleep" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject on sleep" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 시 자동 추출" } }
-      }
-    },
-    "Ejected" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ejected" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 완료" } }
-      }
-    },
-    "Failed: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed: %@" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "실패: %@" } }
-      }
-    },
-    "Launch at login" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Launch at login" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 시 자동 실행" } }
-      }
-    },
-    "Login item needs approval" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Login item needs approval" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 항목 허용 필요" } }
-      }
-    },
-    "Mount all  (⌃⌘E)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount all  (⌃⌘E)" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트  (⌃⌘E)" } }
-      }
-    },
-    "Quit Music/Photos before sleep" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit Music/Photos before sleep" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 전 Music / Photos 자동 종료" } }
-      }
-    },
-    "Mount failed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount failed" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 실패" } }
-      }
-    },
-    "Mounted" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mounted" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 완료" } }
-      }
-    },
-    "No drives to eject" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No drives to eject" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출할 드라이브 없음" } }
-      }
-    },
-    "No external drives" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No external drives" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "연결된 외장 드라이브 없음" } }
-      }
-    },
-    "No external drives connected." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No external drives connected." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "연결된 외장 드라이브가 없습니다." } }
-      }
-    },
-    "No unmounted external drives connected." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No unmounted external drives connected." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "꽂혀있고 마운트 안 된 외장이 없습니다." } }
-      }
-    },
-    "Nothing to mount" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Nothing to mount" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트할 외장 없음" } }
-      }
-    },
-    "Quit" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "종료" } }
-      }
-    },
-    "Remount failed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remount failed" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "재마운트 실패" } }
-      }
-    },
-    "Some drives didn't eject" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Some drives didn't eject" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "일부 추출 실패" } }
-      }
-    },
-    "Some drives didn't mount" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Some drives didn't mount" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "일부 마운트 실패" } }
-      }
-    },
-    "Time Machine drive protected" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Time Machine drive protected" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "Time Machine 디스크 자동 추출 제외" } }
-      }
-    },
-    "\"%@\" is excluded from auto-eject. Toggle in the menu if you want it ejected on sleep." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "\"%@\" is excluded from auto-eject. Toggle in the menu if you want it ejected on sleep." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "\"%@\" 디스크는 자동 추출에서 제외됨. 잠자기 시 같이 추출되길 원하면 메뉴에서 토글 OFF." } }
-      }
-    },
-    "Succeeded: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Succeeded: %@" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "성공: %@" } }
-      }
-    },
-    "Toggle DiskOUT on in System Settings → Login Items." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Toggle DiskOUT on in System Settings → Login Items." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "시스템 설정에서 DiskOUT 의 로그인 항목 토글을 켜주세요." } }
-      }
-    },
-    "Unknown error" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown error" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "알 수 없는 오류" } }
-      }
-    },
-    "Eject and Sleep" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject and Sleep" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출하고 잠자기" } }
-      }
-    },
-    "Sleep canceled" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sleep canceled" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 취소" } }
-      }
-    },
-    "Some drives didn't eject. Sleep was not started." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Some drives didn't eject. Sleep was not started." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "일부 드라이브 추출 실패. 잠자기를 시작하지 않았습니다." } }
-      }
-    },
-    "Couldn't start sleep" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't start sleep" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "잠자기 시작 실패" } }
-      }
-    },
-    "%lld drive(s) didn't eject before power off" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld drive(s) didn't eject before power off" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "종료 전 %lld개 디스크 추출 실패" } }
-      }
-    },
-    "%@\nLogout, restart, or shutdown is continuing. Eject manually if you stay logged in." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@\nLogout, restart, or shutdown is continuing. Eject manually if you stay logged in." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "%@\n로그아웃/재시동/종료는 계속 진행 중. 취소해서 로그인 상태로 남으면 수동 추출 권장." } }
-      }
-    },
-    "Blocking processes: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Blocking processes: %@" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "사용 중인 프로세스: %@" } }
-      }
-    },
-    "Could not inspect blocking processes" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not inspect blocking processes" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "사용 중인 프로세스를 확인하지 못함" } }
-      }
-    },
-    "Full Disk Access may be needed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Full Disk Access may be needed" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "Full Disk Access 권한이 필요할 수 있음" } }
-      }
-    },
-    "No blocking process found" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No blocking process found" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "차단 중인 프로세스를 찾지 못함" } }
-      }
-    },
-    "Open files: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open files: %@" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "열린 파일: %@" } }
-      }
-    },
-    "lsof timed out" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "lsof timed out" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "lsof 진단 시간 초과" } }
-      }
-    },
-    "Disk status update failed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Disk status update failed" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "디스크 상태 갱신 실패" } }
-      }
-    },
-    "Updating disk status..." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Updating disk status..." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "디스크 상태 갱신 중..." } }
-      }
-    },
-    "Eject all  (%@ · or right-click)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all  (%@ · or right-click)" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 추출  (%@ · 또는 우클릭)" } }
-      }
-    },
-    "Mount all  (%@)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount all  (%@)" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트  (%@)" } }
-      }
-    },
-    "Settings..." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings..." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "환경설정..." } }
-      }
-    },
-    "Settings" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "환경설정" } }
-      }
-    },
-    "General" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "General" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "일반" } }
-      }
-    },
-    "Hotkeys" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hotkeys" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "단축키" } }
-      }
-    },
-    "Notifications" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Notifications" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "알림" } }
-      }
-    },
-    "Eject Behavior" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject Behavior" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 동작" } }
-      }
-    },
-    "Eject all" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject all" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 추출" } }
-      }
-    },
-    "Mount all" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mount all" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "모두 마운트" } }
-      }
-    },
-    "Success notifications" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Success notifications" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "성공 알림" } }
-      }
-    },
-    "Failure notifications" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failure notifications" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "실패 알림" } }
-      }
-    },
-    "Force fallback" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Force fallback" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "강제 fallback" } }
-      }
-    },
-    "Launch at login (needs approval)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Launch at login (needs approval)" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "로그인 시 자동 실행 (허용 필요)" } }
-      }
-    },
-    "Settings update failed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings update failed" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "환경설정 변경 실패" } }
-      }
-    },
-    "Unmounted drives" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unmounted drives" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "마운트 안 된 외장" } }
-      }
-    },
-    "About" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "About" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "정보" } }
-      }
-    },
-    "Allow Accessibility for global hotkeys" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow Accessibility for global hotkeys" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "전역 단축키를 위해 손쉬운 사용 권한 허용 필요" } }
-      }
-    },
-    "Allow notifications to see eject results" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow notifications to see eject results" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출 결과 알림을 보려면 알림 권한 허용 필요" } }
-      }
-    },
-    "Eject and Mount can't share the same shortcut. %@ was moved to a different preset." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject and Mount can't share the same shortcut. %@ was moved to a different preset." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "추출과 마운트는 같은 단축키를 쓸 수 없음. %@ 단축키를 다른 preset 으로 이동함." } }
-      }
-    },
-    "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "'추출하고 잠자기' 는 모두 추출/모두 마운트와 같은 단축키를 쓸 수 없음. 다른 preset 선택." } }
-      }
-    },
-    "Hotkey conflict" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hotkey conflict" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "단축키 충돌" } }
-      }
-    },
-    "Notifications are silent by design — no sound. Look for the menu bar icon for results." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Notifications are silent by design — no sound. Look for the menu bar icon for results." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "알림은 의도적으로 무음 — 결과는 메뉴바 아이콘으로 확인하세요." } }
-      }
-    },
-    "Off" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Off" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "사용 안 함" } }
-      }
-    },
-    "Quit DiskOUT" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Quit DiskOUT" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "DiskOUT 종료" } }
-      }
-    },
-    "Right-click menu bar icon to eject all" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Right-click menu bar icon to eject all" } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "메뉴바 아이콘 우클릭 = 모두 추출" } }
-      }
-    },
-    "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives." } },
-        "ko" : { "stringUnit" : { "state" : "translated", "value" : "끄면 우클릭(과 ctrl+클릭)이 추출 대신 메뉴를 띄움. 실수 우클릭으로 외장이 빠지는 사고 방지용." } }
+  "sourceLanguage": "en",
+  "strings": {
+    "Allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
+        }
+      }
+    },
+    "Auto-start DiskOUT when you log in": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-start DiskOUT when you log in"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 시 DiskOUT 자동 시작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログイン時に DiskOUT を自動起動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录时自动启动 DiskOUT"
+          }
+        }
+      }
+    },
+    "Couldn't update login item": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't update login item"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 항목을 변경하지 못했습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログイン項目を更新できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更新登录项"
+          }
+        }
+      }
+    },
+    "DiskOUT Permissions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT Permissions"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT 권한 설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT の権限"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT 权限"
+          }
+        }
+      }
+    },
+    "DiskOUT's core features work without any permissions. The ones below are optional — turn on what you want.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT's core features work without any permissions. The ones below are optional — turn on what you want."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT 핵심 기능은 권한 없이도 동작합니다. 아래는 선택적으로 켤 수 있는 기능이에요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT の主要機能は権限なしで動作します。下記はオプションです — 必要なものを有効にしてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT 的核心功能无需任何权限即可使用。以下选项可选 — 按需开启。"
+          }
+        }
+      }
+    },
+    "Done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "Eject all drives anywhere with ⌥⌘E": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject all drives anywhere with ⌥⌘E"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "어디서든 ⌥⌘E로 모든 드라이브 추출"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どこからでも ⌥⌘E で全てのドライブを取り出し"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随时随地用 ⌥⌘E 弹出所有驱动器"
+          }
+        }
+      }
+    },
+    "Global hotkey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global hotkey"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전역 단축키"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルホットキー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局热键"
+          }
+        }
+      }
+    },
+    "Needs approval in System Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs approval in System Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 승인 필요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定で承認が必要"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需在系统设置中授权"
+          }
+        }
+      }
+    },
+    "Open System Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 열기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定を開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开系统设置"
+          }
+        }
+      }
+    },
+    "See eject results at a glance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See eject results at a glance"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출 결과를 한눈에 확인"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り出し結果をひと目で確認"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一眼查看弹出结果"
+          }
+        }
+      }
+    },
+    "You can reopen this anytime from the menu bar icon's menu.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can reopen this anytime from the menu bar icon's menu."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴바 아이콘 메뉴에서 언제든 다시 열 수 있어요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーアイコンのメニューからいつでも再表示できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可随时从菜单栏图标的菜单中重新打开。"
+          }
+        }
+      }
+    },
+    "%@\nDisks detected but won't mount. Try Disk Utility.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nDisks detected but won't mount. Try Disk Utility."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n디스크는 인식되는데 mount 안 됨 — 디스크 검사 필요할 수 있음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nディスクは検出されましたがマウントできません。ディスクユーティリティをお試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n检测到磁盘但无法挂载。请尝试\"磁盘工具\"。"
+          }
+        }
+      }
+    },
+    "%@\nDisks still mounted. Disconnect risk. Wake screen and eject manually.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nDisks still mounted. Disconnect risk. Wake screen and eject manually."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n디스크가 unmount 안 된 채 — 분리 시 손상 위험. 화면 켜고 메뉴에서 수동 추출 권장."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nディスクがマウントされたままです。切断の危険があります。画面を起こして手動で取り出してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n磁盘仍处于挂载状态。存在断开风险。请唤醒屏幕并手动弹出。"
+          }
+        }
+      }
+    },
+    "%@\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nDisks went to sleep still mounted. Disconnect risk. Eject manually after wake."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n디스크가 unmount 안 된 채 sleep — 분리 시 손상 위험. wake 후 메뉴에서 수동 추출 권장."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nディスクがマウントされたままスリープしました。切断の危険があります。復帰後に手動で取り出してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n磁盘在挂载状态下进入睡眠。存在断开风险。唤醒后请手动弹出。"
+          }
+        }
+      }
+    },
+    "%lld drive(s) didn't eject at display sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld drive(s) didn't eject at display sleep"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 꺼짐 시 %lld개 디스크 추출 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 台のドライブがディスプレイスリープ時に取り出せませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个驱动器在显示器睡眠时未弹出"
+          }
+        }
+      }
+    },
+    "%lld drive(s) didn't eject before sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld drive(s) didn't eject before sleep"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep 시 %lld개 디스크 추출 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 台のドライブがスリープ前に取り出せませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个驱动器在睡眠前未弹出"
+          }
+        }
+      }
+    },
+    "All drives ejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All drives ejected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 드라이브 추출 완료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全てのドライブを取り出しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已弹出所有驱动器"
+          }
+        }
+      }
+    },
+    "Auto-eject excluded disks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-eject excluded disks"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 추출 제외 디스크"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動取り出しから除外されたディスク"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动弹出排除的磁盘"
+          }
+        }
+      }
+    },
+    "auto-eject excluded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "auto-eject excluded"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 제외"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動取り出しから除外"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从自动弹出中排除"
+          }
+        }
+      }
+    },
+    "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠자기 전에 Music / Photos 자동 종료, 깨어나면 다시 실행. 외장 디스크에 라이브러리 둔 경우 유용."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ前にミュージックと写真を自動終了し、復帰時に再起動。ライブラリが外部ドライブにある場合に便利。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠前自动退出\"音乐\"和\"照片\",唤醒后重新启动。当资料库位于外置驱动器时很有用。"
+          }
+        }
+      }
+    },
+    "All drives mounted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All drives mounted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 마운트 완료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全てのドライブをマウントしました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已挂载所有驱动器"
+          }
+        }
+      }
+    },
+    "Approve in System Settings → General → Login Items": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve in System Settings → General → Login Items"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 → 일반 → 로그인 항목 에서 허용 필요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定 → 一般 → ログイン項目で承認"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在\"系统设置\" → \"通用\" → \"登录项\"中授权"
+          }
+        }
+      }
+    },
+    "Click to mount.  ⌘+click to also open in Finder.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to mount.  ⌘+click to also open in Finder."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭 = 마운트.  ⌘+클릭 = 마운트 + Finder 열기."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックでマウント。⌘+クリックで Finder でも開く。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击挂载。⌘+点击同时在\"访达\"中打开。"
+          }
+        }
+      }
+    },
+    "Couldn't eject %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't eject %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출 실패: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を取り出せませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法弹出 %@"
+          }
+        }
+      }
+    },
+    "Couldn't mount %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't mount %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마운트 실패: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ をマウントできませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法挂载 %@"
+          }
+        }
+      }
+    },
+    "Couldn't update launch-at-login": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't update launch-at-login"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 실행 설정 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ログイン時に起動」を更新できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更新\"登录时启动\""
+          }
+        }
+      }
+    },
+    "Eject all  (⌥⌘E · or right-click)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject all  (⌥⌘E · or right-click)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 추출  (⌥⌘E · 또는 우클릭)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全て取り出し  (⌥⌘E · または右クリック)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "弹出全部  (⌥⌘E · 或右键)"
+          }
+        }
+      }
+    },
+    "Exclude from auto-eject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exclude from auto-eject"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 추출에서 제외"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動取り出しから除外"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从自动弹出中排除"
+          }
+        }
+      }
+    },
+    "Eject failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り出しに失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "弹出失败"
+          }
+        }
+      }
+    },
+    "Eject on display sleep (experimental)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject on display sleep (experimental)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 꺼질 때도 자동 추출 (실험)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイスリープ時に取り出し (実験的)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示器睡眠时弹出 (实验性)"
+          }
+        }
+      }
+    },
+    "Eject on display sleep tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For pmset sleep=0 setups. May trigger frequent eject/remount."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pmset sleep=0 환경에서 화면 꺼질 때 추출. 자리 잠깐 비울 때 잦은 추출/재마운트 가능."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pmset sleep=0 環境向け。頻繁な取り出し/再マウントが発生する可能性あり。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于 pmset sleep=0 设置。可能频繁触发弹出/重新挂载。"
+          }
+        }
+      }
+    },
+    "Eject on sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject on sleep"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠자기 시 자동 추출"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ時に取り出し"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠时弹出"
+          }
+        }
+      }
+    },
+    "Ejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출 완료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り出し済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已弹出"
+          }
+        }
+      }
+    },
+    "Failed: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败:%@"
+          }
+        }
+      }
+    },
+    "Launch at login": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch at login"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 시 자동 실행"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログイン時に起動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录时启动"
+          }
+        }
+      }
+    },
+    "Login item needs approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Login item needs approval"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 항목 허용 필요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログイン項目の承認が必要"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录项需要授权"
+          }
+        }
+      }
+    },
+    "Mount all  (⌃⌘E)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mount all  (⌃⌘E)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 마운트  (⌃⌘E)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全てマウント  (⌃⌘E)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂载全部  (⌃⌘E)"
+          }
+        }
+      }
+    },
+    "Quit Music/Photos before sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Music/Photos before sleep"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠자기 전 Music / Photos 자동 종료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ前にミュージック/写真を終了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠前退出\"音乐\"/\"照片\""
+          }
+        }
+      }
+    },
+    "Mount failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mount failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마운트 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マウントに失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂载失败"
+          }
+        }
+      }
+    },
+    "Mounted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mounted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마운트 완료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マウント済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已挂载"
+          }
+        }
+      }
+    },
+    "No drives to eject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No drives to eject"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출할 드라이브 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り出すドライブがありません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可弹出的驱动器"
+          }
+        }
+      }
+    },
+    "No external drives": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No external drives"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결된 외장 드라이브 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部ドライブなし"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无外置驱动器"
+          }
+        }
+      }
+    },
+    "No external drives connected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No external drives connected."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결된 외장 드라이브가 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部ドライブが接続されていません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未连接外置驱动器。"
+          }
+        }
+      }
+    },
+    "No unmounted external drives connected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No unmounted external drives connected."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "꽂혀있고 마운트 안 된 외장이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マウントされていない外部ドライブはありません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有未挂载的外置驱动器。"
+          }
+        }
+      }
+    },
+    "Nothing to mount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to mount"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마운트할 외장 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マウント対象がありません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可挂载的项目"
+          }
+        }
+      }
+    },
+    "Quit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出"
+          }
+        }
+      }
+    },
+    "Remount failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remount failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재마운트 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再マウントに失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新挂载失败"
+          }
+        }
+      }
+    },
+    "Some drives didn't eject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some drives didn't eject"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 추출 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のドライブが取り出されませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分驱动器未弹出"
+          }
+        }
+      }
+    },
+    "Some drives didn't mount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some drives didn't mount"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 마운트 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のドライブがマウントされませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分驱动器未挂载"
+          }
+        }
+      }
+    },
+    "Time Machine drive protected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time Machine drive protected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time Machine 디스크 자동 추출 제외"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time Machine ドライブを保護"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time Machine 驱动器受保护"
+          }
+        }
+      }
+    },
+    "\"%@\" is excluded from auto-eject. Toggle in the menu if you want it ejected on sleep.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" is excluded from auto-eject. Toggle in the menu if you want it ejected on sleep."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" 디스크는 자동 추출에서 제외됨. 잠자기 시 같이 추출되길 원하면 메뉴에서 토글 OFF."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は自動取り出しから除外されています。スリープ時に取り出したい場合はメニューで切り替えてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" 已从自动弹出中排除。如需在睡眠时弹出,请在菜单中切换。"
+          }
+        }
+      }
+    },
+    "Succeeded: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Succeeded: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "성공: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功:%@"
+          }
+        }
+      }
+    },
+    "Toggle DiskOUT on in System Settings → Login Items.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle DiskOUT on in System Settings → Login Items."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 DiskOUT 의 로그인 항목 토글을 켜주세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定 → ログイン項目で DiskOUT をオンにしてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在\"系统设置\" → \"登录项\"中开启 DiskOUT。"
+          }
+        }
+      }
+    },
+    "Unknown error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown error"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 오류"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なエラー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知错误"
+          }
+        }
+      }
+    },
+    "Eject and Sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject and Sleep"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출하고 잠자기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り出してスリープ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "弹出并睡眠"
+          }
+        }
+      }
+    },
+    "Sleep canceled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep canceled"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠자기 취소"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープをキャンセル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消睡眠"
+          }
+        }
+      }
+    },
+    "Some drives didn't eject. Sleep was not started.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some drives didn't eject. Sleep was not started."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 드라이브 추출 실패. 잠자기를 시작하지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のドライブが取り出されませんでした。スリープは開始されませんでした。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分驱动器未弹出。未启动睡眠。"
+          }
+        }
+      }
+    },
+    "Couldn't start sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start sleep"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠자기 시작 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープを開始できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动睡眠"
+          }
+        }
+      }
+    },
+    "%lld drive(s) didn't eject before power off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld drive(s) didn't eject before power off"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료 전 %lld개 디스크 추출 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 台のドライブが電源オフ前に取り出せませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个驱动器在关机前未弹出"
+          }
+        }
+      }
+    },
+    "%@\nLogout, restart, or shutdown is continuing. Eject manually if you stay logged in.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nLogout, restart, or shutdown is continuing. Eject manually if you stay logged in."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n로그아웃/재시동/종료는 계속 진행 중. 취소해서 로그인 상태로 남으면 수동 추출 권장."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\nログアウト、再起動、またはシャットダウンが進行中です。ログインしたままの場合は手動で取り出してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n注销、重启或关机正在继续。如保持登录,请手动弹出。"
+          }
+        }
+      }
+    },
+    "Blocking processes: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocking processes: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중인 프로세스: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック中のプロセス: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阻塞进程:%@"
+          }
+        }
+      }
+    },
+    "Could not inspect blocking processes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not inspect blocking processes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중인 프로세스를 확인하지 못함"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック中のプロセスを確認できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法检查阻塞进程"
+          }
+        }
+      }
+    },
+    "Full Disk Access may be needed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Disk Access may be needed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Disk Access 권한이 필요할 수 있음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルディスクアクセスが必要な可能性があります"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能需要\"完全磁盘访问权限\""
+          }
+        }
+      }
+    },
+    "No blocking process found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No blocking process found"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차단 중인 프로세스를 찾지 못함"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック中のプロセスは見つかりませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未发现阻塞进程"
+          }
+        }
+      }
+    },
+    "Open files: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open files: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 파일: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているファイル: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开的文件:%@"
+          }
+        }
+      }
+    },
+    "lsof timed out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lsof timed out"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lsof 진단 시간 초과"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lsof がタイムアウトしました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lsof 已超时"
+          }
+        }
+      }
+    },
+    "Disk status update failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk status update failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크 상태 갱신 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクの状態更新に失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘状态更新失败"
+          }
+        }
+      }
+    },
+    "Updating disk status...": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating disk status..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크 상태 갱신 중..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクの状態を更新中…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新磁盘状态…"
+          }
+        }
+      }
+    },
+    "Eject all  (%@ · or right-click)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject all  (%@ · or right-click)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 추출  (%@ · 또는 우클릭)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全て取り出し  (%@ · または右クリック)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "弹出全部  (%@ · 或右键)"
+          }
+        }
+      }
+    },
+    "Mount all  (%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mount all  (%@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 마운트  (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全てマウント  (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂载全部  (%@)"
+          }
+        }
+      }
+    },
+    "Settings...": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "환경설정..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置…"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "환경설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置"
+          }
+        }
+      }
+    },
+    "General": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一般"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通用"
+          }
+        }
+      }
+    },
+    "Hotkeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hotkeys"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホットキー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "热键"
+          }
+        }
+      }
+    },
+    "Notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        }
+      }
+    },
+    "Eject Behavior": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject Behavior"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출 동작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り出しの動作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "弹出行为"
+          }
+        }
+      }
+    },
+    "Eject all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject all"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 추출"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全て取り出し"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "弹出全部"
+          }
+        }
+      }
+    },
+    "Mount all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mount all"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 마운트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全てマウント"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挂载全部"
+          }
+        }
+      }
+    },
+    "Success notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Success notifications"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "성공 알림"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功通知"
+          }
+        }
+      }
+    },
+    "Failure notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failure notifications"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패 알림"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败通知"
+          }
+        }
+      }
+    },
+    "Force fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force fallback"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강제 fallback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強制フォールバック"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制回退"
+          }
+        }
+      }
+    },
+    "Launch at login (needs approval)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch at login (needs approval)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 시 자동 실행 (허용 필요)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログイン時に起動 (承認が必要)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录时启动 (需授权)"
+          }
+        }
+      }
+    },
+    "Settings update failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings update failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "환경설정 변경 실패"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定の更新に失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置更新失败"
+          }
+        }
+      }
+    },
+    "Unmounted drives": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unmounted drives"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마운트 안 된 외장"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アンマウントされたドライブ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已卸载的驱动器"
+          }
+        }
+      }
+    },
+    "About": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정보"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリについて"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关于"
+          }
+        }
+      }
+    },
+    "Allow Accessibility for global hotkeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Accessibility for global hotkeys"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전역 단축키를 위해 손쉬운 사용 권한 허용 필요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルホットキーのためにアクセシビリティを許可"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为全局热键允许\"辅助功能\""
+          }
+        }
+      }
+    },
+    "Allow notifications to see eject results": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow notifications to see eject results"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출 결과 알림을 보려면 알림 권한 허용 필요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り出し結果を確認するために通知を許可"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许通知以查看弹出结果"
+          }
+        }
+      }
+    },
+    "Eject and Mount can't share the same shortcut. %@ was moved to a different preset.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject and Mount can't share the same shortcut. %@ was moved to a different preset."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출과 마운트는 같은 단축키를 쓸 수 없음. %@ 단축키를 다른 preset 으로 이동함."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「取り出し」と「マウント」は同じショートカットを共有できません。%@ を別のプリセットに移動しました。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"弹出\"和\"挂载\"不能共用同一快捷键。%@ 已移至其他预设。"
+          }
+        }
+      }
+    },
+    "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'추출하고 잠자기' 는 모두 추출/모두 마운트와 같은 단축키를 쓸 수 없음. 다른 preset 선택."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「取り出してスリープ」は「全て取り出し」や「全てマウント」とショートカットを共有できません。別のものを選択してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"弹出并睡眠\"不能与\"弹出全部\"或\"挂载全部\"共用快捷键。请选择其他快捷键。"
+          }
+        }
+      }
+    },
+    "Hotkey conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hotkey conflict"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 충돌"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホットキーの競合"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "热键冲突"
+          }
+        }
+      }
+    },
+    "Notifications are silent by design — no sound. Look for the menu bar icon for results.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are silent by design — no sound. Look for the menu bar icon for results."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림은 의도적으로 무음 — 결과는 메뉴바 아이콘으로 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知は仕様上サイレントです — 音はありません。結果はメニューバーアイコンで確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知有意设计为静音 — 无声音。请通过菜单栏图标查看结果。"
+          }
+        }
+      }
+    },
+    "Off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 안 함"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        }
+      }
+    },
+    "Quit DiskOUT": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit DiskOUT"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT 종료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT を終了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出 DiskOUT"
+          }
+        }
+      }
+    },
+    "Right-click menu bar icon to eject all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right-click menu bar icon to eject all"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴바 아이콘 우클릭 = 모두 추출"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーアイコンを右クリックで全て取り出し"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右键点击菜单栏图标弹出全部"
+          }
+        }
+      }
+    },
+    "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 우클릭(과 ctrl+클릭)이 추출 대신 메뉴를 띄움. 실수 우클릭으로 외장이 빠지는 사고 방지용."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフのとき、右クリック (および Ctrl+クリック) はドライブを全て取り出す代わりにメニューを開きます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭时,右键 (和 Ctrl+点击) 将打开菜单,而不是弹出所有驱动器。"
+          }
+        }
+      }
+    },
+    "Check for Updates...": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for Updates..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 확인..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートを確認…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查更新…"
+          }
+        }
+      }
+    },
+    "🔴 New version %@ available": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🔴 New version %@ available"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🔴 새 버전 %@ 사용 가능"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🔴 新しいバージョン %@ が利用可能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🔴 新版本 %@ 已可用"
+          }
+        }
+      }
+    },
+    "Click to install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to install"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭해서 설치"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックでインストール"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击以安装"
+          }
+        }
+      }
+    },
+    "Language": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "언어"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "言語"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语言"
+          }
+        }
+      }
+    },
+    "System default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System default"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 따라가기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムのデフォルト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随系统"
+          }
+        }
+      }
+    },
+    "Language changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language changed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "언어 변경됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "言語を変更しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语言已更改"
+          }
+        }
+      }
+    },
+    "DiskOUT needs to restart to apply the new language.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT needs to restart to apply the new language."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 언어를 적용하려면 DiskOUT 을 재시작해야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい言語を適用するには DiskOUT を再起動する必要があります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要重启 DiskOUT 才能应用新语言。"
+          }
+        }
+      }
+    },
+    "Restart now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 재시작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐ再起動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即重启"
+          }
+        }
+      }
+    },
+    "Later": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Later"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あとで"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稍后"
+          }
+        }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }
