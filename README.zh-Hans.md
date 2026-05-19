@@ -136,6 +136,13 @@ mount / eject 等磁盘操作在 sandbox(沙盒) 环境中限制很多。难以�
 </details>
 
 <details>
+<summary><b>没有 GitHub 账号也能下载吗?</b></summary>
+
+可以。`yooongZa/DiskOUT` 是公开仓库,GitHub Releases 上的 DMG 也支持匿名下载。无需注册或登录 GitHub 即可下载。
+
+</details>
+
+<details>
 <summary><b>Intel Mac 也能用吗?</b></summary>
 
 当前版本仅支持 Apple Silicon。没有 Intel 版计划。

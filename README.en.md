@@ -136,6 +136,13 @@ Currently a free download. The license is "All rights reserved" to keep future f
 </details>
 
 <details>
+<summary><b>Can I download without a GitHub account?</b></summary>
+
+Yes. `yooongZa/DiskOUT` is a public repository, and the DMG on GitHub Releases is anonymously downloadable. No GitHub sign-up or login required.
+
+</details>
+
+<details>
 <summary><b>Does it work on Intel Macs?</b></summary>
 
 Current builds are Apple Silicon only. No Intel builds planned.

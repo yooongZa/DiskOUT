@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 2026-05-19: README FAQ 에 anonymous 다운로드 항목 추가
+
+`yooongZa/DiskOUT` public 전환 (v0.4.3 release 시점) 이후 GitHub 로그인 없이도 DMG 다운로드 가능. 사용자가 "가입해야 받을 수 있나?" 헷갈리지 않도록 FAQ 에 명시. 4 언어 README 모두 "무료인가요?" 항목 다음에 한 줄 추가.
+
+**검증**:
+- `https://github.com/yooongZa/DiskOUT/releases/download/v0.4.3/DiskOUT-0.4.3.dmg` → HTTP 200 (anonymous)
+- Release 페이지 / Repo 페이지 모두 anonymous 접근 OK
+
 ## 2026-05-19: README 카피 사용자 시안으로 재구성 (간결화)
 
 **배경**: 직전 cycle 의 시장 조사 + 경쟁사 분석 결과를 바탕으로 사용자 (제작자) 가 직접 작성한 카피 시안으로 README 통째 재구성. *"보통의 어제 / 보통의 오늘"* Before/After narrative 는 제거 — 더 간결하고 직설적인 흐름으로.

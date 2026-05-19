@@ -136,6 +136,13 @@ mount / eject 같은 디스크 조작은 sandbox(샌드박스) 환경에서 제�
 </details>
 
 <details>
+<summary><b>GitHub 아이디 없어도 다운로드 받을 수 있나요?</b></summary>
+
+네. `yooongZa/DiskOUT` 은 public 저장소이고, GitHub Releases 의 DMG 도 anonymous 다운로드가 됩니다. GitHub 가입 / 로그인 없이도 그냥 받으실 수 있습니다.
+
+</details>
+
+<details>
 <summary><b>Intel Mac 도 되나요?</b></summary>
 
 현재 빌드는 Apple Silicon 전용입니다. Intel 빌드는 계획에 없습니다.
