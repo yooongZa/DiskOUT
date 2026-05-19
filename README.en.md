@@ -6,9 +6,7 @@
 
 [한국어](README.md) · **English** · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
 
-### Close the lid. We'll handle the drives.
-
-No more *"Disk Not Ejected Properly"* notifications. Set it once, forget it.
+### Did nothing. Disk Ejected Properly. Perfectly.
 
 **한국어 · English · 日本語 · 中文 (简体)** · Auto-eject on sleep · Apple Silicon native
 
@@ -30,35 +28,23 @@ No more *"Disk Not Ejected Properly"* notifications. Set it once, forget it.
 
 ---
 
-## You've been here, right?
+## Yesterday
 
-### 😱 You wake your Mac → *"Disk Not Ejected Properly"* notifications. Dozens of them.
+> **9 AM** — "Disk Not Ejected Properly" notification storm.
+> **3 PM** — Open laptop, right-click drive, click eject, unplug SSD, put laptop in bag.
+> **11 PM** — Time Machine backup, starting from zero.
 
-Apple Discussions has a thread for this bug. **It's 10 years old.** Still not fixed.
+## Today (with DiskOUT)
 
-Some users wake to **100+ notifications stacked up**, dismissing them by hand because Notification Center has no "Clear All."
-
-> *"I had 100's of these notifications and spent 10 min closing each one."* — Apple Discussions
-
-### 😮‍💨 You closed the lid before ejecting (again)
-
-You can't count how many times. The dock disconnects, the drive flails, *"Disk Not Ejected Properly"* shows up tomorrow morning.
-
-### 🎬 Your Premiere footage went offline (because the lid closed)
-
-Your library lives on the external SSD. Wake = relink every clip. Same story with Lightroom catalogs, Final Cut events, Logic projects.
-
-### 🔄 Time Machine backup interrupted. Again.
-
-Drive disconnected mid-backup → next backup starts from zero. Another hour or two of waiting.
+> **9 AM** — Zero notifications.
+> **3 PM** — Close, unplug, bag.
+> **11 PM** — Time Machine backup, completed without a hitch.
 
 ---
 
-**DiskOUT** solves all four — a small menu bar utility that does what macOS should have done a decade ago.
+— So what changed?
 
 ---
-
-## What it actually does
 
 ### 1️⃣ Lid closes → drives eject. Quietly.
 

@@ -1,5 +1,46 @@
 # CHANGELOG
 
+## 2026-05-19: 안내 페이지 카피 시장 조사 기반 재작성
+
+**배경**: v0.4.3 release 직후 README 의 첫 인상 카피를 한국 + 미국 시장 조사 + 경쟁사 분석 기반으로 재설계. 시장의 "비어 있는 톤" 을 점유하는 목적.
+
+### 시장 조사 (양시장 sub-agent 병렬, 12+ thread 깊이)
+
+- **한국 (Clien MaClien / 맥모앙 / Apple Discussions Korea)**: 1번 페인포인트 = "아침에 깨우니 알림 폭격" + "**찝찝함**" / "**하드 망가질 두려움**" 정서 키워드. Jettison 인지도 있으나 "썩 잘 동작 안 함" 평가 공존 — 시장 공백 확인.
+- **미국 (Apple Discussions / MacRumors / Hacker News / Ejectify Show HN)**: 1번 페인포인트 = "**100s of notifications**" + "**10년된 Apple bug 안 고침**" 자조적 분노. matter-of-fact + dry humor + slight against-Apple 톤 권장.
+
+### 경쟁사 카피 분석
+
+| 앱 | Hero | 톤 |
+|---|---|---|
+| Jettison ($6.95) | "Manually take control of your external disks directly from your menu bar." | 무난·기능형 |
+| Ejectify (€6.99) | "No more Disk Not Ejected Properly notifications" | 페인포인트 직격 |
+| Mountain | "Manage your external volumes with Mountain." | 브랜드 우월 |
+| Ejecta ($9.99) | "Finally eject your external drives" | 좌절감 해소 |
+| EjectBar | "Disconnect drives fast." | 미니멀 |
+
+**시장 빈틈 발견**: (1) 감정·캐릭터·메타포 톤 0건, (2) fait accompli (이미 잘 됐다) framing 0건, (3) dual voice (시스템 메시지 인용 + 사용자 감탄) 0건, (4) 한국어 1급 시민 카피 부재.
+
+### 새 Hero (4 언어, macOS 시스템 알림 정확한 반대)
+
+- **한국**: "아무것도 안 했지만, 디스크가 정상적으로 추출되었습니다. 완벽하게."
+- **영어**: "Did nothing. Disk Ejected Properly. Perfectly."
+- **일본**: "何もしませんでしたが、ディスクは正しく取り出されました。完璧に。"
+- **중국**: "什么都没做,磁盘已正确推出。完美。"
+
+각 언어의 macOS 알림 ("디스크가 정상적으로 추출되지 않았습니다" / "Disk Not Ejected Properly" 등) 의 정확한 반대 + 끝의 "완벽하게." 가 사용자 감탄 톤. **dual voice + fait accompli + dry humor** = 시장 빈틈 3개 동시 점유.
+
+### 흐름 재구성
+
+- 기존 "이런 적, 있으셨죠?" (페인포인트 4개 listing) + "무엇을 해결하나요?" (핵심 3가지) → **"보통의 어제 / 보통의 오늘"** (Before/After narrative) + **"— 그 사이에 무엇이?"** (핵심 3가지) 로 통합.
+- 어제 = 5단계 동사 나열 ("맥북 열고, 우클릭, 추출 누르고, SSD 분리하고, 가방에 넣고") vs 오늘 = 3단계 압축 ("덮고, 뽑고, 넣고") — **텍스트 길이 자체로 가치 전달**, 사용자가 읽는 호흡으로 차이 느낌.
+
+### 변경 파일
+
+- `README.md` / `README.en.md` / `README.ja.md` / `README.zh-Hans.md` — Hero + Section 2-3 교체. 그 뒤 영역 (안심 표 / 다운로드 / 사용법 / FAQ / 전체 기능 / 개발자 안내) 은 유지.
+
+자세한 시장 조사 + 경쟁사 분석 디테일은 dev 노트 `DiskOUT_분석.md` 의 2026-05-19 항목 참조.
+
 ## 2026-05-19: v0.4.3 — 다국어 확장 (일본어 + 중국어 간체) + 한박자 늦음 버그 fix
 
 **배경**: v0.4.1 의 언어 스위처는 인프라만 정비하고 xcstrings 는 ko + en 만 유지. 이번 사이클에 **일본어(ja) + 중국어 간체(zh-Hans)** 두 언어 추가 + 첫 launch 의 자동 매칭 (smart default) 도입 + 언어 변경이 다음 재시작에 한박자 늦게 적용되던 버그 fix.
