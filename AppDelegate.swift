@@ -127,6 +127,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var lastKnownNotificationStatus: UNAuthorizationStatus = .notDetermined
     /// 알림 권한을 launch 시가 아니라 "첫 알림 직전"에 1회 요청하기 위한 가드.
     private var didRequestNotificationAuthorization = false
+    /// 현재 쓰기 I/O 가 진행 중인 외장 **물리** whole-disk BSD 집합 (예: ["disk7","disk8"]).
+    /// `DiskIOMonitor` 가 갱신. 메뉴에서 각 볼륨의 backing 물리 디스크와 교집합으로 "이 디스크가
+    /// 쓰는 중" 을 판정. main thread 에서만 접근.
+    private var writingPhysicalBSDs: Set<String> = []
+    /// 외장 어딘가에 쓰기가 진행 중인지 — 메뉴바 숫자 옆 systemBlue `●` + tooltip 표시 여부.
+    private var isDiskWriting: Bool { !writingPhysicalBSDs.isEmpty }
 
     // MARK: - Lifecycle
 
@@ -135,6 +141,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        // 추출 실패 시 "끄고 재시도" 액션 카테고리 — launch 시 등록해야 첫 알림부터 버튼이 뜬다.
+        let retryAction = UNNotificationAction(
+            identifier: EjectNotification.retryAction,
+            title: String(localized: "Quit apps and retry"),
+            options: [])
+        center.setNotificationCategories([
+            UNNotificationCategory(identifier: EjectNotification.retryCategory,
+                                   actions: [retryAction],
+                                   intentIdentifiers: [],
+                                   options: [])
+        ])
         // 알림 권한은 launch 시 요청하지 않는다 — 사용자가 아무것도 안 했는데 팝업이 뜨는 안티패턴.
         // 요청 시점: 온보딩 카드의 "허용" 버튼, 또는 첫 알림 직전 (ensureNotificationAuthorizationRequested).
         // 여기선 메뉴 권한 경고 표시용으로 현재 상태만 읽어 캐싱.
@@ -159,6 +176,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             DispatchQueue.main.async { self?.scheduleMountedDriveCountRefresh() }
         }
         DAInventory.shared.start()
+        // 외장 쓰기 활동 표시 — 모니터 폴링은 updateMountedDriveCount 가 외장 유무로 start/stop.
+        DiskIOMonitor.shared.onActivityChanged = { [weak self] writingBSDs in
+            self?.setDiskWriting(writingBSDs)
+        }
         DiskMenuSnapshotCache.warm()
         // launch 시 초기 1회 — DA hook 이 enumeration 중 트리거하지만, DA 가 끝내 ready
         // 안 되는 환경 대비 안전망.
@@ -332,6 +353,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         LoginItem.openSystemSettings()
     }
 
+    /// 볼륨의 여유/전체 용량을 "X free of Y (NN% used)" 로 포맷. 값이 없으면 nil.
+    /// `drive.url`(마운트 포인트) 에서 `URLResourceValues` 로 조회 — 프로세스 스폰 없음.
+    /// 메뉴 열 때만 호출되므로 동기 조회 비용 무시 가능 (로컬 외장 디스크 대상).
+    private func capacityDetail(forVolumeURL url: URL) -> String? {
+        let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]
+        guard let values = try? url.resourceValues(forKeys: keys),
+              let total = values.volumeTotalCapacity, total > 0
+        else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        let totalStr = formatter.string(fromByteCount: Int64(total))
+        guard let available = values.volumeAvailableCapacity else { return totalStr }
+        let freeStr = formatter.string(fromByteCount: Int64(available))
+        // 사용률 % — 디스크가 얼마나 찼는지 (df 의 Capacity 열과 같은 관점). 0...100 클램프.
+        let usedPct = max(0, min(100, Int((Double(total - available) / Double(total) * 100).rounded())))
+        let pctStr = "\(usedPct)%"   // 미리 % 붙여 String 으로 — 포맷 문자열에 리터럴 % 없게.
+        return String(localized: "\(freeStr) free of \(totalStr) (\(pctStr) used)")
+    }
+
+    /// 메뉴 항목 attributedTitle — 1줄 primary(기본 메뉴 폰트). 쓰는 중이면 systemBlue `●` 부착
+    /// (메뉴바 표시와 동일한 시각 언어). secondary 가 있으면 2줄로 작게·dimmed 추가.
+    private func menuItemTitle(primary: String, secondary: String?, writing: Bool) -> NSAttributedString {
+        let attr = NSMutableAttributedString(
+            string: primary,
+            attributes: [.font: NSFont.menuFont(ofSize: 0)])
+        if writing {
+            attr.append(NSAttributedString(string: " "))
+            attr.append(NSAttributedString(
+                string: "●",
+                attributes: [.foregroundColor: NSColor.systemBlue,
+                             .font: NSFont.systemFont(ofSize: 8)]))
+        }
+        if let secondary {
+            attr.append(NSAttributedString(
+                string: "\n" + secondary,
+                attributes: [
+                    .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+                    .foregroundColor: NSColor.secondaryLabelColor
+                ]))
+        }
+        return attr
+    }
+
+    /// 볼륨의 backing 물리 whole-disk BSD 집합. IOService plane 에서 볼륨 IOMedia 의 부모 방향으로
+    /// 거슬러 올라가 `IOBlockStorageDriver` 를 가진 whole `IOMedia` 들을 수집.
+    ///
+    /// direct(NTFS disk6 → {disk6}) · APFS synthesized(disk5s1 → 물리 store) · RAID(여러 멤버 →
+    /// {disk7,disk8}) 를 모두 균일하게 처리. `DiskIOMonitor` 가 보고하는 물리 BSD 집합과 교집합으로
+    /// "이 볼륨이 쓰는 중" 을 판정한다. 메뉴 열 때만 호출 (드라이브당 1회, 바운드된 IORegistry 순회).
+    private func physicalWholeDisks(forVolumeURL url: URL) -> Set<String> {
+        guard let session = DASessionCreate(kCFAllocatorDefault),
+              let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL),
+              let bsdC = DADiskGetBSDName(disk) else { return [] }
+        let startBSD = String(cString: bsdC)
+        guard let match = IOBSDNameMatching(kIOMainPortDefault, 0, startBSD) else { return [] }
+        let start = IOServiceGetMatchingService(kIOMainPortDefault, match)
+        guard start != IO_OBJECT_NULL else { return [] }
+
+        var result = Set<String>()
+        var visited = Set<UInt64>()
+        var queue = [start]   // 각 dequeue 시 1회 release. IOIteratorNext 가 준 retain 을 소비.
+        while !queue.isEmpty {
+            let e = queue.removeFirst()
+            defer { IOObjectRelease(e) }
+            var id: UInt64 = 0
+            IORegistryEntryGetRegistryEntryID(e, &id)
+            guard visited.insert(id).inserted else { continue }
+            if IOObjectConformsTo(e, "IOMedia") != 0,
+               (IORegistryEntryCreateCFProperty(e, "Whole" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? Bool) == true,
+               Self.hasBlockStorageDriverParent(e),
+               let bsd = IORegistryEntryCreateCFProperty(e, "BSD Name" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? String {
+                result.insert(bsd)
+            }
+            var pit: io_iterator_t = 0
+            if IORegistryEntryGetParentIterator(e, kIOServicePlane, &pit) == KERN_SUCCESS {
+                var p = IOIteratorNext(pit)
+                while p != IO_OBJECT_NULL { queue.append(p); p = IOIteratorNext(pit) }
+                IOObjectRelease(pit)
+            }
+        }
+        return result
+    }
+
+    /// `entry` 의 직속 부모(provider) 중 `IOBlockStorageDriver` 가 있는지 — whole `IOMedia` 가
+    /// 물리 디스크인지(= I/O 카운터 존재) 판별용.
+    private static func hasBlockStorageDriverParent(_ entry: io_registry_entry_t) -> Bool {
+        var pit: io_iterator_t = 0
+        guard IORegistryEntryGetParentIterator(entry, kIOServicePlane, &pit) == KERN_SUCCESS else { return false }
+        defer { IOObjectRelease(pit) }
+        var found = false
+        var p = IOIteratorNext(pit)
+        while p != IO_OBJECT_NULL {
+            if IOObjectConformsTo(p, "IOBlockStorageDriver") != 0 { found = true }
+            IOObjectRelease(p)
+            p = IOIteratorNext(pit)
+        }
+        return found
+    }
+
+    /// 주어진 볼륨이 지금 쓰기 중인지 — backing 물리 디스크와 모니터 보고 집합의 교집합.
+    private func isWritingVolume(_ url: URL) -> Bool {
+        guard !writingPhysicalBSDs.isEmpty else { return false }
+        return !physicalWholeDisks(forVolumeURL: url).isDisjoint(with: writingPhysicalBSDs)
+    }
+
     private func populateMenu(_ menu: NSMenu, snapshot: DiskMenuSnapshot, isRefreshing: Bool) {
         let started = Date()
         // 메뉴 열면 추출 결과 아이콘 reset — 사용자가 결과 확인했다고 간주
@@ -388,7 +516,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 if isExcluded && !drive.isTimeMachine { labels.append(String(localized: "auto-eject excluded")) }
                 let suffix = labels.isEmpty ? "" : " (\(labels.joined(separator: ", ")))"
 
-                let item = NSMenuItem(title: drive.name + suffix,
+                let baseTitle = drive.name + suffix
+                let item = NSMenuItem(title: baseTitle,
                                       action: #selector(ejectOne(_:)),
                                       keyEquivalent: "")
                 item.target = self
@@ -396,6 +525,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 item.isEnabled = !isRefreshing
                 item.image = menuSymbol(drive.isTimeMachine ? "clock.arrow.circlepath" : drive.kind.symbolName,
                                         fallback: "externaldrive")
+                // 용량/여유공간(2번째 줄, dimmed) + 쓰는 중이면 이름 옆 systemBlue `●`.
+                // 둘 다 없으면 단일 줄 plain title 유지 (네트워크/일부 TM 등 용량 nil + 비활성).
+                let detail = capacityDetail(forVolumeURL: drive.url)
+                let writing = isWritingVolume(drive.url)
+                if detail != nil || writing {
+                    item.attributedTitle = menuItemTitle(primary: baseTitle, secondary: detail, writing: writing)
+                }
+                if writing {
+                    item.toolTip = String(localized: "Writing to an external disk — don't disconnect")
+                }
                 // submenu 폐기 — submenu 가 있으면 macOS 가 클릭 시 action 무시 (추출 안 됨).
                 // 자동 추출 제외 토글은 메뉴 하단의 별도 "자동 추출 제외 디스크" submenu 로 이동.
                 menu.addItem(item)
@@ -699,26 +838,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let menuFont = NSFont.menuBarFont(ofSize: 0)  // 0 = 시스템 기본 메뉴바 크기
         let countStr = "\(mountedDriveCount)"
 
-        if pendingUpdate != nil {
-            // "3 ●" — 숫자는 메뉴바 기본 폰트, ● 만 작게 systemRed
-            let attr = NSMutableAttributedString(
-                string: countStr + " ",
-                attributes: [.font: menuFont]
-            )
+        let attr = NSMutableAttributedString(
+            string: countStr,
+            attributes: [.font: menuFont]
+        )
+        // 쓰는 중 — 작은 systemBlue `●` (분리 경고). 업데이트 점(systemRed)과 색으로 구분.
+        if isDiskWriting {
+            attr.append(NSAttributedString(string: " "))
             attr.append(NSAttributedString(
                 string: "●",
-                attributes: [
-                    .foregroundColor: NSColor.systemRed,
-                    .font: NSFont.systemFont(ofSize: 8)
-                ]
+                attributes: [.foregroundColor: NSColor.systemBlue,
+                             .font: NSFont.systemFont(ofSize: 8)]
             ))
-            button.attributedTitle = attr
-        } else {
-            button.attributedTitle = NSAttributedString(
-                string: countStr,
-                attributes: [.font: menuFont]
-            )
         }
+        // 미설치 업데이트 — 작은 systemRed `●` (gentle reminder). pendingUpdate 가 nil 로
+        // 돌아가면 점도 사라진다.
+        if pendingUpdate != nil {
+            attr.append(NSAttributedString(string: " "))
+            attr.append(NSAttributedString(
+                string: "●",
+                attributes: [.foregroundColor: NSColor.systemRed,
+                             .font: NSFont.systemFont(ofSize: 8)]
+            ))
+        }
+        button.attributedTitle = attr
+        button.toolTip = isDiskWriting
+            ? String(localized: "Writing to an external disk — don't disconnect")
+            : nil
     }
 
     /// 마운트된 외장 "디바이스" 개수 — 물리 디스크(whole-disk BSD) 단위 집계.
@@ -735,6 +881,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func updateMountedDriveCount(_ count: Int) {
         let changed = count != mountedDriveCount
         mountedDriveCount = count
+        // I/O 모니터는 외장이 있을 때만 폴링 (배터리 절약). 0 이면 중단 + 쓰기 표시 clear.
+        if count > 0 {
+            DiskIOMonitor.shared.start()
+        } else {
+            DiskIOMonitor.shared.stop()
+            writingPhysicalBSDs = []
+        }
         guard lastResultSymbol == nil else {
             if changed {
                 log.info("drive count → \(count, privacy: .public) (deferred — result icon showing)")
@@ -746,6 +899,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if changed {
             log.info("drive count → \(count, privacy: .public), menu bar title updated")
         }
+    }
+
+    /// `DiskIOMonitor` 콜백 — 쓰는 중 물리 디스크 집합 변화 시 메뉴바 표시 갱신. main thread.
+    /// 결과 심볼(↻/✓/✗) 표시 중에는 title 을 건드리지 않음 — resetIcon 시 최신 상태 반영.
+    private func setDiskWriting(_ writingBSDs: Set<String>) {
+        guard writingPhysicalBSDs != writingBSDs else { return }
+        writingPhysicalBSDs = writingBSDs
+        if lastResultSymbol == nil {
+            applyCountTitle()
+        }
+        log.debug("disk writing → \(writingBSDs.sorted(), privacy: .public)")
     }
 
     /// 백그라운드에서 마운트 개수를 다시 계산해 메뉴바 숫자에 반영.
@@ -789,11 +953,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         ejectAndSleep(caller: "menu")
     }
 
+    /// 쓰는 중 디스크를 **수동** 추출할 때 확인 — force fallback(기본 ON)이 복사를 끊어 파일을
+    /// 손상시키는 사고 방지. 사용자가 "그래도 추출"을 택하면 true. main thread 전용.
+    ///
+    /// **수동 경로 전용**: sleep/lid-close/display-sleep 자동 경로는 사람이 없어 확인이 무의미하므로
+    /// 이 가드를 쓰지 않고 기존 force 동작을 유지한다 (전원 꺼지기 전 깔끔히 추출). 5.6.9 정책.
+    private func confirmEjectWhileWriting(title: String) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = String(localized: "Ejecting now will interrupt the copy and may corrupt files. Eject anyway?")
+        let ejectButton = alert.addButton(withTitle: String(localized: "Eject Anyway"))
+        let cancelButton = alert.addButton(withTitle: String(localized: "Cancel"))
+        // 위험 동작이 기본(Return) 버튼이 되지 않게 — Cancel 을 기본/강조로.
+        ejectButton.keyEquivalent = ""
+        cancelButton.keyEquivalent = "\r"
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     /// 개별 드라이브 추출 (메뉴 아이템 클릭).
     @objc private func ejectOne(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         let name = sender.title
         let path = url.path
+        // 쓰는 중이면 강제 추출 전에 확인 (수동 경로 전용 가드).
+        if isWritingVolume(url),
+           !confirmEjectWhileWriting(title: String(localized: "\"\(name)\" is being written to")) {
+            log.notice("EJECTONE cancelled by user — disk busy (writing): \(name, privacy: .public)")
+            return
+        }
         log.info("EJECTONE start: \(name, privacy: .public) at \(path, privacy: .public)")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
@@ -801,14 +990,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             DiskMenuSnapshotCache.invalidate()
             DiskMenuSnapshotCache.warm()
             log.info("EJECTONE done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
+            // 실패 시 점유 앱 중 끌 수 있는 것 계산 — lsof 가 blocking 이라 background 에서 (main 전에).
+            var quittableNames: [String] = []
+            var quittableBundleIDs: [String] = []
+            if !result.success {
+                let apps = self.quittableApps(from: LsofInspector.blockingProcesses(forVolumePath: path))
+                quittableNames = apps.map { $0.localizedName ?? $0.bundleIdentifier ?? "?" }
+                quittableBundleIDs = apps.compactMap { $0.bundleIdentifier }
+            }
             DispatchQueue.main.async {
                 if result.success {
                     self.notify(title: String(localized: "Ejected"), body: name, kind: .success)
-                } else {
+                } else if quittableBundleIDs.isEmpty {
+                    // 끌 수 있는 앱 없음 (데몬뿐 / 진단 실패) → 기존 텍스트 알림.
                     self.notify(title: String(localized: "Couldn't eject \(name)"),
                                 body: result.errorMessage ?? String(localized: "Unknown error"),
                                 archived: true,
                                 kind: .failure)
+                } else {
+                    // 끌 수 있는 앱 있음 → "끄고 재시도" 액션 알림. userInfo 에 대상 박아 둠.
+                    let appList = quittableNames.joined(separator: ", ")
+                    self.notify(title: String(localized: "Couldn't eject \(name)"),
+                                body: String(localized: "\(appList) is using this disk. Quit it and try ejecting again?"),
+                                archived: true,
+                                kind: .failure,
+                                categoryIdentifier: EjectNotification.retryCategory,
+                                userInfo: [
+                                    EjectNotification.volumePathKey: path,
+                                    EjectNotification.appBundleIDsKey: quittableBundleIDs,
+                                ])
                 }
             }
         }
@@ -821,6 +1031,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if elapsed < 1.5 {
             log.info("EJECT(\(caller, privacy: .public)) DEBOUNCED — last fired \(String(format: "%.2f", elapsed), privacy: .public)s ago")
             flashIcon(symbol: "circle.dashed", duration: 0.3)
+            return
+        }
+        // 외장 중 하나라도 쓰는 중이면 강제 추출 전에 확인 (수동 경로 전용 가드).
+        if !writingPhysicalBSDs.isEmpty,
+           !confirmEjectWhileWriting(title: String(localized: "An external disk is being written to")) {
+            log.notice("EJECT(\(caller, privacy: .public)) cancelled by user — disk(s) busy (writing)")
             return
         }
         lastEjectAt = now
@@ -2150,7 +2366,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// archived=true 면 알림 센터에 보관 (사후 확인 가치 있는 negative event 등),
     /// false 면 banner 만 잠깐 표시되고 사라짐 (즉시 인지 가능한 positive event 등).
     /// userInfo 에 flag 를 박아 willPresent 콜백에서 옵션 분기.
-    private func notify(title: String, body: String, archived: Bool = false, kind: AppNotificationKind = .info) {
+    private func notify(title: String, body: String, archived: Bool = false, kind: AppNotificationKind = .info,
+                        categoryIdentifier: String? = nil, userInfo extraUserInfo: [String: Any] = [:]) {
         guard SettingsStore.notificationsEnabled else {
             log.info("notification skipped: notifications disabled")
             return
@@ -2174,7 +2391,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.userInfo = ["archived": archived]
+        var userInfo: [String: Any] = ["archived": archived]
+        userInfo.merge(extraUserInfo) { _, new in new }
+        content.userInfo = userInfo
+        if let categoryIdentifier { content.categoryIdentifier = categoryIdentifier }
         // sound 의도적으로 설정 안 함 — 도서관 등 조용한 환경 고려
         let request = UNNotificationRequest(identifier: UUID().uuidString,
                                             content: content,
@@ -2189,6 +2409,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let archived = (notification.request.content.userInfo["archived"] as? Bool) ?? false
         // archived 만 .list (알림 센터 보관). sound 는 항상 제외 — 무음 정책.
         completionHandler(archived ? [.banner, .list] : [.banner])
+    }
+
+    /// 알림 액션 응답 — "끄고 재시도" 버튼. main thread 에서 호출되므로 completionHandler 는 즉시
+    /// 호출하고(수신 확인), 실제 종료+재시도는 background 로 (terminate polling 이 blocking).
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        defer { completionHandler() }
+        guard response.actionIdentifier == EjectNotification.retryAction else { return }
+        let userInfo = response.notification.request.content.userInfo
+        guard let volumePath = userInfo[EjectNotification.volumePathKey] as? String else { return }
+        let bundleIDs = userInfo[EjectNotification.appBundleIDsKey] as? [String] ?? []
+        log.notice("eject retry action: volume=\(volumePath, privacy: .public) apps=\(bundleIDs, privacy: .public)")
+        handleQuitAndRetry(volumePath: volumePath, appBundleIDs: bundleIDs)
+    }
+
+    /// 점유 프로세스 중 "사용자가 끌 수 있는 일반 GUI 앱"만 추려 반환.
+    /// 시스템 데몬(mds/backupd 등, .regular 아님) + Finder · Dock 등 시스템 GUI + 자기 자신 제외.
+    /// background/main 어디서든 호출 가능 (NSRunningApplication 읽기는 thread-safe).
+    private func quittableApps(from blockers: [BlockingProcess]) -> [NSRunningApplication] {
+        let denylist: Set<String> = [
+            Bundle.main.bundleIdentifier ?? "com.yongza.ejectdrives",
+            "com.apple.finder",
+            "com.apple.dock",
+            "com.apple.loginwindow",
+            "com.apple.systemuiserver",
+        ]
+        var seen = Set<String>()
+        var apps: [NSRunningApplication] = []
+        for blocker in blockers {
+            guard let app = NSRunningApplication(processIdentifier: blocker.pid),
+                  app.activationPolicy == .regular,
+                  let bid = app.bundleIdentifier,
+                  !denylist.contains(bid),
+                  seen.insert(bid).inserted
+            else { continue }
+            apps.append(app)
+        }
+        return apps
+    }
+
+    /// "끄고 재시도" 버튼 핸들러 — 대상 앱 graceful 종료 → 추출 **1회만** 재시도 → 결과 알림.
+    /// 끈 앱은 재실행하지 않는다 (사용자가 추출하려고 끈 것 — 다시 띄우면 볼륨 재잠금).
+    /// pid 는 stale 일 수 있어 bundle ID 로 현재 실행 중인 앱을 다시 찾는다.
+    private func handleQuitAndRetry(volumePath: String, appBundleIDs: [String]) {
+        let name = (volumePath as NSString).lastPathComponent
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let targets = NSWorkspace.shared.runningApplications.filter {
+                guard let bid = $0.bundleIdentifier else { return false }
+                return appBundleIDs.contains(bid)
+            }
+            if !targets.isEmpty {
+                LibraryAppHandler.terminate(apps: targets, timeout: 3.0)
+            }
+            // 재시도 1회 — 루프 금지. 재시도도 수동 gentle 경로(diskutilEject) 사용 (force 사다리 X).
+            let result = self.diskutilEject(volumePath: volumePath)
+            DiskMenuSnapshotCache.invalidate()
+            DiskMenuSnapshotCache.warm()
+            log.info("eject retry done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
+            DispatchQueue.main.async {
+                if result.success {
+                    self.notify(title: String(localized: "Ejected"), body: name, kind: .success)
+                } else {
+                    // graceful terminate 라 미저장 문서 앱은 종료 거부 가능 → 솔직히 실패 알림.
+                    self.notify(title: String(localized: "Still couldn't eject \(name)"),
+                                body: result.errorMessage ?? String(localized: "Unknown error"),
+                                archived: true,
+                                kind: .failure)
+                }
+            }
+        }
     }
 
     // MARK: - Global Hotkey (설정된 E 기반 preset)
@@ -2276,6 +2568,16 @@ private enum AppNotificationKind {
     case info
     case success
     case failure
+}
+
+/// 추출 실패 알림의 "끄고 재시도" 액션 관련 식별자 + userInfo 키.
+/// 카테고리는 launch 시 1회 등록 (지연 등록 시 첫 알림에 버튼이 안 뜸).
+private enum EjectNotification {
+    static let retryCategory = "diskout.eject.retry"
+    static let retryAction = "diskout.eject.retry.action"
+    static let volumePathKey = "diskout.volumePath"
+    /// 끌 대상 앱 bundle ID 목록 — 탭 시점에 pid 는 stale 일 수 있어 bundle ID 로 재해석.
+    static let appBundleIDsKey = "diskout.appBundleIDs"
 }
 
 private final class SleepDAUnmountBox {
@@ -3427,6 +3729,17 @@ private enum LsofInspector {
         return "\(String(localized: "Could not inspect blocking processes"))\n\(String(localized: "Full Disk Access may be needed"))"
     }
 
+    /// 점유 프로세스를 구조화된 `[BlockingProcess]`(pid 포함)로 반환 — 능동 복구(앱 끄고 재시도)
+    /// 판단용. `diagnosticMessage` 와 동일한 lsof 호출이지만 텍스트 대신 pid 목록을 돌려준다.
+    /// timeout / FDA 부재 등으로 조회 실패하면 빈 배열 (호출자는 기존 텍스트 알림으로 fallback).
+    static func blockingProcesses(forVolumePath volumePath: String) -> [BlockingProcess] {
+        let result = ProcessRunner.run(executable: "/usr/sbin/lsof",
+                                       arguments: ["-nP", "-w", "-Fpcfn", "--", volumePath],
+                                       timeout: 3.0)
+        guard !result.timedOut else { return [] }
+        return parse(result.stdout, volumePath: volumePath)
+    }
+
     private static func parse(_ data: Data, volumePath: String) -> [BlockingProcess] {
         guard let text = String(data: data, encoding: .utf8) else { return [] }
 
@@ -4449,34 +4762,48 @@ enum LibraryAppHandler {
     /// 그렇지 않으면 직후 추출이 lock 에 걸려 실패할 수 있다.
     static func quitLibraryApps() {
         let workspace = NSWorkspace.shared
-        var quitTargets: [NSRunningApplication] = []
-        var quit: [String] = []
-        for app in workspace.runningApplications {
-            guard let bid = app.bundleIdentifier, bundleIDs.contains(bid) else { continue }
+        let targets = workspace.runningApplications.filter {
+            guard let bid = $0.bundleIdentifier else { return false }
+            return bundleIDs.contains(bid)
+        }
+        // wake 시 relaunch 하려고 종료한 bundle 기록 — 이 경로(sleep) 전용 상태.
+        quitBundles = terminate(apps: targets, timeout: 3.0)
+        log.info("LibraryAppHandler: quit \(quitBundles.count, privacy: .public) apps = \(quitBundles, privacy: .public)")
+    }
+
+    /// graceful terminate + 종료 완료 polling. 재사용 코어 — sleep 라이브러리 종료와 능동 복구
+    /// (점유 앱 끄고 재시도) 가 공유. `forceTerminate()` 는 **절대 안 씀** (미저장 데이터 손실 방지).
+    ///
+    /// - 동작: 각 앱에 `terminate()` 요청 → 받아들여진 앱들에 대해 최대 `timeout` 초 종료 대기.
+    ///   graceful 이라 보통 100~500ms 에 끝남. 앱이 미저장 문서로 종료 거부하면 timeout 후 진행.
+    /// - polling 이 blocking(`Thread.sleep`) 이므로 **background 큐에서 호출**할 것 (main thread X).
+    /// - 반환: 종료 요청이 받아들여진 앱들의 bundle ID. (state 변경 없음 — caller 가 보관 여부 결정.)
+    @discardableResult
+    static func terminate(apps: [NSRunningApplication], timeout: TimeInterval) -> [String] {
+        var accepted: [NSRunningApplication] = []
+        var acceptedIDs: [String] = []
+        for app in apps {
+            let bid = app.bundleIdentifier ?? "?"
             log.notice("LibraryAppHandler: terminating \(bid, privacy: .public)")
-            // graceful terminate — 앱이 sleep 진입 전 정리 시간 가짐 (write cache flush 등).
-            // forceTerminate() 는 안 씀 (사용자 데이터 손실 위험).
+            // graceful terminate — 앱이 정리 시간 가짐 (write cache flush 등).
             if app.terminate() {
-                quit.append(bid)
-                quitTargets.append(app)
+                accepted.append(app)
+                if let realBID = app.bundleIdentifier { acceptedIDs.append(realBID) }
             } else {
                 log.error("LibraryAppHandler: terminate denied for \(bid, privacy: .public)")
             }
         }
-        quitBundles = quit
 
-        // 종료 완료까지 최대 ~3초 polling. graceful terminate 라 보통 100~500ms 에 끝남.
-        // sleep 자체가 IOKit 으로 잠깐 지연된 상태이므로 이 정도는 허용 범위.
-        let deadline = Date().addingTimeInterval(3.0)
-        for target in quitTargets {
+        let deadline = Date().addingTimeInterval(timeout)
+        for target in accepted {
             while !target.isTerminated && Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.1)
             }
             if !target.isTerminated {
-                log.notice("LibraryAppHandler: \(target.bundleIdentifier ?? "?", privacy: .public) still running after 3s — proceeding anyway")
+                log.notice("LibraryAppHandler: \(target.bundleIdentifier ?? "?", privacy: .public) still running after \(Int(timeout), privacy: .public)s — proceeding anyway")
             }
         }
-        log.info("LibraryAppHandler: quit \(quit.count, privacy: .public) apps = \(quit, privacy: .public)")
+        return acceptedIDs
     }
 
     /// 앞서 종료한 앱들 재실행. 없으면 no-op.
@@ -4502,6 +4829,158 @@ enum LibraryAppHandler {
                 }
             }
         }
+    }
+}
+
+// MARK: - Disk I/O Monitor (외장 쓰기 활동 감지)
+
+/// 외장 물리 디스크의 쓰기 I/O 를 폴링해 "지금 어떤 디스크가 쓰는 중" 을 감지 — 사용자가 쓰기
+/// 도중 분리하지 않도록 메뉴바 + 메뉴에 표시하기 위한 신호.
+///
+/// **왜 물리 디스크 레벨인가**: APFS synthesized 볼륨(disk5 등)·virtual 컨테이너(disk4)는
+/// `IOBlockStorageDriver` 가 없어 byte 카운터가 없다. 카운터는 물리 디바이스에만 있으므로
+/// `IOBlockStorageDriver` 를 직접 열거하고, `Protocol Characteristics` 의
+/// `Physical Interconnect Location == "External"` 로 외장만 필터한다 (내장 disk0 / 내장 SD 리더 /
+/// 디스크 이미지[loc=File] 자동 제외).
+///
+/// 디스크별 누적 `Bytes (Write)` 를 폴 간격마다 비교해 델타가 threshold 이상인 **물리 whole-disk
+/// BSD** 집합(예: ["disk7","disk8"])을 보고한다. 볼륨→물리 매핑은 메뉴 쪽
+/// (`physicalWholeDisks(forVolumeURL:)`)이 담당 — 여기선 물리 단위로만 본다. spawn 0 (순수
+/// IORegistry).
+final class DiskIOMonitor {
+    static let shared = DiskIOMonitor()
+
+    /// 폴링 간격 — 반응성 vs 배터리. 외장이 있을 때만 (AppDelegate 가 start/stop) 돈다.
+    private let interval: TimeInterval = 1.5
+    /// 폴 간 write 델타가 이 값 이상이면 "쓰는 중" — 작은 metadata flush 오탐 방지.
+    private let threshold: UInt64 = 256 * 1024   // 256 KB
+
+    private let queue = DispatchQueue(label: "com.yongza.ejectdrives.io-monitor", qos: .utility)
+    private var timer: DispatchSourceTimer?
+    /// 물리 whole-disk BSD → 직전 폴의 누적 write 바이트.
+    private var lastWriteByDisk: [String: UInt64] = [:]
+    private var hasBaseline = false
+    /// 직전에 보고한 "쓰는 중" 물리 BSD 집합 — 변화 감지용.
+    private var lastActiveSet: Set<String> = []
+
+    /// 쓰는 중인 물리 whole-disk BSD 집합이 변할 때 main thread 에서 호출. 빈 집합이면 비활성.
+    var onActivityChanged: ((Set<String>) -> Void)?
+
+    /// 외장이 마운트됐을 때 호출. idempotent.
+    func start() {
+        queue.async { [weak self] in
+            guard let self = self, self.timer == nil else { return }
+            let t = DispatchSource.makeTimerSource(queue: self.queue)
+            t.schedule(deadline: .now() + 0.2, repeating: self.interval)
+            t.setEventHandler { [weak self] in self?.poll() }
+            t.resume()
+            self.timer = t
+            log.notice("DiskIOMonitor: started")
+        }
+    }
+
+    /// 외장이 모두 사라졌을 때 호출. idempotent. 상태 리셋 + (켜져 있었으면) 비활성 통지.
+    func stop() {
+        queue.async { [weak self] in
+            guard let self = self, let t = self.timer else { return }
+            t.cancel()
+            self.timer = nil
+            self.hasBaseline = false
+            self.lastWriteByDisk = [:]
+            if !self.lastActiveSet.isEmpty {
+                self.lastActiveSet = []
+                DispatchQueue.main.async { [weak self] in self?.onActivityChanged?([]) }
+            }
+            log.notice("DiskIOMonitor: stopped")
+        }
+    }
+
+    private func poll() {
+        let (writes, hasExternal) = Self.externalWritesByDisk()
+        // 외장 없으면 baseline 리셋 + 비활성 (start/stop race 로 잠깐 외장 0 인 경우 대비).
+        guard hasExternal else {
+            hasBaseline = false
+            lastWriteByDisk = [:]
+            setActive([])
+            return
+        }
+        // 첫 폴은 baseline 만 기록 (직전 누적값을 모르므로 델타 계산 불가).
+        guard hasBaseline else {
+            lastWriteByDisk = writes
+            hasBaseline = true
+            return
+        }
+        var writing = Set<String>()
+        for (bsd, cur) in writes {
+            // 새로 꽂힌 디스크는 last == cur 로 둬 첫 폴 오탐 방지 (다음 폴부터 델타 유효).
+            let last = lastWriteByDisk[bsd] ?? cur
+            let delta = cur >= last ? cur - last : 0
+            if delta >= threshold { writing.insert(bsd) }
+        }
+        lastWriteByDisk = writes
+        setActive(writing)
+    }
+
+    private func setActive(_ set: Set<String>) {
+        guard set != lastActiveSet else { return }
+        lastActiveSet = set
+        log.debug("DiskIOMonitor: writing=\(set.sorted(), privacy: .public)")
+        DispatchQueue.main.async { [weak self] in self?.onActivityChanged?(set) }
+    }
+
+    /// 외장 물리 디스크별 누적 write 바이트 (whole-disk BSD → bytes) + 외장 존재 여부. IORegistry 만 사용.
+    private static func externalWritesByDisk() -> (writes: [String: UInt64], hasExternal: Bool) {
+        let opts = IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
+        var iter: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault,
+                                           IOServiceMatching("IOBlockStorageDriver"),
+                                           &iter) == KERN_SUCCESS else {
+            return ([:], false)
+        }
+        defer { IOObjectRelease(iter) }
+
+        var writes: [String: UInt64] = [:]
+        var hasExternal = false
+        var svc = IOIteratorNext(iter)
+        while svc != IO_OBJECT_NULL {
+            if let pc = IORegistryEntrySearchCFProperty(svc, kIOServicePlane,
+                                                        "Protocol Characteristics" as CFString,
+                                                        kCFAllocatorDefault, opts) as? [String: Any],
+               (pc["Physical Interconnect Location"] as? String) == "External" {
+                hasExternal = true
+                if let bsd = wholeDiskBSD(forDriver: svc),
+                   let stats = IORegistryEntryCreateCFProperty(svc, "Statistics" as CFString,
+                                                               kCFAllocatorDefault, 0)?
+                    .takeRetainedValue() as? [String: Any] {
+                    writes[bsd] = (stats["Bytes (Write)"] as? NSNumber)?.uint64Value ?? 0
+                }
+            }
+            IOObjectRelease(svc)
+            svc = IOIteratorNext(iter)
+        }
+        return (writes, hasExternal)
+    }
+
+    /// `IOBlockStorageDriver` 의 자식 whole `IOMedia` 의 BSD name (예: "disk7"). I/O 카운터를
+    /// 디스크별로 귀속시키는 키.
+    private static func wholeDiskBSD(forDriver driver: io_service_t) -> String? {
+        var it: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(driver, kIOServicePlane, &it) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(it) }
+        var found: String?
+        var child = IOIteratorNext(it)
+        while child != IO_OBJECT_NULL {
+            if found == nil,
+               IOObjectConformsTo(child, "IOMedia") != 0,
+               (IORegistryEntryCreateCFProperty(child, "Whole" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? Bool) == true {
+                found = IORegistryEntryCreateCFProperty(child, "BSD Name" as CFString, kCFAllocatorDefault, 0)?
+                    .takeRetainedValue() as? String
+            }
+            IOObjectRelease(child)
+            child = IOIteratorNext(it)
+        }
+        return found
     }
 }
 

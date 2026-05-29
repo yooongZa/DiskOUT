@@ -1,5 +1,83 @@
 # CHANGELOG
 
+## Unreleased — 2026-05-29: 점유 앱 "끄고 재시도" + 쓰는 중 수동 추출 확인 가드
+
+**배경**: 직전 쓰기 활동 표시(파란 점)를 붙이고 실사용하다 **데이터 유실 구멍**을 발견 — 파일 복사 중에 수동 추출을 누르면, 1차 `diskutil eject` 가 막혀도 `forceFallbackEnabled`(기본 ON)이 `diskutil unmount force` 로 **강제 언마운트**해서 복사를 끊고 디스크가 빠져버린다. 파란 점은 경고만, "끄고 재시도"는 실패할 때만 뜨는데 force fallback 이 실패를 성공으로 바꿔 둘 다 못 막았다. 두 가지로 대응.
+
+### 1. 점유 앱 능동 복구 — 추출 실패 시 "끄고 재시도" 액션 알림
+
+기존엔 추출 실패 시 "X가 디스크를 쓰는 중" 텍스트만 보여주는 dead-end → 끌 수 있는 앱이 있으면 **버튼 한 번으로 종료 + 자동 재추출**.
+
+- **진단 재사용**: `LsofInspector.blockingProcesses(forVolumePath:)` — 기존 텍스트 진단의 lsof 파싱을 `[BlockingProcess]`(pid 포함)로 돌려주는 공개 진입점.
+- **끌 수 있는 앱 필터** (`quittableApps`): 점유 pid → `NSRunningApplication` → `activationPolicy == .regular`(일반 GUI 앱)만. **denylist 로 Finder · Dock · loginwindow · SystemUIServer · 자기 자신 제외** (Finder 는 거의 항상 잡혀 있고 꺼도 되살아나므로 필수). bundleID dedupe. 끌 앱이 없으면(데몬뿐/진단 실패) 기존 텍스트 알림 fallback.
+- **종료 코어 일반화**: `quitLibraryApps` 의 graceful terminate + polling 을 `LibraryAppHandler.terminate(apps:timeout:)` 헬퍼로 추출. **sleep wake-relaunch 용 `quitBundles` 기록은 `quitLibraryApps` 에 남겨** 기존 동작 보존.
+- **알림 액션**: launch 시 `UNNotificationCategory`(retry 액션) 등록 → `notify()` 에 `categoryIdentifier` + userInfo 옵셔널 파라미터(기존 호출자 무변경). `didReceive` 응답 핸들러 신설 — main 에서 `completionHandler` 즉시 호출, **종료+재시도는 background** (terminate polling 이 blocking).
+- **버튼 핸들러** (`handleQuitAndRetry`): bundleID 로 현재 앱 재해석(stale pid 방지) → graceful `terminate()` → **추출 1회만 재시도**(루프 금지, 재시도도 gentle 경로). **끈 앱은 재실행 안 함** (사용자가 추출하려고 끈 것). 미저장 문서로 종료 거부 시 솔직히 "여전히 못 뺐어요".
+
+**안전 규칙**: graceful `terminate()` 만 (`forceTerminate()` 절대 금지) · **수동 경로 전용**(자동 sleep 경로 안 건드림) · 재시도 1회 · 데몬/Finder 제외 · FDA 없어 진단 실패하면 fallback.
+
+### 2. 쓰는 중 수동 추출 확인 가드
+
+위 데이터 유실 구멍을 직접 막음 — **쓰는 중인 디스크를 수동 추출하면 확인 대화상자**.
+
+- `ejectOne`(개별 클릭): `isWritingVolume(url)` 이면 force 추출 전에 확인. `ejectAll`(모두 추출 / 우클릭 / 단축키): 외장 중 하나라도 쓰는 중이면 확인.
+- `confirmEjectWhileWriting` — `NSAlert(.warning)`. **Cancel 이 기본 버튼**(Return/Esc → 취소)이라 실수 추출 방지. "그래도 추출" 선택 시에만 force 포함 진행.
+- **sleep/뚜껑/화면꺼짐/"추출하고 잠자기"는 안 건드림** — 사람 없는 자동 경로는 확인이 무의미하므로 기존 force 유지 (5.6.9 정책의 manual↔auto 분리).
+- 한계: 모니터가 1.5s 폴링 + 256KB threshold 라 복사 시작 직후 ~1.5s 창이나 아주 느린 trickle 쓰기는 가드 미발동 (지속 복사는 잡힘).
+
+### 변경 파일
+
+- **[AppDelegate.swift](AppDelegate.swift)**: `LsofInspector.blockingProcesses` / `LibraryAppHandler.terminate(apps:timeout:)` / `EjectNotification` / `quittableApps` / `handleQuitAndRetry` / `didReceive` / `confirmEjectWhileWriting` 신설. launch 시 카테고리 등록, `notify()` 확장, `ejectOne` · `ejectAll` 에 쓰기 가드.
+- **`Localizable.xcstrings`**: 8개 키 × 4 언어 — "Quit apps and retry", "%@ is using this disk. Quit it and try ejecting again?", "Still couldn't eject %@", "\"%@\" is being written to", "An external disk is being written to", "Ejecting now will interrupt…", "Eject Anyway", "Cancel".
+- **`DiskOUT_개발기획서.md`**: 4.2 P17(능동 복구)·P18(쓰기 가드), 5.6.9 수동 경로 갱신.
+
+### 검증
+
+| 항목 | 결과 |
+|---|---|
+| `xcodebuild Debug build` (정상 서명) | BUILD SUCCEEDED, 경고 0, xcstrings JSON 유효 |
+| 심볼 정합성 | 정의↔참조 일치, 옛 변수 잔재 없음 |
+| 실 디스크 검증 | force fallback 기본 ON 확인(`defaults` 키 부재) → 가드 진입 조건 성립 |
+| 라이브 동작 | ⚠️ 미실행 — 추출 실패/복사 중단을 안전하게 재현하려면 사용자 데이터 디스크 쓰기 필요. UI 렌더는 기존 알림/`NSAlert` 패턴 |
+
+## Unreleased — 2026-05-29: 외장 쓰기 활동 표시 (분리 경고) + 디스크 용량·사용률 메뉴 표기
+
+**배경**: 메뉴바 숫자로 "몇 개 꽂혀 있나"는 알 수 있었지만 **지금 어떤 디스크에 쓰는 중인지**(쓰는 도중 분리하면 데이터 손상) 는 알 수 없었다. 또 메뉴에서 각 디스크 남은 용량을 보고 싶다는 요청. 이 사이클에 두 가지 추가.
+
+### 1. 외장 쓰기 활동 모니터 (`DiskIOMonitor`) — [AppDelegate.swift](AppDelegate.swift)
+
+- **물리 디스크 레벨 폴링**: `IOBlockStorageDriver` 를 열거하고 `Protocol Characteristics` 의 `Physical Interconnect Location == "External"` 로 외장만 필터. APFS synthesized 볼륨 · virtual 컨테이너는 byte 카운터가 없어 물리 디바이스에서만 집계 가능 (내장 disk0 / 내장 SD 리더 / 디스크 이미지 자동 제외). process spawn 0 (순수 IORegistry).
+- **디스크별 추적**: 물리 whole-disk BSD 별 누적 `Bytes (Write)` 를 1.5s 간격으로 비교, 델타 ≥ 256 KB 인 디스크를 "쓰는 중" 으로 판정 → 쓰는 중인 물리 BSD 집합 (예: `{disk7, disk8}`) 을 보고. 작은 metadata flush 오탐 방지용 threshold + 새로 꽂힌 디스크는 첫 폴 baseline-only 처리.
+- **배터리**: 외장이 1개 이상일 때만 timer 가동 (`updateMountedDriveCount` 가 외장 0 이면 stop + 표시 clear).
+
+### 2. 메뉴바 + 메뉴 표시
+
+- **메뉴바 숫자 옆 systemBlue `●`** + "외장 디스크에 쓰는 중 — 분리하지 마세요" tooltip (쓰는 중일 때만). 자동 업데이트 알림의 systemRed `●` 와 색으로 구분, 동시 표시 가능.
+- **메뉴에서 *그 디스크* 항목에만 파란 `●`** — 사용자가 "어떤 디스크가 바쁜지" 즉시 식별. 해당 항목에 동일 tooltip.
+
+### 3. 볼륨 → 물리 디스크 매핑 (IORegistry parent-walk)
+
+- 모니터는 물리 디스크 (예: disk7/disk8) 를 보고하지만 메뉴 항목의 whole-disk BSD 는 APFS synthesized (disk5) 라 직접 안 맞는다. **볼륨 IOMedia 에서 IOService plane 부모 방향으로 거슬러 올라가 `IOBlockStorageDriver` 를 가진 물리 whole-disk 들을 수집** (`physicalWholeDisks(forVolumeURL:)`).
+- direct (NTFS disk6 → `{disk6}`) · APFS synthesized · **RAID (disk7+disk8 → 가상 disk4 → APFS disk5s1 = "SYSJO" → `{disk7, disk8}`)** 를 모두 균일 처리. 모니터 보고 집합과 교집합이 있으면 그 볼륨이 쓰는 중 (`isWritingVolume`).
+
+### 4. 디스크 용량 / 사용률 메뉴 표기
+
+- 각 디스크 메뉴 항목 2번째 줄 (작게 · dimmed) 에 **"X free of Y (NN% used)"** — `URLResourceValues` (`volumeTotalCapacity` / `volumeAvailableCapacity`) 로 조회, 메뉴 열 때만 동기 조회 (spawn 없음). 사용률 % 는 df 의 Capacity 열과 같은 관점. 값 없으면 (네트워크/일부) 단일 줄 유지.
+
+### 변경 파일
+
+- **[AppDelegate.swift](AppDelegate.swift)**: `DiskIOMonitor` 를 디스크별 추적으로 리팩터링 (`externalWritesByDisk` / `wholeDiskBSD`, `onActivityChanged: (Set<String>)`). `writingPhysicalBSDs` 상태 + `setDiskWriting(Set<String>)`. `applyCountTitle` 파란 점/tooltip. `capacityDetail` (사용률 % 추가) / `menuItemTitle` (쓰기 마커) / `physicalWholeDisks` / `hasBlockStorageDriverParent` / `isWritingVolume` 신설. `populateMenu` 가 항목별로 적용.
+- **`Localizable.xcstrings`**: `"Writing to an external disk — don't disconnect"`, `"%@ free of %@ (%@ used)"` 2개 키 × 4 언어 (기존 `"%@ free of %@"` 대체).
+
+### 검증
+
+| 항목 | 결과 |
+|---|---|
+| `xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build` | BUILD SUCCEEDED |
+| 실 디스크 매핑 (RAID/APFS/NTFS) | 모니터 키 `{disk6,disk7,disk8}` ↔ 메뉴 매핑 SYSJO→`{disk7,disk8}` · Extreme SSD→`{disk6}` 일치, 교집합 정상 |
+| 용량 % | `4.79 TB free of 8 TB (40% used)` 등 free/total/% 내부 일관 (NTFS 는 `volumeAvailableCapacity` 가 df 와 차이날 수 있음 — 기존 "free of" 줄과 동일 소스라 표시 자체는 일관) |
+| 라이브 쓰기 중 점 표시 | ⚠️ 미검증 — 사용자 데이터 디스크 테스트 쓰기 생략. 메뉴/메뉴바 렌더는 기존 systemRed 업데이트 점과 동일 NSAttributedString 패턴 |
+
 ## 2026-05-19: README FAQ 에 anonymous 다운로드 항목 추가
 
 `yooongZa/DiskOUT` public 전환 (v0.4.3 release 시점) 이후 GitHub 로그인 없이도 DMG 다운로드 가능. 사용자가 "가입해야 받을 수 있나?" 헷갈리지 않도록 FAQ 에 명시. 4 언어 README 모두 "무료인가요?" 항목 다음에 한 줄 추가.
