@@ -291,6 +291,64 @@
         }
       }
     },
+    "Reading from an external disk — don't disconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading from an external disk — don't disconnect"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "외장 디스크에서 읽는 중 — 분리하지 마세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外付けディスクから読み込み中 — 取り外さないでください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取外置磁盘 — 请勿断开"
+          }
+        }
+      }
+    },
+    "Reading and writing an external disk — don't disconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading and writing an external disk — don't disconnect"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "외장 디스크를 읽고 쓰는 중 — 분리하지 마세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外付けディスクを読み書き中 — 取り外さないでください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读写外置磁盘 — 请勿断开"
+          }
+        }
+      }
+    },
     "Allow": {
       "extractionState": "manual",
       "localizations": {

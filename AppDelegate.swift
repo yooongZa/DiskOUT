@@ -127,12 +127,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var lastKnownNotificationStatus: UNAuthorizationStatus = .notDetermined
     /// 알림 권한을 launch 시가 아니라 "첫 알림 직전"에 1회 요청하기 위한 가드.
     private var didRequestNotificationAuthorization = false
-    /// 현재 쓰기 I/O 가 진행 중인 외장 **물리** whole-disk BSD 집합 (예: ["disk7","disk8"]).
+    /// 현재 쓰기/읽기 I/O 가 진행 중인 외장 **물리** whole-disk BSD 집합 (예: ["disk7","disk8"]).
     /// `DiskIOMonitor` 가 갱신. 메뉴에서 각 볼륨의 backing 물리 디스크와 교집합으로 "이 디스크가
-    /// 쓰는 중" 을 판정. main thread 에서만 접근.
+    /// 쓰는 중/읽는 중" 을 판정. main thread 에서만 접근.
     private var writingPhysicalBSDs: Set<String> = []
-    /// 외장 어딘가에 쓰기가 진행 중인지 — 메뉴바 숫자 옆 systemBlue `●` + tooltip 표시 여부.
-    private var isDiskWriting: Bool { !writingPhysicalBSDs.isEmpty }
+    private var readingPhysicalBSDs: Set<String> = []
+    /// 외장 어딘가에 읽기/쓰기가 진행 중인지 — 메뉴바 숫자 옆 systemBlue `●` + tooltip 표시 여부.
+    /// (읽기·쓰기 모두 "분리하면 작업 깨짐" 이므로 닷은 동일, 종류 구분은 tooltip 문구로.)
+    private var isDiskActive: Bool { !writingPhysicalBSDs.isEmpty || !readingPhysicalBSDs.isEmpty }
 
     // MARK: - Lifecycle
 
@@ -177,8 +179,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         DAInventory.shared.start()
         // 외장 쓰기 활동 표시 — 모니터 폴링은 updateMountedDriveCount 가 외장 유무로 start/stop.
-        DiskIOMonitor.shared.onActivityChanged = { [weak self] writingBSDs in
-            self?.setDiskWriting(writingBSDs)
+        DiskIOMonitor.shared.onActivityChanged = { [weak self] writingBSDs, readingBSDs in
+            self?.setDiskActivity(writing: writingBSDs, reading: readingBSDs)
         }
         DiskMenuSnapshotCache.warm()
         // launch 시 초기 1회 — DA hook 이 enumeration 중 트리거하지만, DA 가 끝내 ready
@@ -372,13 +374,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return String(localized: "\(freeStr) free of \(totalStr) (\(pctStr) used)")
     }
 
-    /// 메뉴 항목 attributedTitle — 1줄 primary(기본 메뉴 폰트). 쓰는 중이면 systemBlue `●` 부착
+    /// 읽기/쓰기 활동에 따른 "분리 금지" tooltip 문구. 둘 다 없으면 nil.
+    /// 닷(●)은 활동이 있으면 동일하게 띄우고, 읽기/쓰기 구분은 이 문구로만 전달한다.
+    private func activityTooltip(writing: Bool, reading: Bool) -> String? {
+        switch (writing, reading) {
+        case (true, true):   return String(localized: "Reading and writing an external disk — don't disconnect")
+        case (true, false):  return String(localized: "Writing to an external disk — don't disconnect")
+        case (false, true):  return String(localized: "Reading from an external disk — don't disconnect")
+        case (false, false): return nil
+        }
+    }
+
+    /// 메뉴 항목 attributedTitle — 1줄 primary(기본 메뉴 폰트). 읽기/쓰기 중이면 systemBlue `●` 부착
     /// (메뉴바 표시와 동일한 시각 언어). secondary 가 있으면 2줄로 작게·dimmed 추가.
-    private func menuItemTitle(primary: String, secondary: String?, writing: Bool) -> NSAttributedString {
+    private func menuItemTitle(primary: String, secondary: String?, active: Bool) -> NSAttributedString {
         let attr = NSMutableAttributedString(
             string: primary,
             attributes: [.font: NSFont.menuFont(ofSize: 0)])
-        if writing {
+        if active {
             attr.append(NSAttributedString(string: " "))
             attr.append(NSAttributedString(
                 string: "●",
@@ -454,7 +467,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return found
     }
 
-    /// 주어진 볼륨이 지금 쓰기 중인지 — backing 물리 디스크와 모니터 보고 집합의 교집합.
+    /// 주어진 볼륨의 읽기/쓰기 활동 — backing 물리 디스크와 모니터 보고 집합의 교집합.
+    /// 메뉴 표시(닷 + tooltip)용. 닷은 writing||reading, tooltip 은 종류별 문구.
+    private func volumeActivity(_ url: URL) -> (writing: Bool, reading: Bool) {
+        let wEmpty = writingPhysicalBSDs.isEmpty
+        let rEmpty = readingPhysicalBSDs.isEmpty
+        guard !wEmpty || !rEmpty else { return (false, false) }
+        let disks = physicalWholeDisks(forVolumeURL: url)
+        let writing = !wEmpty && !disks.isDisjoint(with: writingPhysicalBSDs)
+        let reading = !rEmpty && !disks.isDisjoint(with: readingPhysicalBSDs)
+        return (writing, reading)
+    }
+
+    /// 주어진 볼륨이 지금 쓰기 중인지 — eject 가드용(쓰기 중 분리는 손상 위험, 읽기는 제외).
     private func isWritingVolume(_ url: URL) -> Bool {
         guard !writingPhysicalBSDs.isEmpty else { return false }
         return !physicalWholeDisks(forVolumeURL: url).isDisjoint(with: writingPhysicalBSDs)
@@ -525,16 +550,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 item.isEnabled = !isRefreshing
                 item.image = menuSymbol(drive.isTimeMachine ? "clock.arrow.circlepath" : drive.kind.symbolName,
                                         fallback: "externaldrive")
-                // 용량/여유공간(2번째 줄, dimmed) + 쓰는 중이면 이름 옆 systemBlue `●`.
+                // 용량/여유공간(2번째 줄, dimmed) + 읽기/쓰기 중이면 이름 옆 systemBlue `●`.
                 // 둘 다 없으면 단일 줄 plain title 유지 (네트워크/일부 TM 등 용량 nil + 비활성).
                 let detail = capacityDetail(forVolumeURL: drive.url)
-                let writing = isWritingVolume(drive.url)
-                if detail != nil || writing {
-                    item.attributedTitle = menuItemTitle(primary: baseTitle, secondary: detail, writing: writing)
+                let activity = volumeActivity(drive.url)
+                let active = activity.writing || activity.reading
+                if detail != nil || active {
+                    item.attributedTitle = menuItemTitle(primary: baseTitle, secondary: detail, active: active)
                 }
-                if writing {
-                    item.toolTip = String(localized: "Writing to an external disk — don't disconnect")
-                }
+                // 읽기/쓰기 종류에 따라 tooltip 문구 구분 (활동 없으면 nil → tooltip 제거).
+                item.toolTip = activityTooltip(writing: activity.writing, reading: activity.reading)
                 // submenu 폐기 — submenu 가 있으면 macOS 가 클릭 시 action 무시 (추출 안 됨).
                 // 자동 추출 제외 토글은 메뉴 하단의 별도 "자동 추출 제외 디스크" submenu 로 이동.
                 menu.addItem(item)
@@ -842,8 +867,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             string: countStr,
             attributes: [.font: menuFont]
         )
-        // 쓰는 중 — 작은 systemBlue `●` (분리 경고). 업데이트 점(systemRed)과 색으로 구분.
-        if isDiskWriting {
+        // 읽기/쓰기 중 — 작은 systemBlue `●` (분리 경고). 업데이트 점(systemRed)과 색으로 구분.
+        if isDiskActive {
             attr.append(NSAttributedString(string: " "))
             attr.append(NSAttributedString(
                 string: "●",
@@ -862,9 +887,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             ))
         }
         button.attributedTitle = attr
-        button.toolTip = isDiskWriting
-            ? String(localized: "Writing to an external disk — don't disconnect")
-            : nil
+        button.toolTip = activityTooltip(writing: !writingPhysicalBSDs.isEmpty,
+                                         reading: !readingPhysicalBSDs.isEmpty)
     }
 
     /// 마운트된 외장 "디바이스" 개수 — 물리 디스크(whole-disk BSD) 단위 집계.
@@ -887,6 +911,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         } else {
             DiskIOMonitor.shared.stop()
             writingPhysicalBSDs = []
+            readingPhysicalBSDs = []
         }
         guard lastResultSymbol == nil else {
             if changed {
@@ -901,15 +926,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
-    /// `DiskIOMonitor` 콜백 — 쓰는 중 물리 디스크 집합 변화 시 메뉴바 표시 갱신. main thread.
+    /// `DiskIOMonitor` 콜백 — 쓰는 중/읽는 중 물리 디스크 집합 변화 시 메뉴바 표시 갱신. main thread.
     /// 결과 심볼(↻/✓/✗) 표시 중에는 title 을 건드리지 않음 — resetIcon 시 최신 상태 반영.
-    private func setDiskWriting(_ writingBSDs: Set<String>) {
-        guard writingPhysicalBSDs != writingBSDs else { return }
-        writingPhysicalBSDs = writingBSDs
+    private func setDiskActivity(writing: Set<String>, reading: Set<String>) {
+        guard writingPhysicalBSDs != writing || readingPhysicalBSDs != reading else { return }
+        writingPhysicalBSDs = writing
+        readingPhysicalBSDs = reading
         if lastResultSymbol == nil {
             applyCountTitle()
         }
-        log.debug("disk writing → \(writingBSDs.sorted(), privacy: .public)")
+        log.debug("disk activity → writing=\(writing.sorted(), privacy: .public) reading=\(reading.sorted(), privacy: .public)")
     }
 
     /// 백그라운드에서 마운트 개수를 다시 계산해 메뉴바 숫자에 반영.
@@ -4843,8 +4869,8 @@ enum LibraryAppHandler {
 /// `Physical Interconnect Location == "External"` 로 외장만 필터한다 (내장 disk0 / 내장 SD 리더 /
 /// 디스크 이미지[loc=File] 자동 제외).
 ///
-/// 디스크별 누적 `Bytes (Write)` 를 폴 간격마다 비교해 델타가 threshold 이상인 **물리 whole-disk
-/// BSD** 집합(예: ["disk7","disk8"])을 보고한다. 볼륨→물리 매핑은 메뉴 쪽
+/// 디스크별 누적 `Bytes (Read)`·`Bytes (Write)` 를 폴 간격마다 비교해 델타가 각 threshold 이상인
+/// 쓰는 중/읽는 중 **물리 whole-disk BSD** 집합(예: ["disk7","disk8"])을 보고한다. 볼륨→물리 매핑은 메뉴 쪽
 /// (`physicalWholeDisks(forVolumeURL:)`)이 담당 — 여기선 물리 단위로만 본다. spawn 0 (순수
 /// IORegistry).
 final class DiskIOMonitor {
@@ -4853,18 +4879,26 @@ final class DiskIOMonitor {
     /// 폴링 간격 — 반응성 vs 배터리. 외장이 있을 때만 (AppDelegate 가 start/stop) 돈다.
     private let interval: TimeInterval = 1.5
     /// 폴 간 write 델타가 이 값 이상이면 "쓰는 중" — 작은 metadata flush 오탐 방지.
-    private let threshold: UInt64 = 256 * 1024   // 256 KB
+    private let writeThreshold: UInt64 = 256 * 1024   // 256 KB
+    /// 폴 간 read 델타가 이 값 이상이면 "읽는 중". 읽기는 background(Spotlight 인덱싱·QuickLook
+    /// 썸네일·Time Machine 스캔) 읽기가 잦아 오탐이 흔하다 — write 보다 훨씬 높게 잡는다.
+    /// 16MB/폴(≈10.7MB/s): 관측된 Spotlight 첫 인덱싱(~10MB/s burst)은 거르고, 일반 복사
+    /// (외장 보통 수십 MB/s↑)는 잡힌다. 느린 읽기를 놓치면 닷만 안 뜰 뿐(읽기 중 분리는
+    /// 쓰기보다 위험 낮음). 거슬리거나 느린 복사를 놓치면 이 값만 조정.
+    private let readThreshold: UInt64 = 16 * 1024 * 1024   // 16 MB
 
     private let queue = DispatchQueue(label: "com.yongza.ejectdrives.io-monitor", qos: .utility)
     private var timer: DispatchSourceTimer?
-    /// 물리 whole-disk BSD → 직전 폴의 누적 write 바이트.
-    private var lastWriteByDisk: [String: UInt64] = [:]
+    /// 물리 whole-disk BSD → 직전 폴의 누적 (read, write) 바이트.
+    private var lastIOByDisk: [String: (read: UInt64, write: UInt64)] = [:]
     private var hasBaseline = false
-    /// 직전에 보고한 "쓰는 중" 물리 BSD 집합 — 변화 감지용.
-    private var lastActiveSet: Set<String> = []
+    /// 직전에 보고한 "쓰는 중"/"읽는 중" 물리 BSD 집합 — 변화 감지용.
+    private var lastWritingSet: Set<String> = []
+    private var lastReadingSet: Set<String> = []
 
-    /// 쓰는 중인 물리 whole-disk BSD 집합이 변할 때 main thread 에서 호출. 빈 집합이면 비활성.
-    var onActivityChanged: ((Set<String>) -> Void)?
+    /// 쓰는 중/읽는 중 물리 whole-disk BSD 집합이 변할 때 main thread 에서 호출.
+    /// (writing, reading) 둘 다 빈 집합이면 비활성. 닷은 둘 중 하나라도 있으면 표시.
+    var onActivityChanged: ((_ writing: Set<String>, _ reading: Set<String>) -> Void)?
 
     /// 외장이 마운트됐을 때 호출. idempotent.
     func start() {
@@ -4886,50 +4920,56 @@ final class DiskIOMonitor {
             t.cancel()
             self.timer = nil
             self.hasBaseline = false
-            self.lastWriteByDisk = [:]
-            if !self.lastActiveSet.isEmpty {
-                self.lastActiveSet = []
-                DispatchQueue.main.async { [weak self] in self?.onActivityChanged?([]) }
+            self.lastIOByDisk = [:]
+            if !self.lastWritingSet.isEmpty || !self.lastReadingSet.isEmpty {
+                self.lastWritingSet = []
+                self.lastReadingSet = []
+                DispatchQueue.main.async { [weak self] in self?.onActivityChanged?([], []) }
             }
             log.notice("DiskIOMonitor: stopped")
         }
     }
 
     private func poll() {
-        let (writes, hasExternal) = Self.externalWritesByDisk()
+        let (io, hasExternal) = Self.externalIOByDisk()
         // 외장 없으면 baseline 리셋 + 비활성 (start/stop race 로 잠깐 외장 0 인 경우 대비).
         guard hasExternal else {
             hasBaseline = false
-            lastWriteByDisk = [:]
-            setActive([])
+            lastIOByDisk = [:]
+            setActive(writing: [], reading: [])
             return
         }
         // 첫 폴은 baseline 만 기록 (직전 누적값을 모르므로 델타 계산 불가).
         guard hasBaseline else {
-            lastWriteByDisk = writes
+            lastIOByDisk = io
             hasBaseline = true
             return
         }
         var writing = Set<String>()
-        for (bsd, cur) in writes {
+        var reading = Set<String>()
+        for (bsd, cur) in io {
             // 새로 꽂힌 디스크는 last == cur 로 둬 첫 폴 오탐 방지 (다음 폴부터 델타 유효).
-            let last = lastWriteByDisk[bsd] ?? cur
-            let delta = cur >= last ? cur - last : 0
-            if delta >= threshold { writing.insert(bsd) }
+            let last = lastIOByDisk[bsd] ?? cur
+            let wDelta = cur.write >= last.write ? cur.write - last.write : 0
+            let rDelta = cur.read  >= last.read  ? cur.read  - last.read  : 0
+            if wDelta >= writeThreshold { writing.insert(bsd) }
+            if rDelta >= readThreshold  { reading.insert(bsd) }
         }
-        lastWriteByDisk = writes
-        setActive(writing)
+        lastIOByDisk = io
+        setActive(writing: writing, reading: reading)
     }
 
-    private func setActive(_ set: Set<String>) {
-        guard set != lastActiveSet else { return }
-        lastActiveSet = set
-        log.debug("DiskIOMonitor: writing=\(set.sorted(), privacy: .public)")
-        DispatchQueue.main.async { [weak self] in self?.onActivityChanged?(set) }
+    private func setActive(writing: Set<String>, reading: Set<String>) {
+        guard writing != lastWritingSet || reading != lastReadingSet else { return }
+        lastWritingSet = writing
+        lastReadingSet = reading
+        log.debug("DiskIOMonitor: writing=\(writing.sorted(), privacy: .public) reading=\(reading.sorted(), privacy: .public)")
+        DispatchQueue.main.async { [weak self] in self?.onActivityChanged?(writing, reading) }
     }
 
-    /// 외장 물리 디스크별 누적 write 바이트 (whole-disk BSD → bytes) + 외장 존재 여부. IORegistry 만 사용.
-    private static func externalWritesByDisk() -> (writes: [String: UInt64], hasExternal: Bool) {
+    /// 외장 물리 디스크별 누적 (read, write) 바이트 (whole-disk BSD → bytes) + 외장 존재 여부.
+    /// IORegistry 만 사용.
+    private static func externalIOByDisk() -> (io: [String: (read: UInt64, write: UInt64)], hasExternal: Bool) {
         let opts = IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
         var iter: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault,
@@ -4939,7 +4979,7 @@ final class DiskIOMonitor {
         }
         defer { IOObjectRelease(iter) }
 
-        var writes: [String: UInt64] = [:]
+        var io: [String: (read: UInt64, write: UInt64)] = [:]
         var hasExternal = false
         var svc = IOIteratorNext(iter)
         while svc != IO_OBJECT_NULL {
@@ -4952,13 +4992,15 @@ final class DiskIOMonitor {
                    let stats = IORegistryEntryCreateCFProperty(svc, "Statistics" as CFString,
                                                                kCFAllocatorDefault, 0)?
                     .takeRetainedValue() as? [String: Any] {
-                    writes[bsd] = (stats["Bytes (Write)"] as? NSNumber)?.uint64Value ?? 0
+                    let w = (stats["Bytes (Write)"] as? NSNumber)?.uint64Value ?? 0
+                    let r = (stats["Bytes (Read)"] as? NSNumber)?.uint64Value ?? 0
+                    io[bsd] = (read: r, write: w)
                 }
             }
             IOObjectRelease(svc)
             svc = IOIteratorNext(iter)
         }
-        return (writes, hasExternal)
+        return (io, hasExternal)
     }
 
     /// `IOBlockStorageDriver` 의 자식 whole `IOMedia` 의 BSD name (예: "disk7"). I/O 카운터를

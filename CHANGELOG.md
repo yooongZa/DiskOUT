@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## 2026-05-29: v0.4.5 — 외장 읽기 활동도 표시 (읽기/쓰기 통합)
+
+**배경**: v0.4.4 에서 쓰기 활동(파란 점)을 붙였는데, 실사용 중 **읽기도 "사용중"인데 표시가 없다**는 지적 — 외장에서 다른 곳으로 복사(빼내기)하면 source 디스크는 읽기만 발생해 점이 안 떴다. 읽는 중 분리해도 그 복사가 깨지므로 읽기도 알려줘야 맞다. 닷은 그대로 두고 tooltip 으로 읽기/쓰기를 구분.
+
+### 1. 읽기 I/O 도 감지 — `DiskIOMonitor` — [AppDelegate.swift](AppDelegate.swift)
+
+- `externalWritesByDisk` → **`externalIOByDisk`** 로 일반화: IOKit `Statistics` 에서 `Bytes (Write)` 에 더해 **`Bytes (Read)`** 도 수집, 물리 whole-disk BSD 별 `(read, write)` 누적 (`lastIOByDisk`).
+- `poll()` 이 read/write 델타를 각각 threshold 와 비교해 **`(writing, reading)` 두 BSD 집합**을 보고 (`onActivityChanged: (writing:reading:)`, `setActive(writing:reading:)`).
+- **threshold 비대칭**: 쓰기 256KB 유지. 읽기는 background(Spotlight 인덱싱·QuickLook 썸네일·TM 스캔) 읽기가 잦아 오탐이 흔해 **16MB/폴(≈10.7MB/s)** 로 상향 — 관측된 새 볼륨 Spotlight 첫 인덱싱(~10MB/s burst)은 거르고, 일반 복사(외장 수십 MB/s↑)는 잡힌다. 느린 읽기를 놓쳐도 닷만 안 뜰 뿐(읽기 중 분리는 쓰기보다 위험 낮음).
+
+### 2. 표시 — 닷은 동일, tooltip 으로 구분
+
+- 메뉴바 숫자 옆 · 메뉴 항목의 systemBlue `●` 는 **읽기‖쓰기 활동이면 동일하게** 표시 (`isDiskWriting`→`isDiskActive`, `menuItemTitle(writing:)`→`(active:)`).
+- **tooltip 만 3종 구분** (`activityTooltip(writing:reading:)`): "외장 디스크에 쓰는 중" / "…에서 읽는 중" / "…를 읽고 쓰는 중" — 모두 "분리하지 마세요".
+- eject 가드(`isWritingVolume`)는 **쓰기 전용 유지** — 읽기 중 분리는 손상 위험이 낮아 확인 대화상자까지는 안 띄우고 닷·tooltip 으로만 주의 (5.6.9 / P18 정책과 정합).
+
+### 변경 파일
+
+- **[AppDelegate.swift](AppDelegate.swift)**: `DiskIOMonitor` read 수집 (`externalIOByDisk` / `lastIOByDisk` / `writeThreshold`·`readThreshold` 분리 / `setActive(writing:reading:)` / `onActivityChanged` 시그니처). `readingPhysicalBSDs` 상태 + `isDiskActive` + `setDiskActivity(writing:reading:)` + `volumeActivity` + `activityTooltip` 신설. `menuItemTitle(active:)`, `populateMenu` · `applyCountTitle` 갱신. `isWritingVolume` 은 eject 가드용으로 유지.
+- **`Localizable.xcstrings`**: `"Reading from an external disk — don't disconnect"`, `"Reading and writing an external disk — don't disconnect"` 2개 키 × 4 언어 추가.
+
+### 검증
+
+| 항목 | 결과 |
+|---|---|
+| `xcodebuild -scheme DiskOUT -configuration Debug build` | BUILD SUCCEEDED, 에러 0, xcstrings JSON 유효 |
+| 심볼 정합성 | 구 심볼(`isDiskWriting` · `externalWritesByDisk` · `lastWriteByDisk` · `setDiskWriting`) 잔재 없음 |
+| 실 디스크 I/O | SYSJO(RAID 리빌드)=쓰기 ~140MB/s, Extreme SSD 복사=읽기 `iostat` 확인. 새 APFS 볼륨 "무제"의 Spotlight 첫 인덱싱(~10MB/s burst)이 16MB threshold 아래로 떨어져 읽기 점 미발생 확인 |
+| UI 점/tooltip 렌더 | 기존 v0.4.4 점 패턴과 동일 NSAttributedString — 라이브 메뉴 점/tooltip 육안은 사용자 확인 |
+
 ## 2026-05-29: v0.4.4 — 점유 앱 "끄고 재시도" + 쓰는 중 수동 추출 확인 가드
 
 **배경**: 직전 쓰기 활동 표시(파란 점)를 붙이고 실사용하다 **데이터 유실 구멍**을 발견 — 파일 복사 중에 수동 추출을 누르면, 1차 `diskutil eject` 가 막혀도 `forceFallbackEnabled`(기본 ON)이 `diskutil unmount force` 로 **강제 언마운트**해서 복사를 끊고 디스크가 빠져버린다. 파란 점은 경고만, "끄고 재시도"는 실패할 때만 뜨는데 force fallback 이 실패를 성공으로 바꿔 둘 다 못 막았다. 두 가지로 대응.

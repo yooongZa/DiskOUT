@@ -12,8 +12,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 495S4FVMCB
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: "0.4.4"
-    CURRENT_PROJECT_VERSION: "4"
+    MARKETING_VERSION: "0.4.5"
+    CURRENT_PROJECT_VERSION: "5"
 
 # Swift Package Manager 의존성.
 # Sparkle 2: 자동 업데이트 프레임워크 (https://sparkle-project.org).
