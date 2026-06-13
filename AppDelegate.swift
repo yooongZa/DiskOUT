@@ -25,6 +25,25 @@ import Sparkle
 ///   log stream --predicate 'subsystem == "com.yongza.ejectdrives"' --info
 private let log = Logger(subsystem: "com.yongza.ejectdrives", category: "app")
 
+/// 디자인 토큰 — UI 전반에서 공유하는 시각 상수의 단일 출처.
+/// 새 UI 를 만들 때는 여기 값을 먼저 쓰고, 없는 값이 필요하면 여기에 추가한다.
+/// 표기 컨벤션 (Title Case · "…" · 이모지 금지 등) 은 CLAUDE.md "UI 컨벤션" 참조.
+private enum UI {
+    // 간격
+    static let spacing: CGFloat = 14          // 표준 stack 간격 (설정/온보딩 공통)
+    static let rowSpacing: CGFloat = 10       // 행 내부 요소 간격
+    static let windowPadding: CGFloat = 24    // 창 가장자리 콘텐츠 여백
+
+    // 폰트 크기 (메뉴/메뉴바는 ofSize: 0 = 시스템 기본을 그대로 사용)
+    static let titleSize: CGFloat = 16        // 창 헤더 타이틀
+    static let bodySize: CGFloat = 13         // 본문/카드 타이틀
+    static let captionSize: CGFloat = 11      // 보조 설명 — 최소 가독 크기, 더 줄이지 않는다
+
+    // 메뉴바 상태점 (활동/업데이트)
+    static let dotSize: CGFloat = 8           // 색점 글리프 크기
+    static let dotBaselineOffset: CGFloat = 2 // 색점을 숫자/텍스트 광학 중심에 맞추는 오프셋
+}
+
 private let ioMessageCanSystemSleep: UInt32 = 0xe0000270
 private let ioMessageSystemWillSleep: UInt32 = 0xe0000280
 private let ioMessageSystemWillNotSleep: UInt32 = 0xe0000290
@@ -288,7 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 showStatusMenu()
                 return
             }
-            flashIcon(symbol: "hand.tap.fill", duration: 0.3)
+            // 별도 ack 플래시 없음 — ejectAll 이 즉시 진행 플래시(회전 화살표)를 띄운다.
             ejectAll(caller: "rightclick")
             return
         }
@@ -320,6 +339,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 }
             }
         }
+        // DA 인벤토리가 떠 있으면 동기 즉시 로드 (<1ms) 로 한 번만 populate.
+        // async 경로는 placeholder 행을 그렸다가 메뉴가 열린 채 다시 채우는데, macOS 26 의
+        // 메뉴 창은 항목이 줄어도 높이를 반납하지 않아 종료 아래 빈 한 칸이 남는다.
+        if let snapshot = DiskMenuSnapshotCache.currentIfInstant() {
+            populateMenu(menu, snapshot: snapshot, isRefreshing: false)
+            return
+        }
+        // Cold start (DA 미준비 — diskutil 로드는 느림) fallback: placeholder 를 먼저 보여주고
+        // 도착하면 다시 채운다. 이쪽은 메뉴가 커지는 방향이라 빈 칸 잔상이 없다.
         let state = DiskMenuSnapshotCache.currentForMenu { [weak self, weak menu] snapshot in
             DispatchQueue.main.async {
                 guard let self, let menu else { return }
@@ -355,7 +383,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         LoginItem.openSystemSettings()
     }
 
-    /// 볼륨의 여유/전체 용량을 "X free of Y (NN% used)" 로 포맷. 값이 없으면 nil.
+    /// 볼륨의 여유 용량/사용률을 "X free · NN% used" 로 포맷. 값이 없으면 nil.
+    /// 전체 용량은 생략 — 여유량+사용률이면 충분하고, "free of 1 TB (77% used)" 식 괄호 중첩이
+    /// 메뉴를 텍스트 과밀하게 만든다 (UI 컨벤션: 메타데이터 괄호 금지).
     /// `drive.url`(마운트 포인트) 에서 `URLResourceValues` 로 조회 — 프로세스 스폰 없음.
     /// 메뉴 열 때만 호출되므로 동기 조회 비용 무시 가능 (로컬 외장 디스크 대상).
     private func capacityDetail(forVolumeURL url: URL) -> String? {
@@ -365,13 +395,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         else { return nil }
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
-        let totalStr = formatter.string(fromByteCount: Int64(total))
-        guard let available = values.volumeAvailableCapacity else { return totalStr }
+        guard let available = values.volumeAvailableCapacity else {
+            return formatter.string(fromByteCount: Int64(total))
+        }
         let freeStr = formatter.string(fromByteCount: Int64(available))
         // 사용률 % — 디스크가 얼마나 찼는지 (df 의 Capacity 열과 같은 관점). 0...100 클램프.
         let usedPct = max(0, min(100, Int((Double(total - available) / Double(total) * 100).rounded())))
         let pctStr = "\(usedPct)%"   // 미리 % 붙여 String 으로 — 포맷 문자열에 리터럴 % 없게.
-        return String(localized: "\(freeStr) free of \(totalStr) (\(pctStr) used)")
+        return String(localized: "\(freeStr) free · \(pctStr) used")
     }
 
     /// 읽기/쓰기 활동에 따른 "분리 금지" tooltip 문구. 둘 다 없으면 nil.
@@ -385,6 +416,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
+    /// 활동/업데이트 표시용 작은 색점(" ●"). menuItemTitle / applyCountTitle 공용 헬퍼.
+    /// baselineOffset 으로 본문 텍스트의 광학 중심에 맞춘다 (베이스라인에 그대로 두면 점이 처져 보임).
+    private func activityDot(color: NSColor) -> NSAttributedString {
+        let dot = NSMutableAttributedString(string: " ")
+        dot.append(NSAttributedString(
+            string: "●",
+            attributes: [.foregroundColor: color,
+                         .font: NSFont.systemFont(ofSize: UI.dotSize),
+                         .baselineOffset: UI.dotBaselineOffset]))
+        return dot
+    }
+
     /// 메뉴 항목 attributedTitle — 1줄 primary(기본 메뉴 폰트). 읽기/쓰기 중이면 systemBlue `●` 부착
     /// (메뉴바 표시와 동일한 시각 언어). secondary 가 있으면 2줄로 작게·dimmed 추가.
     private func menuItemTitle(primary: String, secondary: String?, active: Bool) -> NSAttributedString {
@@ -392,11 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             string: primary,
             attributes: [.font: NSFont.menuFont(ofSize: 0)])
         if active {
-            attr.append(NSAttributedString(string: " "))
-            attr.append(NSAttributedString(
-                string: "●",
-                attributes: [.foregroundColor: NSColor.systemBlue,
-                             .font: NSFont.systemFont(ofSize: 8)]))
+            attr.append(activityDot(color: .systemBlue))
         }
         if let secondary {
             attr.append(NSAttributedString(
@@ -508,7 +547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let drives = snapshot.drives
 
         if isRefreshing {
-            let updating = NSMenuItem(title: String(localized: "Updating disk status..."),
+            let updating = NSMenuItem(title: String(localized: "Updating Disk Status…"),
                                       action: nil, keyEquivalent: "")
             updating.isEnabled = false
             menu.addItem(updating)
@@ -524,7 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
 
         if drives.isEmpty {
-            let empty = NSMenuItem(title: String(localized: "No external drives"), action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: String(localized: "No External Drives"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
         } else {
@@ -532,16 +571,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             // 사용자가 모르는 사이 백업 디스크가 자동 추출되어 백업 사이클 깨지는 사고 방지.
             autoExcludeNewTimeMachineDisks(drives)
 
-            for drive in drives {
-                // 메뉴 항목 라벨 — 상태 suffix 로 한 눈에 파악:
-                //   "업무백업 (Time Machine, 자동 제외)" / "SSD_W (자동 제외)" / "SYSJO"
-                let isExcluded = ExcludedVolumes.isExcluded(drive.volumeUUID)
-                var labels: [String] = []
-                if drive.isTimeMachine { labels.append("Time Machine") }
-                if isExcluded && !drive.isTimeMachine { labels.append(String(localized: "auto-eject excluded")) }
-                let suffix = labels.isEmpty ? "" : " (\(labels.joined(separator: ", ")))"
+            // 섹션 헤더 (macOS 14+) — 시스템 메뉴(Wi-Fi 등)와 같은 작은 회색 헤더.
+            // 13 은 헤더 없는 현행 유지 (disabled 행을 추가하면 오히려 행 수만 늘어남).
+            if #available(macOS 14.0, *) {
+                menu.addItem(NSMenuItem.sectionHeader(title: String(localized: "External Drives")))
+            }
 
-                let baseTitle = drive.name + suffix
+            for drive in drives {
+                let isExcluded = ExcludedVolumes.isExcluded(drive.volumeUUID)
+                // 디스크 상태 라벨 — 한 번에 하나만 (TM 디스크는 자동 제외가 기본이라 TM 우선):
+                //   macOS 14+ → 네이티브 badge ("업무백업  Time Machine") — 본문과 분리된 회색 캡션
+                //   macOS 13  → 괄호 suffix fallback ("업무백업 (Time Machine)")
+                let statusLabel: String? = drive.isTimeMachine
+                    ? "Time Machine"
+                    : (isExcluded ? String(localized: "auto-eject excluded") : nil)
+
+                let baseTitle: String
+                if #available(macOS 14.0, *) {
+                    baseTitle = drive.name
+                } else {
+                    baseTitle = statusLabel.map { "\(drive.name) (\($0))" } ?? drive.name
+                }
                 let item = NSMenuItem(title: baseTitle,
                                       action: #selector(ejectOne(_:)),
                                       keyEquivalent: "")
@@ -550,6 +600,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 item.isEnabled = !isRefreshing
                 item.image = menuSymbol(drive.isTimeMachine ? "clock.arrow.circlepath" : drive.kind.symbolName,
                                         fallback: "externaldrive")
+                if #available(macOS 14.0, *), let statusLabel {
+                    item.badge = NSMenuItemBadge(string: statusLabel)
+                }
                 // 용량/여유공간(2번째 줄, dimmed) + 읽기/쓰기 중이면 이름 옆 systemBlue `●`.
                 // 둘 다 없으면 단일 줄 plain title 유지 (네트워크/일부 TM 등 용량 nil + 비활성).
                 let detail = capacityDetail(forVolumeURL: drive.url)
@@ -566,12 +619,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }
             menu.addItem(NSMenuItem.separator())
             let ejectHotkey = SettingsStore.ejectHotkey
-            let ejectAllItem = NSMenuItem(title: String(localized: "Eject all  (\(ejectHotkey.title) · or right-click)"),
+            // 단축키는 keyEquivalent 가 메뉴 우측에 표시 — 제목 안 괄호 중복 표기 금지 (UI 컨벤션).
+            let ejectAllItem = NSMenuItem(title: String(localized: "Eject All"),
                                           action: #selector(ejectAllAction(_:)),
                                           keyEquivalent: "e")
             ejectAllItem.keyEquivalentModifierMask = ejectHotkey.flags
             ejectAllItem.target = self
             ejectAllItem.isEnabled = !isRefreshing
+            // 우클릭 안내는 tooltip 으로 — 우클릭 즉시 추출을 켠 경우에만 의미가 있다.
+            if SettingsStore.rightClickEjectEnabled {
+                ejectAllItem.toolTip = String(localized: "Tip: right-clicking the menu bar icon also ejects all drives.")
+            }
             menu.addItem(ejectAllItem)
 
             let ejectAndSleepItem = NSMenuItem(title: String(localized: "Eject and Sleep"),
@@ -587,9 +645,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let unmounted = snapshot.unmounted
         if !unmounted.isEmpty {
             menu.addItem(NSMenuItem.separator())
-            let header = NSMenuItem(title: String(localized: "Unmounted drives"),
+            let header: NSMenuItem
+            if #available(macOS 14.0, *) {
+                header = NSMenuItem.sectionHeader(title: String(localized: "Unmounted Drives"))
+            } else {
+                header = NSMenuItem(title: String(localized: "Unmounted Drives"),
                                     action: nil, keyEquivalent: "")
-            header.isEnabled = false
+                header.isEnabled = false
+            }
             menu.addItem(header)
 
             for u in unmounted {
@@ -606,7 +669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
             if unmounted.count >= 2 {
                 let mountHotkey = SettingsStore.mountHotkey
-                let mountAllItem = NSMenuItem(title: String(localized: "Mount all  (\(mountHotkey.title))"),
+                let mountAllItem = NSMenuItem(title: String(localized: "Mount All"),
                                               action: #selector(mountAllAction(_:)),
                                               keyEquivalent: "e")
                 mountAllItem.keyEquivalentModifierMask = mountHotkey.flags
@@ -621,7 +684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 메뉴에는 자주 토글하는 핵심 옵션만 둔다. display sleep / Music·Photos 자동 종료 /
         // 로그인 자동 실행은 한 번 설정하고 끝나는 항목이라 환경설정 창 (Settings...) 으로 이동.
         // 양쪽에 같은 토글이 있으면 어디서 켰는지 사용자가 헷갈림.
-        let toggle = NSMenuItem(title: String(localized: "Eject on sleep"),
+        let toggle = NSMenuItem(title: String(localized: "Eject on Sleep"),
                                 action: #selector(toggleSleepEject),
                                 keyEquivalent: "")
         toggle.target = self
@@ -646,7 +709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let togglableDrives = drives.filter { $0.volumeUUID != nil }
         if !togglableDrives.isEmpty {
             menu.addItem(NSMenuItem.separator())
-            let parent = NSMenuItem(title: String(localized: "Auto-eject excluded disks"),
+            let parent = NSMenuItem(title: String(localized: "Auto-Eject Excluded Disks"),
                                     action: nil, keyEquivalent: "")
             let sub = NSMenu()
             for drive in togglableDrives {
@@ -669,30 +732,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // pendingUpdate 가 있으면 (자동 체크에서 발견된 미설치 업데이트) 메뉴 안에서도 강조 표시.
         // 메뉴바 아이콘 옆 빨간 점과 짝을 이뤄, 사용자가 메뉴 열면 즉시 발견 가능.
         if let pending = pendingUpdate {
-            let pendingItem = NSMenuItem(
-                title: String(localized: "🔴 New version \(pending.displayVersionString) available"),
-                action: #selector(showPendingUpdate(_:)),
-                keyEquivalent: "")
+            let title = String(localized: "Update to \(pending.displayVersionString)…")
+            let pendingItem = NSMenuItem(title: title,
+                                         action: #selector(showPendingUpdate(_:)),
+                                         keyEquivalent: "")
             pendingItem.target = self
             pendingItem.toolTip = String(localized: "Click to install")
+            // 메뉴바의 업데이트 점(systemRed ●)과 같은 시각 언어 — 이모지(🔴) 대신 attributed 색점.
+            // 이모지는 시스템 메뉴 어휘(SF Symbol/텍스트)와 톤이 어긋난다 (UI 컨벤션: 이모지 금지).
+            let attr = NSMutableAttributedString(
+                string: "●",
+                attributes: [.foregroundColor: NSColor.systemRed,
+                             .font: NSFont.systemFont(ofSize: UI.dotSize),
+                             .baselineOffset: UI.dotBaselineOffset])
+            attr.append(NSAttributedString(string: "  \(title)",
+                                           attributes: [.font: NSFont.menuFont(ofSize: 0)]))
+            pendingItem.attributedTitle = attr
             menu.addItem(pendingItem)
         }
 
-        let checkUpdates = NSMenuItem(title: String(localized: "Check for Updates..."),
+        // 유틸리티 행(업데이트/설정/종료)은 아이콘 없이 텍스트만 — 아이콘은 콘텐츠(디스크)와
+        // 경고(⚠)에만. 시스템 Wi-Fi/배터리 메뉴와 같은 문법 (UI 컨벤션: 아이콘 정책).
+        let checkUpdates = NSMenuItem(title: String(localized: "Check for Updates…"),
                                       action: #selector(checkForUpdatesFromMenu(_:)),
                                       keyEquivalent: "")
         checkUpdates.target = self
-        checkUpdates.image = menuSymbol("arrow.triangle.2.circlepath", fallback: "arrow.clockwise")
         menu.addItem(checkUpdates)
 
         menu.addItem(NSMenuItem.separator())
 
-        let settings = NSMenuItem(title: String(localized: "Settings..."),
+        let settings = NSMenuItem(title: String(localized: "Settings…"),
                                   action: #selector(showSettingsWindow(_:)),
                                   keyEquivalent: ",")
         settings.keyEquivalentModifierMask = [.command]
         settings.target = self
-        settings.image = menuSymbol("gearshape", fallback: "gear")
         menu.addItem(settings)
 
         let quit = NSMenuItem(title: String(localized: "Quit DiskOUT"),
@@ -723,6 +796,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }, onClosed: { [weak self] in
                 // 창 닫히면 controller 해제 — 다음번 ⌘, 시 fresh state 로 다시 띄움.
                 self?.settingsWindowController = nil
+            }, onCheckForUpdates: { [weak self] in
+                // About 페인의 "업데이트 확인…" — 메뉴 항목과 같은 경로 (userInitiated).
+                self?.checkForUpdatesFromMenu(nil)
             })
         }
         settingsWindowController?.show()
@@ -785,6 +861,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     // MARK: - Status Icon Feedback (단축키/추출 시각 피드백)
 
+    /// 아이콘 변경 직전 호출 — 0.15s 페이드 전환으로 상태 교체가 덜컥거리지 않게.
+    /// 시스템 "동작 줄이기(Reduce Motion)" 설정 시 즉시 전환.
+    private func crossfadeIconChange(_ button: NSStatusBarButton) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.15
+        button.wantsLayer = true
+        button.layer?.add(fade, forKey: "iconFade")
+    }
+
     /// 메뉴바 아이콘 잠시 다른 심볼로 변경 후 원복 (회전화살표 등 임시 표시용).
     /// 지연 reset 이 그 사이 표시된 결과 아이콘 (setPersistentIcon) 을 덮어쓰지 않도록
     /// generation 토큰으로 보호. 빠른 추출에서 결과 ✓ 가 사라지던 race 방지.
@@ -796,6 +883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             newImg.isTemplate = true
+            self.crossfadeIconChange(button)
             button.title = ""        // 숫자 title 제거 — 심볼만 표시
             button.image = newImg
             self.iconFlashGeneration += 1
@@ -824,6 +912,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             img.isTemplate = true
+            self.crossfadeIconChange(button)
             button.title = ""        // 숫자 title 제거 — 결과 심볼만 표시
             button.image = img
             self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
@@ -847,44 +936,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     // MARK: - Mounted Drive Count
 
-    /// 메뉴바 버튼을 현재 마운트 개수(숫자 텍스트)로 표시.
-    /// image 는 비우고 `button.attributedTitle` 사용 — title 은 길이 제한이 없어 0~∞ 어떤 수든 표시 가능
-    /// (SF Symbol `<n>.circle.fill` 은 0~50 만 있어 폐기). variableLength 라 폭은 자동 조정.
+    /// 메뉴바 정체성 글리프 — 앱의 "얼굴". 숫자 왼쪽에 항상 표시해 어느 앱의 카운트인지 알 수 있게 한다.
+    /// 커스텀 아이콘으로 교체할 일이 생기면 이 함수만 바꾸면 된다 (호출부는 그대로).
+    private static func statusGlyph() -> NSImage? {
+        let image = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: "DiskOUT")?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
+        image?.isTemplate = true
+        return image
+    }
+
+    /// 메뉴바 버튼을 정체성 글리프(⏏) + 현재 마운트 개수(숫자 텍스트)로 표시.
+    /// 글리프는 `button.image`, 숫자는 `button.attributedTitle` — title 은 길이 제한이 없어
+    /// 0~∞ 어떤 수든 표시 가능 (SF Symbol `<n>.circle.fill` 은 0~50 만 있어 폐기).
+    /// variableLength 라 폭은 자동 조정. 0대일 때는 숫자를 생략하고 글리프만 — 정보 없는
+    /// "0"이 메뉴바 자리를 차지하지 않게. 숫자는 monospacedDigit — 카운트 변화 시 폭 흔들림 방지.
     ///
-    /// pendingUpdate (Sparkle 자동 체크에서 발견된 미설치 업데이트) 가 있으면 숫자 옆에 작은
-    /// systemRed `●` 추가 — gentle reminder 패턴. 사용자가 업데이트 다이얼로그를 보면
-    /// pendingUpdate 가 nil 로 돌아가며 점도 사라진다.
+    /// 색점(●)은 한 번에 하나만 — 읽기/쓰기 활동(systemBlue)이 미설치 업데이트(systemRed)보다
+    /// 우선. 업데이트는 메뉴 안 "Update to …" 항목으로도 보이므로 메뉴바에서는 양보한다.
+    /// (둘을 같이 붙이면 "2●●" — 점 두 개가 나란히 떠 시각 소음.)
     ///
     /// 반드시 main thread 에서 호출.
     private func applyCountTitle() {
         guard let button = statusItem.button else { return }
-        button.image = nil
+        crossfadeIconChange(button)
+        button.image = Self.statusGlyph()
+        button.imagePosition = .imageLeading
 
-        let menuFont = NSFont.menuBarFont(ofSize: 0)  // 0 = 시스템 기본 메뉴바 크기
-        let countStr = "\(mountedDriveCount)"
+        let menuBarSize = NSFont.menuBarFont(ofSize: 0).pointSize  // 0 = 시스템 기본 메뉴바 크기
+        let countStr = mountedDriveCount > 0 ? "\(mountedDriveCount)" : ""
 
         let attr = NSMutableAttributedString(
             string: countStr,
-            attributes: [.font: menuFont]
+            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: menuBarSize, weight: .regular)]
         )
-        // 읽기/쓰기 중 — 작은 systemBlue `●` (분리 경고). 업데이트 점(systemRed)과 색으로 구분.
         if isDiskActive {
-            attr.append(NSAttributedString(string: " "))
-            attr.append(NSAttributedString(
-                string: "●",
-                attributes: [.foregroundColor: NSColor.systemBlue,
-                             .font: NSFont.systemFont(ofSize: 8)]
-            ))
-        }
-        // 미설치 업데이트 — 작은 systemRed `●` (gentle reminder). pendingUpdate 가 nil 로
-        // 돌아가면 점도 사라진다.
-        if pendingUpdate != nil {
-            attr.append(NSAttributedString(string: " "))
-            attr.append(NSAttributedString(
-                string: "●",
-                attributes: [.foregroundColor: NSColor.systemRed,
-                             .font: NSFont.systemFont(ofSize: 8)]
-            ))
+            attr.append(activityDot(color: .systemBlue))
+        } else if pendingUpdate != nil {
+            attr.append(activityDot(color: .systemRed))
         }
         button.attributedTitle = attr
         button.toolTip = activityTooltip(writing: !writingPhysicalBSDs.isEmpty,
@@ -1051,6 +1139,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     /// 모든 외장 드라이브 추출. caller 는 식별용 문자열.
+    /// eject 결과(시도/실패/성공 비어있음 여부) → 영구표시 SF Symbol. ejectAll / ejectAndSleep 공용.
+    /// 결과 심볼은 전부 `*.circle.fill` 패밀리로 통일 — 같은 자리에 octagon/triangle 이 섞여
+    /// 나오면 매번 다른 어휘처럼 읽힌다 (색·기호로 구분, 형태는 동일).
+    private static func ejectResultSymbol(attemptedEmpty: Bool, failureEmpty: Bool, successEmpty: Bool) -> String {
+        if attemptedEmpty { return "questionmark.circle.fill" }  // 추출할 외장 없음
+        if failureEmpty { return "checkmark.circle.fill" }       // 모두 성공
+        if successEmpty { return "xmark.circle.fill" }           // 모두 실패
+        return "exclamationmark.circle.fill"                     // 일부 성공/실패
+    }
+
     private func ejectAll(caller: String) {
         let now = Date()
         let elapsed = now.timeIntervalSince(lastEjectAt)
@@ -1078,16 +1176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             DispatchQueue.main.async { [weak self] in
                 self?.notifyResult(result)
                 // 결과 아이콘 영구 표시 — 메뉴 열거나 다음 추출 시작 시까지 유지
-                let resultSymbol: String
-                if result.attempted.isEmpty {
-                    resultSymbol = "questionmark.circle"
-                } else if result.failure.isEmpty {
-                    resultSymbol = "checkmark.circle.fill"      // 모두 성공
-                } else if result.success.isEmpty {
-                    resultSymbol = "xmark.octagon.fill"          // 모두 실패
-                } else {
-                    resultSymbol = "exclamationmark.triangle.fill"  // 일부 성공/실패
-                }
+                let resultSymbol = AppDelegate.ejectResultSymbol(attemptedEmpty: result.attempted.isEmpty,
+                                                                 failureEmpty: result.failure.isEmpty,
+                                                                 successEmpty: result.success.isEmpty)
                 self?.setPersistentIcon(symbol: resultSymbol)
             }
         }
@@ -1125,7 +1216,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                 body: String(localized: "Some drives didn't eject. Sleep was not started."),
                                 archived: true,
                                 kind: .failure)
-                    self.setPersistentIcon(symbol: result.success.isEmpty ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                    self.setPersistentIcon(symbol: AppDelegate.ejectResultSymbol(attemptedEmpty: result.attempted.isEmpty,
+                                                                                 failureEmpty: result.failure.isEmpty,
+                                                                                 successEmpty: result.success.isEmpty))
                     return
                 }
 
@@ -1362,6 +1455,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if eject.success {
             return eject
         }
+        // `diskutil eject` 는 whole-disk 동작 — 같은 물리 디스크의 다른 볼륨을 병렬 추출하면
+        // 먼저 끝난 쪽이 이 볼륨까지 분리해 진 쪽 명령이 실패로 끝난다. 볼륨이 이미 사라졌으면
+        // 성공으로 처리 (multi-partition "Eject All" 거짓 실패 알림 방지 — sleep 경로와 같은 가드).
+        if !DAInventory.shared.isVolumePresent(at: volumePath) {
+            log.notice("cycle \(operation, privacy: .public) volume already gone after eject — treat as success: \(volumePath, privacy: .public)")
+            return (true, nil)
+        }
 
         guard SettingsStore.forceFallbackEnabled else {
             log.notice("cycle \(operation, privacy: .public) force fallback disabled for \(volumePath, privacy: .public)")
@@ -1372,6 +1472,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if force.success {
             log.notice("cycle \(operation, privacy: .public) force fallback succeeded for \(volumePath, privacy: .public)")
             return force
+        }
+        if !DAInventory.shared.isVolumePresent(at: volumePath) {
+            log.notice("cycle \(operation, privacy: .public) volume gone after force fallback — treat as success: \(volumePath, privacy: .public)")
+            return (true, nil)
         }
 
         let ejectMessage = eject.errorMessage ?? "diskutil eject failed"
@@ -1570,20 +1674,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         log.notice("cycle \(operation, privacy: .public) command FAIL: \(command, privacy: .public) elapsed=\(elapsed, privacy: .public)s exit=\(exitCode, privacy: .public) timedOut=\(result.timedOut, privacy: .public) error=\(self.shortLogMessage(result.errorMessage), privacy: .public)")
         return (false, result.errorMessage)
-    }
-
-    private func remountTargetsForCurrentExternalDrives(applyExcludeFilter: Bool,
-                                                        operationID: String? = nil) -> Set<String> {
-        let operation = operationID ?? "-"
-        let started = Date()
-        var drives = ExternalDrive.list()
-        let listed = drives.count
-        if applyExcludeFilter {
-            drives = drives.filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
-        }
-        let targets = Set(drives.compactMap { $0.wholeDiskBSDName })
-        log.info("cycle \(operation, privacy: .public) remount target scan listed=\(listed, privacy: .public) filtered=\(drives.count, privacy: .public) targets=\(targets.sorted(), privacy: .public) elapsed=\(self.elapsedText(since: started), privacy: .public)s")
-        return targets
     }
 
     private func requestSystemSleep() -> (success: Bool, errorMessage: String?) {
@@ -2565,23 +2655,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .help, .capsLock])
 
+        // 별도 ack 플래시 없음 — 각 동작 함수가 곧바로 자기 진행 플래시를 띄운다
+        // (ejectAll=회전 화살표, mountAll=arrow.down.circle, ejectAndSleep=moon.zzz.fill).
+        // ack 0.3s + 진행 1.0s 가 연달아 깜빡이면 같은 자리에서 심볼이 두 번 바뀌어 어수선.
         if flags == SettingsStore.ejectHotkey.flags {
             log.info("HOTKEY \(scope, privacy: .public) eject fired")
-            flashIcon(symbol: "bolt.fill", duration: 0.3)
             DispatchQueue.main.async { [weak self] in self?.ejectAll(caller: "hotkey-\(scope.lowercased())") }
             return true
         }
 
         if flags == SettingsStore.mountHotkey.flags {
             log.info("HOTKEY \(scope, privacy: .public) mount fired")
-            flashIcon(symbol: "arrow.down.circle", duration: 0.3)
             DispatchQueue.main.async { [weak self] in self?.mountAll(caller: "hotkey-\(scope.lowercased())") }
             return true
         }
 
         if let preset = SettingsStore.ejectAndSleepHotkey, flags == preset.flags {
             log.info("HOTKEY \(scope, privacy: .public) eject-and-sleep fired")
-            flashIcon(symbol: "moon.zzz.fill", duration: 0.3)
             DispatchQueue.main.async { [weak self] in self?.ejectAndSleep(caller: "hotkey-\(scope.lowercased())") }
             return true
         }
@@ -2723,14 +2813,27 @@ private enum SettingsStore {
 
     /// 사용자가 강제 지정한 앱 언어. "system" / "en" / "ko" / "ja" / "zh-Hans".
     /// 신규 설치자 기본값은 main.swift 의 smart default 가 결정 (시스템 언어 매칭 → 매칭, 아니면 "en").
-    /// SettingsStore 단독으로 getter 가 호출되는 경우는 settings 화면 정도라, 그쪽 fallback 도 "en" 으로 통일.
+    /// getter 의 fallback 도 같은 smart default — "en" 고정이면 한국어 시스템 신규 사용자의
+    /// 설정 팝업이 English 로 잘못 표시되고, 그 상태에서 English 를 선택해도 "변경 없음" 으로
+    /// 처리돼 아무 일도 일어나지 않는다 (앱은 한국어인 채).
     /// 사용자가 명시적으로 특정 언어를 선택하면 시스템 언어와 무관하게 강제.
     ///
     /// 적용 시점: main.swift 에서 NSApplication 생성 *전에* AppleLanguages 키를 set/remove.
     /// 변경 후에는 반드시 앱 재시작 필요 (NSBundle 의 localized resource 가 launch 시점에 캐시).
     static var appLanguage: String {
-        get { UserDefaults.standard.string(forKey: Key.appLanguage) ?? "en" }
+        get { UserDefaults.standard.string(forKey: Key.appLanguage) ?? smartDefaultLanguage }
         set { UserDefaults.standard.set(newValue, forKey: Key.appLanguage) }
+    }
+
+    /// main.swift 의 `supportedLanguages` / `smartDefault` 와 동일 로직 — 변경 시 양쪽 함께 수정.
+    /// (main.swift 는 NSApplication 생성 전에 실행되며 이 private 타입을 못 쓰므로 중복 유지.)
+    private static let supportedLanguages = ["en", "ko", "ja", "zh-Hans"]
+    private static var smartDefaultLanguage: String {
+        let systemPref = Locale.preferredLanguages.first ?? "en"
+        for lang in supportedLanguages where systemPref == lang || systemPref.hasPrefix(lang + "-") {
+            return lang
+        }
+        return "en"
     }
 
     static var ejectHotkey: SettingsHotkeyPreset {
@@ -2774,9 +2877,10 @@ private enum SettingsStore {
     }
 }
 
-private final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+private final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     private let onHotkeyChanged: () -> Void
     private let onClosed: () -> Void
+    private let onCheckForUpdates: () -> Void
 
     private var loginToggle: NSButton!
     private var sleepToggle: NSButton!
@@ -2792,18 +2896,69 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private var ejectAndSleepHotkeyPopup: NSPopUpButton!
     private var languagePopup: NSPopUpButton!
 
-    init(onHotkeyChanged: @escaping () -> Void, onClosed: @escaping () -> Void) {
+    /// 설정 페인 — 시스템 설정과 같은 툴바 스타일 (아이콘+라벨 탭, 페인별 높이, 창 제목 = 페인 이름).
+    private enum Pane: String, CaseIterable {
+        case general, eject, notifications, hotkeys, about
+
+        var identifier: NSToolbarItem.Identifier { NSToolbarItem.Identifier(rawValue) }
+
+        var label: String {
+            switch self {
+            case .general: return String(localized: "General")
+            case .eject: return String(localized: "Eject Behavior")
+            case .notifications: return String(localized: "Notifications")
+            case .hotkeys: return String(localized: "Hotkeys")
+            case .about: return String(localized: "About")
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .general: return "gearshape"
+            case .eject: return "eject"
+            case .notifications: return "bell"
+            case .hotkeys: return "keyboard"
+            case .about: return "info.circle"
+            }
+        }
+    }
+
+    /// 페인 콘텐츠 고정폭 — 설명 라벨 줄바꿈 기준이자 창 폭.
+    private static let paneWidth: CGFloat = 540
+    /// 체크박스 글리프+간격 폭 — 설명 줄을 체크박스 *텍스트* 시작선에 맞추는 들여쓰기.
+    private static let checkboxTextIndent: CGFloat = 18
+
+    private var paneViews: [Pane: NSView] = [:]
+
+    init(onHotkeyChanged: @escaping () -> Void,
+         onClosed: @escaping () -> Void,
+         onCheckForUpdates: @escaping () -> Void) {
         self.onHotkeyChanged = onHotkeyChanged
         self.onClosed = onClosed
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 360),
+        self.onCheckForUpdates = onCheckForUpdates
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.paneWidth, height: 320),
                               styleMask: [.titled, .closable],
                               backing: .buffered,
                               defer: false)
-        window.title = String(localized: "Settings")
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
-        window.contentView = makeContentView()
+
+        let toolbar = NSToolbar(identifier: "SettingsToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconAndLabel
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .preference
+
+        paneViews = [
+            .general: makeGeneralPane(),
+            .eject: makeEjectPane(),
+            .notifications: makeNotificationsPane(),
+            .hotkeys: makeHotkeysPane(),
+            .about: makeAboutPane(),
+        ]
+        showPane(.general, animated: false)
         window.center()
         refreshControls()
     }
@@ -2823,38 +2978,60 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func makeContentView() -> NSView {
-        let tabView = NSTabView()
-        tabView.translatesAutoresizingMaskIntoConstraints = false
-        tabView.addTabViewItem(tab(label: String(localized: "General"), view: makeGeneralView()))
-        tabView.addTabViewItem(tab(label: String(localized: "Hotkeys"), view: makeHotkeysView()))
-        tabView.addTabViewItem(tab(label: String(localized: "Notifications"), view: makeNotificationsView()))
-        tabView.addTabViewItem(tab(label: String(localized: "Eject Behavior"), view: makeEjectBehaviorView()))
-        tabView.addTabViewItem(tab(label: String(localized: "About"), view: makeAboutView()))
+    // MARK: Toolbar (페인 전환)
 
-        let container = NSView()
-        container.addSubview(tabView)
-        NSLayoutConstraint.activate([
-            tabView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            tabView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            tabView.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            tabView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16)
-        ])
-        return container
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        Pane.allCases.map(\.identifier)
     }
 
-    private func tab(label: String, view: NSView) -> NSTabViewItem {
-        let item = NSTabViewItem(identifier: label)
-        item.label = label
-        item.view = view
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        Pane.allCases.map(\.identifier)
+    }
+
+    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        Pane.allCases.map(\.identifier)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard let pane = Pane(rawValue: itemIdentifier.rawValue) else { return nil }
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+        item.label = pane.label
+        item.image = NSImage(systemSymbolName: pane.symbolName, accessibilityDescription: pane.label)
+        item.target = self
+        item.action = #selector(paneToolbarItemClicked(_:))
+        item.autovalidates = false   // 항상 활성 — validate 경유로 비활성화되는 것 방지
         return item
     }
 
-    private func makeGeneralView() -> NSView {
+    @objc private func paneToolbarItemClicked(_ sender: NSToolbarItem) {
+        guard let pane = Pane(rawValue: sender.itemIdentifier.rawValue) else { return }
+        showPane(pane, animated: true)
+    }
+
+    /// 페인 전환 — 창 제목 갱신 + 페인 fittingSize 에 맞춰 높이 전환 (상단 모서리 고정).
+    /// 페인 컨테이너의 bottom 제약이 priority 999 라 전환 애니메이션 중 프레임 불일치를
+    /// 조용히 흡수한다 (required 면 일시적 unsatisfiable 로그).
+    private func showPane(_ pane: Pane, animated: Bool) {
+        guard let window, let view = paneViews[pane] else { return }
+        window.toolbar?.selectedItemIdentifier = pane.identifier
+        window.title = pane.label
+
+        view.layoutSubtreeIfNeeded()
+        let size = NSSize(width: Self.paneWidth, height: view.fittingSize.height)
+        let contentFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        var frame = window.frame
+        frame.origin.y += frame.height - contentFrame.height
+        frame.size = contentFrame.size
+
+        window.contentView = view
+        window.setFrame(frame, display: true, animate: animated && window.isVisible)
+    }
+
+    // MARK: Pane builders
+
+    private func makeGeneralPane() -> NSView {
         loginToggle = checkbox(title: String(localized: "Launch at login"), action: #selector(toggleLoginItem(_:)))
-        sleepToggle = checkbox(title: String(localized: "Eject on sleep"), action: #selector(toggleSleepEject(_:)))
-        displaySleepToggle = checkbox(title: String(localized: "Eject on display sleep (experimental)"), action: #selector(toggleDisplaySleepEject(_:)))
-        libraryAppToggle = checkbox(title: String(localized: "Quit Music/Photos before sleep"), action: #selector(toggleLibraryAppManagement(_:)))
 
         // 언어 셀렉터 — "system" / "en" / "ko" / "ja" / "zh-Hans". 변경 시 재시작 다이얼로그.
         // System default 다음 구분선, 그 아래 명시 언어는 native name 사전순 (macOS Settings convention).
@@ -2879,53 +3056,210 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         languagePopup.target = self
         languagePopup.action = #selector(languageChanged(_:))
         languagePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
-        let languageRow = formRow(label: String(localized: "Language"), control: languagePopup)
 
-        return tabStack([loginToggle, sleepToggle, displaySleepToggle, libraryAppToggle, languageRow])
-    }
-
-    private func makeHotkeysView() -> NSView {
-        ejectHotkeyPopup = hotkeyPopup(action: #selector(ejectHotkeyChanged(_:)))
-        mountHotkeyPopup = hotkeyPopup(action: #selector(mountHotkeyChanged(_:)))
-        ejectAndSleepHotkeyPopup = optionalHotkeyPopup(action: #selector(ejectAndSleepHotkeyChanged(_:)))
-        return tabStack([
-            formRow(label: String(localized: "Eject all"), control: ejectHotkeyPopup),
-            formRow(label: String(localized: "Mount all"), control: mountHotkeyPopup),
-            formRow(label: String(localized: "Eject and Sleep"), control: ejectAndSleepHotkeyPopup)
+        return pane([
+            settingRow(loginToggle, description: String(localized: "Auto-start DiskOUT when you log in")),
+            formGrid(rows: [(String(localized: "Language"), languagePopup)]),
         ])
     }
 
-    private func makeNotificationsView() -> NSView {
-        notificationsToggle = checkbox(title: String(localized: "Notifications"), action: #selector(toggleNotifications(_:)))
-        successNotificationsToggle = checkbox(title: String(localized: "Success notifications"), action: #selector(toggleSuccessNotifications(_:)))
-        failureNotificationsToggle = checkbox(title: String(localized: "Failure notifications"), action: #selector(toggleFailureNotifications(_:)))
-        return tabStack([notificationsToggle, successNotificationsToggle, failureNotificationsToggle])
-    }
-
-    private func makeEjectBehaviorView() -> NSView {
+    /// 추출 동작 — 잠자기 연동 3종 + 추출 전략 + 우클릭. (이전엔 General/Eject Behavior 에
+    /// 흩어져 있던 것을 "추출이 언제·어떻게 일어나는가" 기준으로 한 페인에 모음.)
+    private func makeEjectPane() -> NSView {
+        sleepToggle = checkbox(title: String(localized: "Eject on sleep"), action: #selector(toggleSleepEject(_:)))
+        displaySleepToggle = checkbox(title: String(localized: "Eject on display sleep (experimental)"), action: #selector(toggleDisplaySleepEject(_:)))
+        libraryAppToggle = checkbox(title: String(localized: "Quit Music/Photos before sleep"), action: #selector(toggleLibraryAppManagement(_:)))
         forceFallbackToggle = checkbox(title: String(localized: "Force fallback"), action: #selector(toggleForceFallback(_:)))
         rightClickEjectToggle = checkbox(title: String(localized: "Right-click menu bar icon to eject all"),
                                          action: #selector(toggleRightClickEject(_:)))
-        rightClickEjectToggle.toolTip = String(localized: "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives.")
-        return tabStack([forceFallbackToggle, rightClickEjectToggle])
+
+        return pane([
+            settingRow(sleepToggle, description: String(localized: "Eject all external drives right before the Mac sleeps.")),
+            settingRow(displaySleepToggle, description: String(localized: "Also eject when only the display goes to sleep — for Macs set to never sleep.")),
+            settingRow(libraryAppToggle, description: String(localized: "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives.")),
+            settingRow(forceFallbackToggle, description: String(localized: "Retry with a force unmount when a normal eject fails.")),
+            settingRow(rightClickEjectToggle, description: String(localized: "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives.")),
+        ])
     }
 
-    private func makeAboutView() -> NSView {
+    private func makeNotificationsPane() -> NSView {
+        notificationsToggle = checkbox(title: String(localized: "Notifications"), action: #selector(toggleNotifications(_:)))
+        successNotificationsToggle = checkbox(title: String(localized: "Success notifications"), action: #selector(toggleSuccessNotifications(_:)))
+        failureNotificationsToggle = checkbox(title: String(localized: "Failure notifications"), action: #selector(toggleFailureNotifications(_:)))
+
+        // 무음 설계 안내 — 알림 동작에 대한 설명이므로 이 페인에 (이전엔 About 에 잘못 배치).
+        let hint = NSTextField(wrappingLabelWithString:
+            String(localized: "Notifications are silent by design — no sound. Look for the menu bar icon for results."))
+        hint.font = .systemFont(ofSize: UI.captionSize)
+        hint.textColor = .secondaryLabelColor
+        hint.preferredMaxLayoutWidth = Self.paneWidth - UI.windowPadding * 2
+
+        return pane([
+            notificationsToggle,
+            indented(successNotificationsToggle),
+            indented(failureNotificationsToggle),
+            hint,
+        ])
+    }
+
+    private func makeHotkeysPane() -> NSView {
+        ejectHotkeyPopup = hotkeyPopup(action: #selector(ejectHotkeyChanged(_:)))
+        mountHotkeyPopup = hotkeyPopup(action: #selector(mountHotkeyChanged(_:)))
+        ejectAndSleepHotkeyPopup = optionalHotkeyPopup(action: #selector(ejectAndSleepHotkeyChanged(_:)))
+        return pane([
+            formGrid(rows: [
+                (String(localized: "Eject all"), ejectHotkeyPopup),
+                (String(localized: "Mount all"), mountHotkeyPopup),
+                (String(localized: "Eject and Sleep"), ejectAndSleepHotkeyPopup),
+            ]),
+        ])
+    }
+
+    private func makeAboutPane() -> NSView {
         let info = Bundle.main.infoDictionary
         let version = (info?["CFBundleShortVersionString"] as? String) ?? "?"
         let build = (info?["CFBundleVersion"] as? String) ?? "?"
         let copyright = (info?["NSHumanReadableCopyright"] as? String) ?? "DiskOUT by LIMOD"
 
-        let title = NSTextField(labelWithString: "DiskOUT")
-        title.font = .boldSystemFont(ofSize: 18)
-        let versionLabel = NSTextField(labelWithString: "v\(version) (build \(build))")
-        let copyrightLabel = NSTextField(labelWithString: copyright)
-        copyrightLabel.textColor = .secondaryLabelColor
-        let hint = NSTextField(wrappingLabelWithString: String(localized: "Notifications are silent by design — no sound. Look for the menu bar icon for results."))
-        hint.textColor = .secondaryLabelColor
-        hint.font = .systemFont(ofSize: 11)
+        let icon = NSImageView()
+        icon.image = NSApp.applicationIconImage
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.widthAnchor.constraint(equalToConstant: 64).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 64).isActive = true
 
-        return tabStack([title, versionLabel, copyrightLabel, hint])
+        let name = NSTextField(labelWithString: "DiskOUT")
+        name.font = .systemFont(ofSize: UI.titleSize, weight: .semibold)
+
+        let versionLabel = NSTextField(labelWithString: String(localized: "Version \(version) (build \(build))"))
+        versionLabel.font = .systemFont(ofSize: UI.captionSize)
+        versionLabel.textColor = .secondaryLabelColor
+
+        let copyrightLabel = NSTextField(labelWithString: copyright)
+        copyrightLabel.font = .systemFont(ofSize: UI.captionSize)
+        copyrightLabel.textColor = .secondaryLabelColor
+
+        let updateButton = NSButton(title: String(localized: "Check for Updates…"),
+                                    target: self, action: #selector(checkForUpdatesClicked))
+        updateButton.bezelStyle = .rounded
+
+        let links = NSStackView(views: [
+            linkButton(title: "GitHub", urlString: "https://github.com/yooongZa/DiskOUT"),
+            linkButton(title: String(localized: "Release Notes"),
+                       urlString: "https://github.com/yooongZa/DiskOUT/releases"),
+        ])
+        links.orientation = .horizontal
+        links.spacing = UI.spacing
+
+        let stack = NSStackView(views: [icon, name, versionLabel, copyrightLabel, updateButton, links])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 4
+        stack.setCustomSpacing(UI.rowSpacing, after: icon)
+        stack.setCustomSpacing(UI.spacing, after: copyrightLabel)
+        stack.setCustomSpacing(UI.rowSpacing, after: updateButton)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        // About 는 중앙 정렬 — pane() 의 leading 정렬 대신 자체 컨테이너.
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        let bottom = stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -UI.windowPadding)
+        bottom.priority = NSLayoutConstraint.Priority(999)
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: Self.paneWidth),
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: UI.windowPadding),
+            bottom,
+        ])
+        return container
+    }
+
+    // MARK: Pane layout helpers
+
+    /// 페인 공통 컨테이너 — 고정폭, 24pt 여백, leading 정렬 세로 stack.
+    /// bottom 제약 priority 999: showPane 높이 전환 애니메이션 중 일시 프레임 불일치 흡수.
+    private func pane(_ views: [NSView]) -> NSView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = UI.spacing
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        let bottom = stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -UI.windowPadding)
+        bottom.priority = NSLayoutConstraint.Priority(999)
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: Self.paneWidth),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: UI.windowPadding),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -UI.windowPadding),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: UI.windowPadding),
+            bottom,
+        ])
+        return container
+    }
+
+    /// 체크박스 + 아래 보조 설명(11pt secondary) 한 묶음.
+    /// 설명은 체크박스 *텍스트* 시작선에 맞춰 들여쓰기 — 시스템 설정과 같은 문법.
+    private func settingRow(_ checkbox: NSButton, description: String) -> NSView {
+        let desc = NSTextField(wrappingLabelWithString: description)
+        desc.font = .systemFont(ofSize: UI.captionSize)
+        desc.textColor = .secondaryLabelColor
+        desc.preferredMaxLayoutWidth = Self.paneWidth - UI.windowPadding * 2 - Self.checkboxTextIndent
+
+        let stack = NSStackView(views: [checkbox, indented(desc)])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 3
+        return stack
+    }
+
+    /// 체크박스 텍스트 시작선만큼 들여쓴 행 — 종속 토글/설명 줄 공용.
+    private func indented(_ view: NSView) -> NSView {
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.widthAnchor.constraint(equalToConstant: Self.checkboxTextIndent).isActive = true
+        let row = NSStackView(views: [spacer, view])
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 0
+        return row
+    }
+
+    /// 우측 정렬 라벨 + 컨트롤의 2열 폼 — 고정 라벨폭 대신 자연 폭 (언어별 라벨 길이 자동 대응).
+    private func formGrid(rows: [(String, NSView)]) -> NSGridView {
+        let grid = NSGridView(views: rows.map { label, control in
+            let text = NSTextField(labelWithString: label)
+            return [text, control]
+        })
+        grid.rowSpacing = UI.rowSpacing
+        grid.columnSpacing = UI.spacing
+        grid.column(at: 0).xPlacement = .trailing
+        grid.rowAlignment = .firstBaseline
+        return grid
+    }
+
+    private func linkButton(title: String, urlString: String) -> NSButton {
+        let button = NSButton(title: title, target: self, action: #selector(linkClicked(_:)))
+        button.isBordered = false
+        button.setButtonType(.momentaryChange)
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [.foregroundColor: NSColor.linkColor,
+                         .font: NSFont.systemFont(ofSize: UI.captionSize + 1)])
+        button.identifier = NSUserInterfaceItemIdentifier(urlString)
+        return button
+    }
+
+    @objc private func linkClicked(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue, let url = URL(string: raw) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func checkForUpdatesClicked() {
+        onCheckForUpdates()
     }
 
     private func checkbox(title: String, action: Selector) -> NSButton {
@@ -2955,35 +3289,6 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         popup.action = action
         popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
         return popup
-    }
-
-    private func formRow(label: String, control: NSView) -> NSView {
-        let text = NSTextField(labelWithString: label)
-        text.widthAnchor.constraint(equalToConstant: 130).isActive = true
-
-        let row = NSStackView(views: [text, control])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 14
-        return row
-    }
-
-    private func tabStack(_ views: [NSView]) -> NSView {
-        let stack = NSStackView(views: views)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 14
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let container = NSView()
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 24),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -24)
-        ])
-        return container
     }
 
     private func refreshControls() {
@@ -3111,7 +3416,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         let alert = NSAlert()
         alert.messageText = String(localized: "Language changed")
         alert.informativeText = String(localized: "DiskOUT needs to restart to apply the new language.")
-        alert.addButton(withTitle: String(localized: "Restart now"))
+        alert.addButton(withTitle: String(localized: "Restart Now"))
         alert.addButton(withTitle: String(localized: "Later"))
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
@@ -3357,10 +3662,12 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         accessibilityButton = NSButton(title: String(localized: "Allow"),
                                        target: self, action: #selector(accessibilityButtonClicked))
         accessibilityButton.bezelStyle = .rounded
+        // trailing 은 [버튼, 상태점] 순 — 상태점이 항상 우측 끝 고정폭 칸에 와서
+        // 버튼 폭이 행마다 달라도 점들이 세로로 정렬된다.
         return makeRow(symbol: "keyboard",
                        title: String(localized: "Global hotkey"),
                        detail: String(localized: "Eject all drives anywhere with ⌥⌘E"),
-                       trailing: [accessibilityDot, accessibilityButton])
+                       trailing: [accessibilityButton, accessibilityDot])
     }
 
     private func makeNotificationsCard() -> NSView {
@@ -3371,15 +3678,17 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         return makeRow(symbol: "bell",
                        title: String(localized: "Notifications"),
                        detail: String(localized: "See eject results at a glance"),
-                       trailing: [notificationsDot, notificationsButton])
+                       trailing: [notificationsButton, notificationsDot])
     }
 
     private func makeLoginCard() -> NSView {
         loginToggle = NSButton(checkboxWithTitle: "", target: self, action: #selector(loginToggleClicked(_:)))
         loginHint = NSTextField(labelWithString: String(localized: "Needs approval in System Settings"))
-        loginHint.font = .systemFont(ofSize: 10)
+        loginHint.font = .systemFont(ofSize: UI.captionSize)
         loginHint.textColor = .systemOrange
-        loginHint.isHidden = true
+        // isHidden 대신 alphaValue — 각주가 나타나고 사라질 때 카드 높이가 출렁이지 않게
+        // 자리는 항상 유지한다 (레이아웃 점프 방지).
+        loginHint.alphaValue = 0
         return makeRow(symbol: "power",
                        title: String(localized: "Launch at login"),
                        detail: String(localized: "Auto-start DiskOUT when you log in"),
@@ -3527,10 +3836,10 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
             lastAccessibilityTrusted = false
         }
 
-        // 로그인 항목
+        // 로그인 항목 — 각주는 alphaValue 토글 (자리 유지, 레이아웃 점프 방지)
         let loginStatus = LoginItem.status
         loginToggle.state = (loginStatus == .enabled || loginStatus == .requiresApproval) ? .on : .off
-        loginHint.isHidden = (loginStatus != .requiresApproval)
+        loginHint.alphaValue = (loginStatus == .requiresApproval) ? 1 : 0
 
         // 알림 — getNotificationSettings 는 비동기.
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
@@ -3677,11 +3986,14 @@ private enum ProcessRunner {
 
             let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if didTimeout {
+                // SIGKILL 후에도 child 가 살아 있을 수 있다 (디스크 I/O 행 — uninterruptible sleep).
+                // 그 상태에서 terminationStatus 를 읽으면 NSInvalidArgumentException 크래시.
+                let status: Int32? = task.isRunning ? nil : task.terminationStatus
                 return ProcessResult(success: false,
                                      stdout: finalStdout,
                                      errorMessage: "\(executableName) timed out",
                                      timedOut: true,
-                                     terminationStatus: task.terminationStatus)
+                                     terminationStatus: status)
             }
 
             let stderrText = String(data: finalStderr, encoding: .utf8)?
@@ -3857,57 +4169,14 @@ private enum DiskUtilInfo {
             .propertyList(from: result.stdout, format: nil) as? [String: Any]
     }
 
-    static func volumeUUID(forVolumePath path: String) -> String? {
-        volumeUUID(in: plist(for: path))
-    }
-
-    static func volumeUUID(in info: [String: Any]?) -> String? {
-        info?["VolumeUUID"] as? String
-    }
-
-    static func busProtocol(forBSDName bsd: String) -> String? {
-        busProtocol(in: plist(for: bsd))
-    }
-
     static func busProtocol(in info: [String: Any]?) -> String? {
         info?["BusProtocol"] as? String
-    }
-
-    static func isSDCard(forVolumePath path: String) -> Bool {
-        isSDCard(info: plist(for: path))
-    }
-
-    static func isSDCard(forBSDName bsd: String) -> Bool {
-        isSDCard(info: plist(for: bsd))
-    }
-
-    static func isSDCard(info: [String: Any]?) -> Bool {
-        guard let info else { return false }
-        let values = [
-            info["BusProtocol"] as? String,
-            info["MediaName"] as? String,
-            info["IORegistryEntryName"] as? String,
-            info["DeviceTreePath"] as? String
-        ].compactMap { $0?.lowercased() }
-
-        return values.contains { value in
-            value.contains("secure digital")
-                || value.contains("sd card")
-                || value.contains("sdxc")
-                || value.contains("sd/mmc")
-                || value.contains("card reader")
-        }
     }
 }
 
 /// 마운트된 DMG/sparseimage/CoreSimulator 같은 disk image 는 외장 디스크처럼 보일 수 있음.
 /// 잘못 처리 시 "Chrome 설치 중인데 DMG 가 빠짐" 같은 사고 발생.
 private enum DiskImages {
-    /// 현재 마운트된 모든 디스크 이미지(`/Volumes/Chrome` 같은) 의 mount path 집합.
-    static func mountedPaths(timeout: TimeInterval? = 1.0) -> Set<String> {
-        mountedPathsOrNil(timeout: timeout) ?? []
-    }
-
     static func mountedPathsOrNil(timeout: TimeInterval? = 1.0) -> Set<String>? {
         let result = ProcessRunner.run(executable: "/usr/bin/hdiutil",
                                        arguments: ["info", "-plist"],
@@ -3939,21 +4208,32 @@ private enum DiskImages {
 }
 
 private struct DiskUtilExternalVolume {
-    let deviceIdentifier: String?
     let name: String
     let mountPoint: String?
     let volumeUUID: String?
 }
 
-private struct DiskUtilExternalList {
-    let entries: [[String: Any]]
-
-    private static let systemContents: Set<String> = [
+/// 시스템/비-사용자 볼륨 판별용 공유 denylist. DiskUtilExternalList 와 DAInventory 공용.
+private enum SystemVolumeFilter {
+    static let contents: Set<String> = [
         "EFI", "Microsoft Reserved", "Apple_Boot",
         "Apple_KernelCoreDump", "Recovery",
         "Apple_RAID", "Apple_RAID_Offline"
     ]
-    private static let systemNames: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
+    static let names: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
+}
+
+/// BSD 디바이스명 유틸.
+private enum BSDName {
+    /// 파티션 BSD("disk2s1") → whole-disk BSD("disk2"). 매칭 실패 시 nil.
+    static func wholeDisk(from bsd: String) -> String? {
+        guard let match = bsd.range(of: #"^disk\d+"#, options: .regularExpression) else { return nil }
+        return String(bsd[match])
+    }
+}
+
+private struct DiskUtilExternalList {
+    let entries: [[String: Any]]
 
     static func load(timeout: TimeInterval? = 5.0) -> DiskUtilExternalList? {
         let result = ProcessRunner.run(executable: "/usr/sbin/diskutil",
@@ -4008,14 +4288,13 @@ private struct DiskUtilExternalList {
     }
 
     private static func appendVolume(from dict: [String: Any], to volumes: inout [DiskUtilExternalVolume]) {
-        if let content = dict["Content"] as? String, systemContents.contains(content) { return }
+        if let content = dict["Content"] as? String, SystemVolumeFilter.contents.contains(content) { return }
         guard let name = dict["VolumeName"] as? String,
               !name.isEmpty,
-              !systemNames.contains(name)
+              !SystemVolumeFilter.names.contains(name)
         else { return }
 
-        volumes.append(DiskUtilExternalVolume(deviceIdentifier: dict["DeviceIdentifier"] as? String,
-                                              name: name,
+        volumes.append(DiskUtilExternalVolume(name: name,
                                               mountPoint: dict["MountPoint"] as? String,
                                               volumeUUID: dict["VolumeUUID"] as? String))
     }
@@ -4027,18 +4306,24 @@ private struct DiskMenuSnapshot {
     let createdAt: Date
     let refreshError: String?
 
+    /// DA 인벤토리 경로 — 준비돼 있으면 즉시 (<1ms, in-memory 복사) 반환, 미준비면 nil.
+    /// menuWillOpen 의 동기 즉시 로드 경로가 직접 호출 (placeholder 행 생략용 — 그쪽 주석 참조).
+    static func loadFromDA() -> DiskMenuSnapshot? {
+        guard let inv = DAInventory.shared.snapshot() else { return nil }
+        log.info("DiskMenuSnapshot.load: DA drives=\(inv.drives.map { $0.name }, privacy: .public) unmounted=\(inv.unmounted.map { $0.displayName }, privacy: .public)")
+        return DiskMenuSnapshot(drives: sortedForMenu(inv.drives),
+                                unmounted: sortedForMenu(inv.unmounted),
+                                createdAt: Date(),
+                                refreshError: nil)
+    }
+
     static func load() -> DiskMenuSnapshot {
         let started = Date()
 
         // 1) 가장 빠르고 안정적: DA 이벤트 기반 인벤토리 (in-process, 외부 daemon 비의존).
         //    SD 카드 삽입 등으로 storagekitd 가 막혀도 영향 없음.
-        if let inv = DAInventory.shared.snapshot() {
-            let elapsed = Date().timeIntervalSince(started)
-            log.info("DiskMenuSnapshot.load: DA \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(inv.drives.map { $0.name }, privacy: .public) unmounted=\(inv.unmounted.map { $0.displayName }, privacy: .public)")
-            return DiskMenuSnapshot(drives: inv.drives,
-                                    unmounted: inv.unmounted,
-                                    createdAt: Date(),
-                                    refreshError: nil)
+        if let snapshot = loadFromDA() {
+            return snapshot
         }
 
         // 2) DA 인벤토리 미준비 (cold start) → 기존 diskutil 경로로 fallback.
@@ -4065,10 +4350,21 @@ private struct DiskMenuSnapshot {
 
         let elapsed = Date().timeIntervalSince(started)
         log.info("DiskMenuSnapshot.load: diskutil \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.map { $0.name }, privacy: .public) unmounted=\(unmounted.map { $0.displayName }, privacy: .public) refreshError=\(refreshError ?? "-", privacy: .public)")
-        return DiskMenuSnapshot(drives: drives,
-                                unmounted: unmounted,
+        return DiskMenuSnapshot(drives: sortedForMenu(drives),
+                                unmounted: sortedForMenu(unmounted),
                                 createdAt: Date(),
                                 refreshError: refreshError)
+    }
+
+    /// 메뉴 표시 순서 — 이름 기준 정렬로 통일. DA 인벤토리는 Dictionary 기반이라 순서가
+    /// 비결정적이어서 메뉴를 열 때마다 항목이 뒤섞일 수 있고, cold start 의 diskutil 경로와도
+    /// 순서가 어긋난다 (DA ready 전환 시 항목 점프). 양쪽 모두 여기서 정렬.
+    private static func sortedForMenu(_ drives: [ExternalDrive]) -> [ExternalDrive] {
+        drives.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private static func sortedForMenu(_ unmounted: [UnmountedExternal]) -> [UnmountedExternal] {
+        unmounted.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
 }
 
@@ -4126,6 +4422,45 @@ private enum DiskMenuSnapshotCache {
                                           isRefreshing: true)
     }
 
+    /// menuWillOpen 전용 동기 즉시 경로. fresh 캐시 또는 DA 인벤토리 (즉시 로드 가능) 가 있으면
+    /// snapshot 을 반환하고, 둘 다 없으면 (cold start — diskutil 로드는 느림) nil → async 경로로.
+    ///
+    /// 존재 이유: async 경로는 "Updating Disk Status…" placeholder 행을 먼저 그리고 refresh
+    /// 완료 후 열려 있는 메뉴를 다시 채우는데, macOS 26 의 메뉴 창은 열린 채 항목이 줄어도
+    /// 높이를 반납하지 않아 마지막 항목 아래 placeholder 한 칸이 빈 공간으로 남는다.
+    /// DA 로드는 <1ms 라 placeholder 가 애초에 불필요 — 한 번만 populate 해서 잔상을 없앤다.
+    static func currentIfInstant() -> DiskMenuSnapshot? {
+        lock.lock()
+        if let snapshot = cached,
+           !refreshRequested,
+           Date().timeIntervalSince(snapshot.createdAt) <= maxAge {
+            lock.unlock()
+            return snapshot
+        }
+        // claim 의미론은 async 경로와 동일 — load *시작* 전에 clear 해야 load 도중 도착한
+        // invalidate 가 살아남는다 (아래 `refreshRequested` 주석 참조).
+        let wasRequested = refreshRequested
+        refreshRequested = false
+        lock.unlock()
+
+        guard let fresh = DiskMenuSnapshot.loadFromDA() else {
+            // DA 미준비 → 로드 안 했으니 claim 반납. OR 누적 — 그 사이 도착한 invalidate 를
+            // 덮어쓰지 않도록 켜는 방향으로만 복원.
+            lock.lock()
+            refreshRequested = refreshRequested || wasRequested
+            lock.unlock()
+            return nil
+        }
+        lock.lock()
+        cached = fresh
+        lock.unlock()
+        return fresh
+    }
+
+    /// `refreshRequested` 는 "마지막 refresh 가 *시작*된 이후 invalidate 됐다" 는 뜻 —
+    /// refresh 를 시작(claim)하는 시점에만 clear 하고 완료 시점엔 건드리지 않는다.
+    /// 완료 시점에 clear 하면 load 도중 도착한 invalidate (eject/mount 직후) 가 지워져,
+    /// 방금 추출한 디스크가 든 낡은 스냅샷이 최대 maxAge 동안 fresh 로 오인된다.
     static func current() -> DiskMenuSnapshot {
         lock.lock()
         if let snapshot = cached {
@@ -4144,13 +4479,20 @@ private enum DiskMenuSnapshotCache {
 
             log.info("DiskMenuSnapshotCache.current: cached snapshot stale, refreshing synchronously")
             let fresh = DiskMenuSnapshot.load()
+            var completions: [(DiskMenuSnapshot) -> Void] = []
             lock.lock()
             cached = fresh
-            refreshRequested = false
             if ownsRefresh {
                 refreshing = false
+                // refresh 를 우리가 소유한 동안 쌓인 메뉴 콜백도 우리가 해소 — 남겨 두면
+                // 비동기 refresh 가 없어 메뉴가 "Updating Disk Status…" 에 갇힌다.
+                completions = refreshCompletions
+                refreshCompletions = []
             }
             lock.unlock()
+            for completion in completions {
+                DispatchQueue.main.async { completion(fresh) }
+            }
             return fresh
         }
 
@@ -4160,19 +4502,23 @@ private enum DiskMenuSnapshotCache {
             let fresh = DiskMenuSnapshot.load()
             lock.lock()
             cached = fresh
-            refreshRequested = false
             lock.unlock()
             return fresh
         }
         refreshing = true
+        refreshRequested = false
         lock.unlock()
 
         let snapshot = DiskMenuSnapshot.load()
         lock.lock()
         cached = snapshot
         refreshing = false
-        refreshRequested = false
+        let completions = refreshCompletions
+        refreshCompletions = []
         lock.unlock()
+        for completion in completions {
+            DispatchQueue.main.async { completion(snapshot) }
+        }
         return snapshot
     }
 
@@ -4183,6 +4529,7 @@ private enum DiskMenuSnapshotCache {
             return
         }
         refreshing = true
+        refreshRequested = false   // claim 시점 clear — current() 와 같은 규약
         lock.unlock()
         refreshAsyncAlreadyMarked()
     }
@@ -4207,7 +4554,8 @@ private enum DiskMenuSnapshotCache {
                                           refreshError: snapshot.refreshError)
             }
             refreshing = false
-            refreshRequested = false
+            // refreshRequested 는 여기서 clear 하지 않는다 — load 도중 invalidate 가 도착했으면
+            // true 로 남아 다음 접근에서 다시 refresh 된다 (claim 시점 clear 규약).
             completions = refreshCompletions
             refreshCompletions = []
             let callbackSnapshot = cached ?? snapshot
@@ -4225,7 +4573,6 @@ private enum DiskMenuSnapshotCache {
 
 enum ExternalDeviceKind {
     case disk
-    case sdCard
 
     var symbolName: String {
         "externaldrive"
@@ -4373,9 +4720,7 @@ struct ExternalDrive {
         // "/dev/disk2s1" → "disk2"
         guard dev.hasPrefix("/dev/") else { return nil }
         let bsd = String(dev.dropFirst("/dev/".count))
-        guard let match = bsd.range(of: #"^disk\d+"#, options: .regularExpression)
-        else { return nil }
-        return String(bsd[match])
+        return BSDName.wholeDisk(from: bsd)
     }
 }
 
@@ -4467,13 +4812,6 @@ private final class DAInventory {
     /// **DA 큐에서 호출됨** — consumer 가 main hop + debounce 처리할 것.
     /// count 와 무관한 description 변경에는 호출 안 함 (mount 경로 변화만 트리거).
     var onInventoryChanged: (() -> Void)?
-
-    private static let systemContents: Set<String> = [
-        "EFI", "Microsoft Reserved", "Apple_Boot",
-        "Apple_KernelCoreDump", "Recovery",
-        "Apple_RAID", "Apple_RAID_Offline"
-    ]
-    private static let systemNames: Set<String> = ["EFI", "Boot OS X", "Recovery", "Recovery HD"]
 
     func start() {
         queue.async { [weak self] in self?.startOnQueue() }
@@ -4574,10 +4912,8 @@ private final class DAInventory {
         let wholeDiskBSD: String
         if isWhole {
             wholeDiskBSD = bsd
-        } else if let match = bsd.range(of: #"^disk\d+"#, options: .regularExpression) {
-            wholeDiskBSD = String(bsd[match])
         } else {
-            wholeDiskBSD = bsd
+            wholeDiskBSD = BSDName.wholeDisk(from: bsd) ?? bsd
         }
 
         return DiskInfo(
@@ -4618,8 +4954,8 @@ private final class DAInventory {
             for vol in group {
                 guard let path = vol.mountPath, !path.isEmpty else { continue }
                 guard let name = vol.volumeName, !name.isEmpty else { continue }
-                if Self.systemNames.contains(name) { continue }
-                if let content = vol.mediaContent, Self.systemContents.contains(content) { continue }
+                if SystemVolumeFilter.names.contains(name) { continue }
+                if let content = vol.mediaContent, SystemVolumeFilter.contents.contains(content) { continue }
                 if DiskImages.isKnownDiskImageMountPath(path) { continue }
 
                 let url = URL(fileURLWithPath: path)
@@ -4644,8 +4980,8 @@ private final class DAInventory {
 
             let firstNamed = group.first { vol in
                 guard let n = vol.volumeName, !n.isEmpty,
-                      !Self.systemNames.contains(n) else { return false }
-                if let c = vol.mediaContent, Self.systemContents.contains(c) { return false }
+                      !SystemVolumeFilter.names.contains(n) else { return false }
+                if let c = vol.mediaContent, SystemVolumeFilter.contents.contains(c) { return false }
                 return true
             }
             guard let candidate = firstNamed else { continue }

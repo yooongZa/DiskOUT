@@ -44,6 +44,16 @@ if appLanguage == "system" {
     UserDefaults.standard.set([appLanguage], forKey: "AppleLanguages")
 }
 
+// ─── macOS 26 (Tahoe) 자동 메뉴 아이콘 끄기 ──────────────────────────────────
+// Tahoe 는 표준 selector 메뉴 항목 (terminate: 등) 에 시스템 아이콘을 자동 주입한다 —
+// 종료 행에만 아이콘이 생겨 "유틸리티 행은 텍스트만" 컨벤션과 메뉴 안 일관성이 깨진다.
+// NSMenuEnableActionImages 를 앱의 registration domain 에 등록해 이 앱만 끈다
+// (사용자가 NSGlobalDomain 에 직접 설정한 값이 있으면 그쪽이 우선 — defaults 검색 순서).
+// 우리가 명시적으로 넣는 아이콘 (디스크 행 / 경고 ⚠) 은 action image 가 아니라 영향 없음.
+// register() 는 휘발성이라 사용자 plist 에 흔적이 안 남는다. AppKit 이 읽기 전이도록
+// NSApplication 생성 전에 등록.
+UserDefaults.standard.register(defaults: ["NSMenuEnableActionImages": false])
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)   // run() 전에 호출 — LSUIElement + open 조합 안정화
 let delegate = AppDelegate()
