@@ -12,8 +12,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 495S4FVMCB
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: "0.4.6"
-    CURRENT_PROJECT_VERSION: "6"
+    MARKETING_VERSION: "0.4.7"
+    CURRENT_PROJECT_VERSION: "7"
 
 # Swift Package Manager 의존성.
 # Sparkle 2: 자동 업데이트 프레임워크 (https://sparkle-project.org).
@@ -53,12 +53,14 @@ targets:
           - zh-Hans
         CFBundleDevelopmentRegion: en
         # Sparkle 자동 업데이트 설정.
-        # SUFeedURL: appcast.xml 의 공개 URL (GitHub Pages 호스팅).
+        # SUFeedURL: appcast.xml 피드 URL. Cloudflare Worker(scripts/appcast-proxy/)가
+        #            익명 업데이트 체크를 집계한 뒤 GitHub Pages 의 서명 appcast 를 그대로
+        #            프록시한다 (서명 무결성 유지). 운영 상세: DiskOUT_텔레메트리.md.
         # SUPublicEDKey: EdDSA 공개키 — scripts/setup-sparkle-keys.sh 실행 후 출력값을 여기 채움.
         #                비어 있으면 Sparkle 은 Apple Code Signing 만으로 검증 (보안 한 단계 약함).
         # SUEnableAutomaticChecks: 첫 실행 후 동의 다이얼로그 1회 표시, 그 뒤 백그라운드 체크.
         # SUScheduledCheckInterval: 86400s = 24h. 매일 1회 조용히 체크.
-        SUFeedURL: https://yooongza.github.io/diskout-appcast/appcast.xml
+        SUFeedURL: https://diskout-appcast.sukmack.workers.dev/appcast.xml
         SUPublicEDKey: "ObQo/BNVRTo8chYqk127BR2sOIE7NNQaYGQEEuGdIFE="
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400

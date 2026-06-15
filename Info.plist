@@ -40,7 +40,7 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://yooongza.github.io/diskout-appcast/appcast.xml</string>
+	<string>https://diskout-appcast.sukmack.workers.dev/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>ObQo/BNVRTo8chYqk127BR2sOIE7NNQaYGQEEuGdIFE=</string>
 	<key>SUScheduledCheckInterval</key>
