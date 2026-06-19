@@ -208,6 +208,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         installHotkey()
         log.notice("EjectDrives launched")
 
+        // 크래시 사후 수확 — macOS 가 적어둔 `.ips` 중 새 것만 스캔·스크럽·전송. 절대 launch 를 막지 않음
+        // (백그라운드 utility 큐, best-effort, 모든 에러 swallow). crashReportingEnabled OFF 면 전부 no-op.
+        CrashReporter.harvestIfEnabled()
+
         // 권한 온보딩 — 콘텐츠 버전이 올라갔거나 처음이면 1회 표시. 비차단 (앱은 이미 동작 중).
         // 메뉴바 아이콘이 자리잡은 뒤 살짝 지연해서 띄운다.
         let onboardingDone = SettingsStore.onboardingCompletedVersion
@@ -1498,6 +1502,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         guard SettingsStore.forceFallbackEnabled else {
             log.notice("cycle \(operation, privacy: .public) force fallback disabled for \(volumePath, privacy: .public)")
+            // 카테고리만 — 디스크명/경로 절대 포함 안 함.
+            ErrorReporter.report(signature: "diskutil_eject_failed_no_fallback")
             return eject
         }
         log.notice("cycle \(operation, privacy: .public) diskutil eject failed for \(volumePath, privacy: .public), fallback to unmount force — \(eject.errorMessage ?? "?", privacy: .public)")
@@ -1511,6 +1517,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return (true, nil)
         }
 
+        // 정상 eject + force unmount 둘 다 실패 — 가장 의미 있는 실패 카테고리. 디스크 식별 정보 없음.
+        ErrorReporter.report(signature: "diskutil_force_unmount_failed")
         let ejectMessage = eject.errorMessage ?? "diskutil eject failed"
         let forceMessage = force.errorMessage ?? "diskutil unmount force failed"
         var details = [ejectMessage, "force fallback: \(forceMessage)"]
@@ -1607,6 +1615,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return (true, nil)
             }
 
+            // DA normal/force unmount + diskutil unmountDisk/eject force + normal eject — 전 단계 실패.
+            // sleep 경로 추출 카테고리만 보고 (디스크/볼륨/BSD/경로 일체 미포함).
+            ErrorReporter.report(signature: "sleep_eject_all_fallbacks_failed")
             let forceMessage = force.errorMessage ?? "diskutil eject force failed"
             let normalMessage = normal.errorMessage ?? "diskutil eject failed"
             let daNormalMessage = daNormal.errorMessage ?? "DA normal unmount failed"
@@ -2798,6 +2809,7 @@ private enum SettingsStore {
         static let rightClickEjectEnabled = "settings.statusItem.rightClickEject.enabled"
         static let onboardingCompletedVersion = "settings.onboarding.completedVersion"
         static let appLanguage = "settings.appLanguage"
+        static let crashReportingEnabled = "settings.crashReporting.enabled"
     }
 
     private static func bool(for key: String, default defaultValue: Bool) -> Bool {
@@ -2842,6 +2854,15 @@ private enum SettingsStore {
     static var rightClickEjectEnabled: Bool {
         get { bool(for: Key.rightClickEjectEnabled, default: true) }
         set { UserDefaults.standard.set(newValue, forKey: Key.rightClickEjectEnabled) }
+    }
+
+    /// 익명 크래시/에러 리포트 전송. default ON (기존 익명 텔레메트리 철학과 일관).
+    /// OFF 면 `.ips` 수확·전송과 핸들드 에러 카테고리 전송이 모두 중단된다.
+    /// 전송 내용은 예외 타입 + 백트레이스 프레임(스크럽됨) / 에러 카테고리뿐 —
+    /// 디스크명·볼륨명·경로·유저명·원본 IP 는 절대 나가지 않는다.
+    static var crashReportingEnabled: Bool {
+        get { bool(for: Key.crashReportingEnabled, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.crashReportingEnabled) }
     }
 
     /// 사용자가 강제 지정한 앱 언어. "system" / "en" / "ko" / "ja" / "zh-Hans".
@@ -2924,6 +2945,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private var failureNotificationsToggle: NSButton!
     private var forceFallbackToggle: NSButton!
     private var rightClickEjectToggle: NSButton!
+    private var crashReportingToggle: NSButton!
     private var ejectHotkeyPopup: NSPopUpButton!
     private var mountHotkeyPopup: NSPopUpButton!
     private var ejectAndSleepHotkeyPopup: NSPopUpButton!
@@ -3090,9 +3112,14 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         languagePopup.action = #selector(languageChanged(_:))
         languagePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
 
+        crashReportingToggle = checkbox(title: String(localized: "Send anonymous crash & error reports"),
+                                        action: #selector(toggleCrashReporting(_:)))
+
         return pane([
             settingRow(loginToggle, description: String(localized: "Auto-start DiskOUT when you log in")),
             formGrid(rows: [(String(localized: "Language"), languagePopup)]),
+            settingRow(crashReportingToggle,
+                       description: String(localized: "Sends only crash type, anonymized stack traces, and error categories. Never disk names, file paths, or your identity.")),
         ])
     }
 
@@ -3338,6 +3365,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         failureNotificationsToggle.state = SettingsStore.failureNotificationsEnabled ? .on : .off
         forceFallbackToggle.state = SettingsStore.forceFallbackEnabled ? .on : .off
         rightClickEjectToggle.state = SettingsStore.rightClickEjectEnabled ? .on : .off
+        crashReportingToggle.state = SettingsStore.crashReportingEnabled ? .on : .off
         selectHotkey(SettingsStore.ejectHotkey, in: ejectHotkeyPopup)
         selectHotkey(SettingsStore.mountHotkey, in: mountHotkeyPopup)
         selectOptionalHotkey(SettingsStore.ejectAndSleepHotkey, in: ejectAndSleepHotkeyPopup)
@@ -3434,6 +3462,10 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     @objc private func toggleRightClickEject(_ sender: NSButton) {
         SettingsStore.rightClickEjectEnabled = sender.state == .on
+    }
+
+    @objc private func toggleCrashReporting(_ sender: NSButton) {
+        SettingsStore.crashReportingEnabled = sender.state == .on
     }
 
     /// 환경설정의 언어 popup 변경. 새 값이 기존과 다르면 SettingsStore 갱신 + 재시작 다이얼로그.
@@ -5483,4 +5515,423 @@ extension AppDelegate: SPUUpdaterDelegate {
     //   - feedURLString(for:) : 동적으로 SUFeedURL 변경 (예: beta 채널)
     //   - allowedSystemProfileKeys(for:) : 익명 텔레메트리 옵트인
     //   - bestValidUpdate(in:for:) : 사용자 시스템에 맞는 best 버전 선택 로직 커스텀
+}
+
+// MARK: - 익명 오류 수집 (crash & error reporting)
+//
+// 직배포(Developer ID + Sparkle) 환경은 Apple 크래시 집계에 안 잡힌다. 외부 SaaS(Sentry 등) 없이
+// 데이터 통제권을 유지하기 위해 자체 Cloudflare Worker(appcast 텔레메트리와 같은 스택)로 보낸다.
+//
+// 설계 핵심:
+//   - 인프로세스 시그널 핸들러 없음. macOS 가 적어둔 `~/Library/Logs/DiagnosticReports/DiskOUT-*.ips`
+//     를 *다음 실행* 때 수확(deferred harvest) → 파싱 → 스크럽 → POST. 견고하고 async-signal-safe 걱정 0.
+//   - 프라이버시 최우선: 디스크명·볼륨명·경로·유저명·원본 IP 는 절대 전송 안 함. 불확실하면 필드 생략.
+//   - 전부 best-effort: 모든 네트워크/파싱 에러 swallow. 앱을 절대 크래시시키지 않는다.
+//   - `SettingsStore.crashReportingEnabled`(default ON) 으로 전체 게이트.
+
+/// 리포트 전송 공통 인프라 — 엔드포인트, 버전 메타, 스크럽, 무시-실패 POST.
+fileprivate enum ReportEndpoint {
+    static let url = URL(string: "https://diskout-appcast.sukmack.workers.dev/report")!
+    static let expectedBundleID = "com.yongza.ejectdrives"
+    static let signatureLimit = 256
+    static let detailLimit = 4096   // ~4KB cap
+
+    /// CFBundleShortVersionString — 못 읽으면 "?".
+    static var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
+    }
+
+    /// macOS 버전 — coarse "major.minor.patch" 만 (빌드 번호·하드웨어 미포함).
+    static var osVersion: String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+    }
+
+    /// best-effort POST — 짧은 타임아웃, 모든 에러 swallow, 절대 throw/crash 안 함.
+    /// payload 의 모든 문자열 값은 호출 전에 스크럽·truncate 가 끝나 있어야 한다.
+    /// `completion(success)` 는 실제 2xx 응답일 때만 true (오프라인·타임아웃·non-2xx → false).
+    /// 호출부가 결과에 따라 dedup 기록 여부를 정할 수 있게 (예: 크래시 at-least-once).
+    static func post(_ payload: [String: String], completion: ((Bool) -> Void)? = nil) {
+        guard let body = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+            completion?(false)
+            return
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = 8
+        config.waitsForConnectivity = false
+        let session = URLSession(configuration: config)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        // 응답·에러는 best-effort. success = (에러 없음 && HTTP 2xx). completion 절대 throw/crash 안 함.
+        let task = session.dataTask(with: request) { _, response, error in
+            let success = error == nil
+                && ((response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false)
+            completion?(success)
+            session.finishTasksAndInvalidate()
+        }
+        task.resume()
+    }
+}
+
+/// 전송 전 클라이언트 스크럽 — `.ips` 엔 홈 경로·유저명·마운트 볼륨명이 섞인다.
+/// 설정 고지("디스크명·경로·신원 절대 미전송")의 약속을 지키는 마지막 방어선.
+fileprivate enum ReportScrubber {
+    /// `NSHomeDirectory()`/`/Users/<name>/…` → `~/…`, `/Volumes/<name>` 제거,
+    /// 비경로 토큰에 박힌 유저명 치환, secret 패턴 마스킹.
+    /// 순서 중요: 홈 경로 prefix 치환 먼저 → 그래야 그 뒤 패턴들이 익명화된 경로를 본다.
+    static func scrub(_ input: String) -> String {
+        var s = input
+
+        // 1) 홈 경로 익명화.
+        //    1a) 리터럴 NSHomeDirectory() prefix 를 먼저 ~ 로 — 공백·아포스트로피 등
+        //        특수문자 포함 유저명까지 완전 커버 (제네릭 정규식이 꼬리를 흘리는 문제 차단).
+        let home = NSHomeDirectory()
+        if !home.isEmpty {
+            s = s.replacingOccurrences(of: home, with: "~")
+        }
+        //    1b) 제네릭 /Users/<name>/  →  ~/   (이름 부분이 곧 유저명이라 함께 제거).
+        //        세그먼트를 *다음 슬래시까지* 소비 → 공백·아포스트로피 포함 이름(다른 사용자
+        //        경로 포함)도 꼬리 안 흘리고 제거. 과다 스크럽은 프라이버시상 안전한 방향.
+        s = replace(s, pattern: #"/Users/[^/\n]+/"#, with: "~/")
+        //    경로 끝(슬래시 없이 끝나는) /Users/<name> 도 처리
+        s = replace(s, pattern: #"/Users/[^/\n]+"#, with: "~")
+        // /private/var/folders/... (유저별 임시 경로) — 식별 가능성 차단
+        s = replace(s, pattern: #"/private/var/folders/[^\s"']*"#, with: "~tmp")
+        s = replace(s, pattern: #"/var/folders/[^\s"']*"#, with: "~tmp")
+
+        // 2) 마운트된 볼륨 이름 제거 — 그 자체가 개인정보 (외장 라벨 등).
+        //    멀티워드 라벨("My Passport")까지 먹도록 줄 끝/따옴표까지 소비
+        //    (꼬리 토큰 과다 스크럽은 프라이버시 측면에서 안전한 방향).
+        s = replace(s, pattern: #"/Volumes/[^"'\n]*"#, with: "/Volumes/…")
+
+        // 3) 비경로 토큰에 남은 유저명 치환 — reverse-DNS id(com.<name>.helper),
+        //    dispatch-queue 라벨, 서명 문자열 등은 위 경로 규칙을 안 거친다.
+        //    word-boundary + 대소문자 무시로 단독 등장만 <user> 로.
+        let user = NSUserName()
+        if !user.isEmpty {
+            let escaped = NSRegularExpression.escapedPattern(for: user)
+            s = replace(s, pattern: #"(?i)\b"# + escaped + #"\b"#, with: "<user>")
+        }
+
+        // 4) 명백한 secret 패턴 마스킹 (key/token/password/secret = value)
+        s = replace(s, pattern: #"(?i)(api[_-]?key|secret|token|password|passwd|pwd|bearer)\b\s*[:=]\s*\S+"#, with: "$1=***")
+        // sk-/ghp_ 같은 잘 알려진 토큰 prefix
+        s = replace(s, pattern: #"\b(sk|pk|ghp|gho|ghs|xox[baprs])[-_][A-Za-z0-9]{8,}"#, with: "***")
+
+        return s
+    }
+
+    private static func replace(_ s: String, pattern: String, with template: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
+        let range = NSRange(s.startIndex..., in: s)
+        return re.stringByReplacingMatches(in: s, options: [], range: range, withTemplate: template)
+    }
+}
+
+/// 핸들드 에러(eject 실패 등) 카테고리 집계 — `kind:"error"`.
+/// 호출부는 **코스 카테고리만** 넘긴다 (디스크명·볼륨명·BSD·경로 금지).
+/// 클라이언트 dedup: 같은 `(signature, app_version)` 은 영구히 1회만 전송.
+fileprivate enum ErrorReporter {
+    private static let sentKey = "errorReporting.sentSignatures"
+    private static let sentCap = 500
+    private static let lock = NSLock()
+
+    /// 코스 카테고리 시그니처를 1회 한정 전송. crashReportingEnabled OFF 면 no-op.
+    /// 모든 작업은 best-effort — 절대 throw/crash 안 함.
+    static func report(signature rawSignature: String) {
+        guard SettingsStore.crashReportingEnabled else { return }
+
+        let version = ReportEndpoint.appVersion
+        // 전송될 시그니처(truncate 후)로 dedup 키를 만든다 — POST 되는 값과 dedup 기준 일치.
+        let signature = String(rawSignature.prefix(ReportEndpoint.signatureLimit))
+        // dedup 키 = "signature|version" — 같은 버전에서 같은 에러는 한 번만.
+        let dedupKey = "\(signature)|\(version)"
+
+        lock.lock()
+        // 순서 보존 array — cap 초과 trim 시 오래된 것부터 버리고 방금 넣은 키는 절대 안 버림.
+        var sent = UserDefaults.standard.stringArray(forKey: sentKey) ?? []
+        if sent.contains(dedupKey) {
+            lock.unlock()
+            return
+        }
+        sent.append(dedupKey)
+        // array 무한 성장 방지 — 안전 상한 (시그니처 종류는 본질적으로 적음). 가장 오래된 것부터 drop.
+        if sent.count > sentCap {
+            sent.removeFirst(sent.count - sentCap)
+        }
+        UserDefaults.standard.set(sent, forKey: sentKey)
+        lock.unlock()
+
+        DispatchQueue.global(qos: .utility).async {
+            ReportEndpoint.post([
+                "kind": "error",
+                "signature": signature,
+                "app_version": version,
+                "os_version": ReportEndpoint.osVersion,
+            ])
+        }
+    }
+}
+
+/// 크래시 사후 수확 — DiagnosticReports 의 새 `.ips` 만 스캔·파싱·스크럽·전송.
+fileprivate enum CrashReporter {
+    // 이미 리포트한 크래시 신원(incident_id 등)의 *순서 보존* 배열을 보관한다.
+    // 단일 watermark(lastSeenCrashDate) 방식은 파싱 실패한 .ips 를 영구히 건너뛰어
+    // (spec §2 "진짜 새 크래시 영구 억제 금지" 위반) 폐기. 신원 집합으로 dedup 한다.
+    private static let reportedKey = "crashReporting.reportedIdentities"
+    private static let reportedCap = 200
+    // mtime 은 디렉터리 스캔 범위를 좁히는 *나이 사전필터* 로만 사용 (식별엔 안 씀).
+    // Time Machine/iCloud/마이그레이션이 mtime 을 리셋해도 신원 집합이 dedup 을 책임진다.
+    private static let maxAgeSeconds: TimeInterval = 30 * 24 * 60 * 60   // ~30일
+    private static let topFrameLimit = 20
+    private static let lock = NSLock()
+
+    /// crashReportingEnabled 면 백그라운드 utility 큐에서 수확 시작. launch 를 절대 막지 않음.
+    static func harvestIfEnabled() {
+        guard SettingsStore.crashReportingEnabled else { return }
+        DispatchQueue.global(qos: .utility).async {
+            harvest()
+        }
+    }
+
+    /// 단일 패스 수확 — 어떤 `.ips` 가 malformed 여도 전체가 안전하게 진행.
+    /// 신원이 이미 리포트 집합에 있으면 skip. 파싱 + 전송 2xx 성공 후에만 신원을 집합에 추가.
+    private static func harvest() {
+        let fm = FileManager.default
+        guard let logsDir = fm.urls(for: .libraryDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("Logs/DiagnosticReports", isDirectory: true) else { return }
+
+        let candidates: [URL]
+        do {
+            let contents = try fm.contentsOfDirectory(
+                at: logsDir,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles])
+            candidates = contents.filter {
+                $0.pathExtension == "ips" && $0.lastPathComponent.hasPrefix("DiskOUT-")
+            }
+        } catch {
+            return  // 폴더 없음/권한 등 — best-effort, 조용히 종료.
+        }
+
+        // 리포트된 신원 집합을 한 번 읽어와 메모리에서 비교 (순서 보존).
+        // 이 스냅샷은 *이전 실행* 까지의 신원 — 같은 실행 내 파일은 신원이 서로 달라 중복 전송 없음.
+        let reported = loadReported()
+        let cutoff = Date().addingTimeInterval(-maxAgeSeconds)
+
+        for url in candidates {
+            // 나이 사전필터: ~30일보다 오래된 .ips 는 스캔 비용 절감 위해 무시 (식별 아님).
+            let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            guard mtime >= cutoff else { continue }
+
+            // 파싱·전송은 개별 try? 로 격리 — 한 파일이 깨져도 다음 파일 계속.
+            // 파싱 실패 → continue (신원 미기록 → 다음 실행 때 재시도).
+            guard let parsed = parseIPS(at: url) else { continue }
+
+            // 이미 리포트한 신원이면 skip.
+            if reported.contains(parsed.identity) { continue }
+
+            ReportEndpoint.post([
+                "kind": "crash",
+                "signature": parsed.signature,
+                "detail": parsed.detail,
+                "app_version": parsed.appVersion,
+                "os_version": parsed.osVersion,
+            ]) { success in
+                // at-least-once: 실제 2xx 성공 시에만 신원 기록. 실패(오프라인·타임아웃·5xx)면
+                // 미기록 → 다음 실행 때 재시도 (.ips 는 30일 내 디스크에 남아있음). 중복 전송은
+                // 서버측 UNIQUE(day,install_hash,kind,signature) dedup 이 흡수.
+                if success { recordReported(parsed.identity) }
+            }
+        }
+    }
+
+    /// 리포트된 신원 배열 로드 (순서 보존).
+    private static func loadReported() -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        return UserDefaults.standard.stringArray(forKey: reportedKey) ?? []
+    }
+
+    /// 신원 1건 기록 후 cap 초과 시 *가장 오래된 것부터* drop (방금 추가한 건 절대 안 버림).
+    /// POST 완료 콜백(백그라운드 큐)에서 호출 — 디스크 최신본을 다시 읽어 동시성 손실 방지.
+    private static func recordReported(_ identity: String) {
+        lock.lock(); defer { lock.unlock() }
+        var arr = UserDefaults.standard.stringArray(forKey: reportedKey) ?? []
+        if arr.contains(identity) { return }
+        arr.append(identity)
+        if arr.count > reportedCap {
+            arr.removeFirst(arr.count - reportedCap)
+        }
+        UserDefaults.standard.set(arr, forKey: reportedKey)
+    }
+
+    private struct ParsedCrash {
+        let identity: String
+        let signature: String
+        let detail: String
+        let appVersion: String
+        let osVersion: String
+    }
+
+    /// modern `.ips` = 헤더 JSON 한 줄 + 바디 JSON. 둘 다 파싱해 시그니처/디테일 추출.
+    /// 어느 단계든 형식이 어긋나면 nil (best-effort).
+    private static func parseIPS(at url: URL) -> ParsedCrash? {
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+
+        // 헤더 = 첫 번째 비어있지 않은 줄(JSON object). 바디 = 그 뒤 나머지 전체(JSON object).
+        guard let firstNewline = raw.firstIndex(of: "\n") else { return nil }
+        let headerLine = String(raw[raw.startIndex..<firstNewline])
+        let bodyText = String(raw[raw.index(after: firstNewline)...])
+
+        guard let headerData = headerLine.data(using: .utf8),
+              let header = (try? JSONSerialization.jsonObject(with: headerData)) as? [String: Any] else {
+            return nil
+        }
+
+        // 매칭 확정: 헤더 bundleID == com.yongza.ejectdrives.
+        let bundleID = (header["bundleID"] as? String) ?? (header["bundleId"] as? String)
+        guard bundleID == ReportEndpoint.expectedBundleID else { return nil }
+
+        guard let bodyData = bodyText.data(using: .utf8),
+              let body = (try? JSONSerialization.jsonObject(with: bodyData)) as? [String: Any] else {
+            return nil
+        }
+
+        // 앱 버전 — 헤더의 app_version 우선, 없으면 현재 번들 버전.
+        let crashAppVersion = (header["app_version"] as? String).map { String($0.prefix(64)) }
+            ?? ReportEndpoint.appVersion
+        // OS 버전 — 바디 osVersion.train / .build 사용, 없으면 현재 OS.
+        let crashOSVersion = osVersionString(from: body) ?? ReportEndpoint.osVersion
+
+        // 예외 타입 (signal). exception.type 가 핵심.
+        let exception = body["exception"] as? [String: Any]
+        let exceptionType = (exception?["type"] as? String) ?? "UNKNOWN_EXCEPTION"
+        let exceptionSignal = exception?["signal"] as? String
+        let exceptionLabel = exceptionSignal.map { "\(exceptionType) (\($0))" } ?? exceptionType
+
+        // 크래시 스레드 백트레이스 추출.
+        let (topAppSymbol, frameLines) = backtrace(from: body)
+
+        // SIGNATURE = 예외타입 + top 앱 프레임 심볼.
+        let rawSignature = topAppSymbol.map { "\(exceptionLabel) @ \($0)" } ?? exceptionLabel
+        let signature = String(ReportScrubber.scrub(rawSignature).prefix(ReportEndpoint.signatureLimit))
+
+        // DETAIL = 스크럽된 백트레이스 (예외 라벨 + 상위 N 프레임), ~4KB cap.
+        var detailLines = ["\(exceptionLabel)"]
+        detailLines.append(contentsOf: frameLines)
+        let scrubbedDetail = ReportScrubber.scrub(detailLines.joined(separator: "\n"))
+        let detail = String(scrubbedDetail.prefix(ReportEndpoint.detailLimit))
+
+        // 크래시 내재 타임스탬프 — 바디 captureTime 우선, 없으면 헤더 timestamp.
+        // 신원 해시 fallback 에만 쓰고, mtime 은 절대 신원에 안 쓴다(dedup 은 신원 집합이 책임).
+        let captureTime = (body["captureTime"] as? String) ?? (header["timestamp"] as? String)
+
+        // 신원 = 헤더 incident_id(UUID) → crashReporterKey → (captureTime+signature) 안정 해시.
+        let identity = crashIdentity(header: header, captureTime: captureTime, signature: signature)
+
+        return ParsedCrash(identity: identity,
+                           signature: signature,
+                           detail: detail,
+                           appVersion: crashAppVersion,
+                           osVersion: crashOSVersion)
+    }
+
+    /// 크래시 신원 한 줄: incident_id(UUID) 우선, 없으면 crashReporterKey,
+    /// 둘 다 없으면 (captureTime + signature) 의 안정 해시. dedup 의 기준.
+    private static func crashIdentity(header: [String: Any], captureTime: String?, signature: String) -> String {
+        if let incident = (header["incident_id"] as? String), !incident.isEmpty {
+            return "iid:" + incident
+        }
+        if let key = (header["crashReporterKey"] as? String), !key.isEmpty {
+            return "crk:" + key
+        }
+        // fallback: 외부 의존 없는 결정적 해시(FNV-1a 64-bit, hex). 같은 크래시는 항상 같은 값.
+        let basis = (captureTime ?? "") + "|" + signature
+        return "h:" + stableHashHex(basis)
+    }
+
+    /// FNV-1a 64-bit → 16자리 hex. CryptoKit 의존 없이 안정·결정적 (dedup 키 용도로 충분).
+    private static func stableHashHex(_ s: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        let prime: UInt64 = 0x100000001b3
+        for byte in s.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* prime
+        }
+        return String(hash, radix: 16)
+    }
+
+    /// 바디 osVersion = { "train": "macOS 14.5", "build": "..." } 형태. train 만 (build 미포함).
+    private static func osVersionString(from body: [String: Any]) -> String? {
+        guard let os = body["osVersion"] as? [String: Any] else { return nil }
+        if let train = os["train"] as? String { return String(train.prefix(64)) }
+        return nil
+    }
+
+    /// 크래시 스레드의 백트레이스를 (top 앱 심볼, "프레임 라인" 배열) 로 추림.
+    /// 레지스터 덤프·환경변수·스레드 전체 덤프는 제외 — 프레임 심볼/바이너리만.
+    /// 앱 프레임 = imageIndex 가 procName == DiskOUT 인 이미지인 프레임.
+    private static func backtrace(from body: [String: Any]) -> (topAppSymbol: String?, frames: [String]) {
+        let images = body["usedImages"] as? [[String: Any]] ?? []
+        // DiskOUT 메인 이미지 인덱스들 — 앱 프레임 판별용.
+        var appImageIndices = Set<Int>()
+        for (idx, img) in images.enumerated() {
+            if let name = img["name"] as? String, name == "DiskOUT" {
+                appImageIndices.insert(idx)
+            }
+        }
+
+        // 크래시 스레드 찾기: threads[].triggered == true 우선, 없으면 faultingThread 인덱스.
+        let threads = body["threads"] as? [[String: Any]] ?? []
+        var crashThread: [String: Any]?
+        for t in threads where (t["triggered"] as? Bool) == true {
+            crashThread = t
+            break
+        }
+        if crashThread == nil, let faulting = body["faultingThread"] as? Int, faulting < threads.count {
+            crashThread = threads[faulting]
+        }
+        if crashThread == nil { crashThread = threads.first }
+
+        let frames = (crashThread?["frames"] as? [[String: Any]]) ?? []
+        var lines: [String] = []
+        var topAppSymbol: String?
+
+        for frame in frames.prefix(topFrameLimit) {
+            let imageIndex = frame["imageIndex"] as? Int
+            let isAppFrame = imageIndex.map { appImageIndices.contains($0) } ?? false
+            let binaryName: String
+            if let imageIndex, imageIndex < images.count,
+               let n = images[imageIndex]["name"] as? String {
+                binaryName = n
+            } else {
+                binaryName = "?"
+            }
+
+            // 심볼: symbol(디멩글된 이름) 우선, 없으면 imageOffset 만.
+            let symbol = (frame["symbol"] as? String).map { String($0.prefix(120)) }
+            let offset = frame["imageOffset"] as? Int
+            let symbolText: String
+            if let symbol {
+                symbolText = symbol
+            } else if let offset {
+                symbolText = "\(binaryName) + \(offset)"
+            } else {
+                symbolText = binaryName
+            }
+
+            if isAppFrame, topAppSymbol == nil, let symbol {
+                topAppSymbol = symbol
+            } else if isAppFrame, topAppSymbol == nil {
+                topAppSymbol = symbolText
+            }
+
+            lines.append("\(binaryName)  \(symbolText)")
+        }
+
+        return (topAppSymbol, lines)
+    }
 }

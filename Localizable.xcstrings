@@ -1,6 +1,64 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Send anonymous crash & error reports": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send anonymous crash & error reports"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "익명 충돌 및 오류 보고서 보내기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名のクラッシュ・エラーレポートを送信"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送匿名崩溃和错误报告"
+          }
+        }
+      }
+    },
+    "Sends only crash type, anonymized stack traces, and error categories. Never disk names, file paths, or your identity.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends only crash type, anonymized stack traces, and error categories. Never disk names, file paths, or your identity."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "충돌 유형, 익명화된 스택 추적, 오류 분류만 보냅니다. 디스크 이름, 파일 경로, 사용자 정보는 절대 보내지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラッシュの種類、匿名化されたスタックトレース、エラー分類のみを送信します。ディスク名、ファイルパス、個人情報は一切送信しません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅发送崩溃类型、匿名化的堆栈跟踪和错误类别。绝不发送磁盘名称、文件路径或您的身份信息。"
+          }
+        }
+      }
+    },
     "\"%@\" is being written to": {
       "extractionState": "manual",
       "localizations": {
