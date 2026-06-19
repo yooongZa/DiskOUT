@@ -1031,13 +1031,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 변경분이 이미 반영돼 있다. DA 미준비(cold start)면 캐시(diskutil 폴백)로.
     private func refreshMountedDriveCountIcon() {
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let count: Int
+            let drives: [ExternalDrive]
             if let snap = DAInventory.shared.snapshot() {
-                count = AppDelegate.mountedExternalDeviceCount(drives: snap.drives)
+                drives = snap.drives
             } else {
-                count = AppDelegate.mountedExternalDeviceCount(drives: DiskMenuSnapshotCache.current().drives)
+                drives = DiskMenuSnapshotCache.current().drives
             }
+            let count = AppDelegate.mountedExternalDeviceCount(drives: drives)
             DispatchQueue.main.async {
+                // Time Machine 디스크 자동 제외를 '메뉴 열기' 와 분리해 DA 인벤토리 변경(mount /
+                // unmount / launch / wake)마다 선제 등록한다. 메뉴를 한 번도 안 열고 슬립해도 TM
+                // 보호가 동작 (idempotent — TimeMachineNotified 가 중복 알림/재등록 차단).
+                self?.autoExcludeNewTimeMachineDisks(drives)
                 self?.updateMountedDriveCount(count)
             }
         }
@@ -1298,9 +1303,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         Int(bitPattern: messageArgument)
     }
 
+    /// 자동 (sleep / display sleep / power-off) 추출에서 제외할 드라이브를 걸러낸다.
+    ///
+    /// 추출은 whole-disk(BSD) 단위로 번진다 — diskutilEjectForSleep / diskArbitrationUnmountForSleep
+    /// 가 정상 경로(Step A)부터 `kDADiskUnmountOptionWhole` 로 물리 디스크 전체를 unmount 하고,
+    /// force fallback 은 `diskutil eject force <wholeDisk>` 까지 간다. 따라서 같은 물리 디스크에
+    /// 보호 대상 볼륨(ExcludedVolumes 등록 OR Time Machine)이 하나라도 있으면 그 디스크의 *모든*
+    /// 볼륨을 제외해야 보호 볼륨이 sibling 추출에 휩쓸리지 않는다 (예: TM 컨테이너 + Data 컨테이너가
+    /// 한 물리 디스크에 공존할 때, Data 추출이 whole-disk 로 번져 TM 볼륨까지 추출되던 사고 차단).
+    ///
+    /// Time Machine 볼륨은 ExcludedVolumes 등록 여부와 무관하게 isTimeMachine 으로 즉시 보호한다 —
+    /// autoExclude/메뉴가 아직 안 돈 첫 마운트 직후 윈도우, diskutil 인벤토리 실패로 volumeUUID 가
+    /// nil 인 fallback 경로(둘 다 isTimeMachine 은 파일 마커로 판별 가능)까지 커버한다.
+    private static func filterAutoEjectExclusions(_ drives: [ExternalDrive]) -> (kept: [ExternalDrive], skipped: Int) {
+        func isProtected(_ d: ExternalDrive) -> Bool {
+            ExcludedVolumes.isExcluded(d.volumeUUID) || d.isTimeMachine
+        }
+        let pairs = drives.map { (drive: $0, bsd: $0.wholeDiskBSDName) }
+        var protectedWholeDisks = Set<String>()
+        for p in pairs where isProtected(p.drive) {
+            if let bsd = p.bsd { protectedWholeDisks.insert(bsd) }
+        }
+        let kept = pairs.compactMap { p -> ExternalDrive? in
+            if isProtected(p.drive) { return nil }                       // 보호 볼륨 자신
+            if let bsd = p.bsd, protectedWholeDisks.contains(bsd) { return nil } // 같은 물리 디스크의 sibling
+            return p.drive
+        }
+        return (kept, drives.count - kept.count)
+    }
+
     /// 병렬 추출. background thread 에서 호출하라.
-    /// - parameter applyExcludeFilter: true 면 ExcludedVolumes 에 등록된 디스크는 추출 제외.
-    ///   자동 (sleep / display sleep) path 에서만 true. 사용자 명시 추출은 false (사용자 의도 우선).
+    /// - parameter applyExcludeFilter: true 면 자동 추출 제외 규칙 적용 (filterAutoEjectExclusions —
+    ///   제외/TM 볼륨이 속한 물리 디스크 전체를 whole-disk 단위로 보호).
+    ///   자동 (sleep / display sleep / power-off) path 에서만 true. 사용자 명시 추출은 false (사용자 의도 우선).
     @discardableResult
     private func ejectAllSilently(applyExcludeFilter: Bool = false,
                                   operationID: String? = nil) -> (attempted: [String], success: [String], failure: [(String, String)]) {
@@ -1310,11 +1345,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("cycle \(operation, privacy: .public) ejectAll list complete count=\(drives.count, privacy: .public) elapsed=\(self.elapsedText(since: listStarted), privacy: .public)s")
         if applyExcludeFilter {
             let filterStarted = Date()
-            let before = drives.count
-            drives = drives.filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
-            let skipped = before - drives.count
+            let (kept, skipped) = AppDelegate.filterAutoEjectExclusions(drives)
+            drives = kept
             if skipped > 0 {
-                log.info("cycle \(operation, privacy: .public) ejectAll filtered out \(skipped, privacy: .public) excluded disks elapsed=\(self.elapsedText(since: filterStarted), privacy: .public)s")
+                log.info("cycle \(operation, privacy: .public) ejectAll filtered out \(skipped, privacy: .public) excluded/protected disks elapsed=\(self.elapsedText(since: filterStarted), privacy: .public)s")
             }
         }
         log.info("cycle \(operation, privacy: .public) ejectAll targets count=\(drives.count, privacy: .public) names=\(drives.map { $0.name }, privacy: .public)")
@@ -1371,11 +1405,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         if applyExcludeFilter {
             let filterStarted = Date()
-            let before = drives.count
-            drives = drives.filter { !ExcludedVolumes.isExcluded($0.volumeUUID) }
-            let skipped = before - drives.count
+            let (kept, skipped) = AppDelegate.filterAutoEjectExclusions(drives)
+            drives = kept
             if skipped > 0 {
-                log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject filtered out \(skipped, privacy: .public) excluded disks elapsed=\(self.elapsedText(since: filterStarted), privacy: .public)s")
+                log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject filtered out \(skipped, privacy: .public) excluded/protected disks elapsed=\(self.elapsedText(since: filterStarted), privacy: .public)s")
             }
         }
 
@@ -4650,6 +4683,7 @@ struct ExternalDrive {
         let dmgPaths = DiskImages.mountedPathsOrNil()
         let keys: [URLResourceKey] = [
             .volumeNameKey,
+            .volumeUUIDStringKey,
             .volumeIsInternalKey,
             .volumeIsBrowsableKey,
             .volumeIsLocalKey
@@ -4682,9 +4716,11 @@ struct ExternalDrive {
             }
             let name = v.volumeName ?? url.lastPathComponent
             let isTM = isTimeMachineDisk(volumeURL: url)
+            // diskutil 인벤토리 실패 fallback 에서도 Volume UUID 를 채워 ExcludedVolumes 매칭 /
+            // autoExclude 영속화가 동작하게 한다 (예전엔 nil → 제외 무효화로 TM 오추출 위험).
             drives.append(ExternalDrive(name: name, url: url,
                                         kind: .disk,
-                                        volumeUUID: nil,
+                                        volumeUUID: v.volumeUUIDString,
                                         isTimeMachine: isTM))
         }
         return drives
