@@ -14,7 +14,7 @@
 
 [![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-lightgrey?logo=apple)
+![macOS](https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple)
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
 ![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
 ![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
@@ -27,6 +27,14 @@
 </div>
 
 ---
+
+<!-- Demo GIF slot: add demo.gif to the repo root, then delete this line and the closing comment to activate.
+<div align="center">
+
+<img src="demo.gif" width="700" alt="DiskOUT auto-ejects every external drive on sleep and remounts on wake — no 'Disk Not Ejected Properly' warning">
+
+</div>
+-->
 
 > Mac is perfect — except for the *"Disk Not Ejected Properly"* notification.
 
@@ -87,7 +95,7 @@ The menu bar shows the count as a number.
 
 ### Requirements
 
-- macOS 14 (Sonoma) or later
+- macOS 13 (Ventura) or later
 - Apple Silicon (M1 / M2 / M3 / M4)
 
 ---

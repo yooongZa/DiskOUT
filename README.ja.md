@@ -14,7 +14,7 @@
 
 [![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-lightgrey?logo=apple)
+![macOS](https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple)
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
 ![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
 ![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
@@ -27,6 +27,14 @@
 </div>
 
 ---
+
+<!-- デモGIF枠: demo.gif をリポジトリのルートに追加し、この行と末尾の閉じコメントを削除すると有効化されます。
+<div align="center">
+
+<img src="demo.gif" width="700" alt="DiskOUT — スリープで外付けドライブを安全に取り出し、復帰時に再マウント。「ディスクが正しく取り出されませんでした」通知なし">
+
+</div>
+-->
 
 > Mac は完璧です — 「ディスクが正しく取り出されませんでした」通知さえなければ。
 
@@ -87,7 +95,7 @@ Apple の SSD 価格はおかしいです。しかもアップグレード不可
 
 ### システム要件
 
-- macOS 14 (Sonoma) 以降
+- macOS 13 (Ventura) 以降
 - Apple Silicon (M1 / M2 / M3 / M4)
 
 ---

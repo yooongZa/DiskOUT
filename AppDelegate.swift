@@ -51,6 +51,10 @@ private let ioMessageSystemHasPoweredOn: UInt32 = 0xe0000300
 private let ioPMMessageClamshellStateChange = UInt32(bitPattern: Int32(-536657664))
 private let clamshellStateBit = 1 << 0
 private let clamshellSleepBit = 1 << 1
+/// willSleep 핸들러가 '이 잠자기가 뚜껑 닫음으로 인한 것인지' 판정하는 시간 창.
+/// 뚜껑 닫힘 → 시스템 willSleep 은 보통 1~2초 내 도착하므로 넉넉히 15초.
+/// 이 안에 직전 뚜껑 닫힘이 있으면 lid-caused 로 보고 LidCloseEject 게이트를, 아니면 SleepEject 게이트를 적용.
+private let clamshellSleepAttributionWindow: TimeInterval = 15
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
 
@@ -115,6 +119,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var skipSleepAutoEjectUntil: Date? {
         get { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; return _skipSleepAutoEjectUntil }
         set { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; _skipSleepAutoEjectUntil = newValue }
+    }
+    /// 마지막으로 뚜껑이 닫힌 시각. willSleep 의 원인(lid-caused) 판정용 — 두 토글 분리의 핵심 상태.
+    private var _lastClamshellCloseAt: Date?
+    private var lastClamshellCloseAt: Date? {
+        get { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; return _lastClamshellCloseAt }
+        set { autoEjectStateLock.lock(); defer { autoEjectStateLock.unlock() }; _lastClamshellCloseAt = newValue }
     }
     private var powerRootPort: io_connect_t = 0
     private var powerNotifyPort: IONotificationPortRef?
@@ -2008,12 +2018,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let causesSleep = (bits & clamshellSleepBit) != 0
         log.notice("IOKit clamshell state changed closed=\(closed, privacy: .public) causesSleep=\(causesSleep, privacy: .public) bits=0x\(String(bits, radix: 16), privacy: .public)")
 
-        guard closed else { return }
+        guard closed else {
+            // 뚜껑 열림 → lid-caused 추적 초기화 (오래된 닫힘 시각이 이후 idle 잠자기를 오인하지 않도록).
+            lastClamshellCloseAt = nil
+            return
+        }
+        // 뚜껑 닫힌 시각 기록 — willSleep 핸들러가 '이 잠자기가 뚜껑 때문인지' 판정하는 데 사용.
+        lastClamshellCloseAt = Date()
         if !causesSleep {
             log.notice("IOKit clamshell pre-eject continuing although lid close does not report sleep")
         }
-        guard SleepEject.enabled else {
-            log.info("IOKit clamshell pre-eject skipped — SleepEject disabled")
+        guard LidCloseEject.enabled else {
+            log.info("IOKit clamshell pre-eject skipped — LidCloseEject disabled")
             return
         }
 
@@ -2200,8 +2216,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         skipSleepAutoEjectUntil = nil
 
-        guard SleepEject.enabled else {
-            log.info("cycle \(operation, privacy: .public) EJECT(sleep) SKIPPED — SleepEject disabled")
+        // 원인별 분리: 직전 뚜껑 닫힘이 시간 창 안에 있으면 이 잠자기는 뚜껑 때문(lid-caused) →
+        // LidCloseEject 토글이 게이트. 그 외(자동 idle / 메뉴 잠자기)는 SleepEject 토글이 게이트.
+        let lidCaused: Bool = {
+            guard let closedAt = lastClamshellCloseAt else { return false }
+            return Date().timeIntervalSince(closedAt) < clamshellSleepAttributionWindow
+        }()
+        guard (lidCaused ? LidCloseEject.enabled : SleepEject.enabled) else {
+            log.info("cycle \(operation, privacy: .public) EJECT(sleep) SKIPPED — \(lidCaused ? "LidCloseEject" : "SleepEject", privacy: .public) disabled lidCaused=\(lidCaused, privacy: .public)")
             return
         }
         autoEjectOperationID = operation
@@ -2938,6 +2960,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     private var loginToggle: NSButton!
     private var sleepToggle: NSButton!
+    private var lidCloseToggle: NSButton!
     private var displaySleepToggle: NSButton!
     private var libraryAppToggle: NSButton!
     private var notificationsToggle: NSButton!
@@ -3127,6 +3150,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     /// 흩어져 있던 것을 "추출이 언제·어떻게 일어나는가" 기준으로 한 페인에 모음.)
     private func makeEjectPane() -> NSView {
         sleepToggle = checkbox(title: String(localized: "Eject on sleep"), action: #selector(toggleSleepEject(_:)))
+        lidCloseToggle = checkbox(title: String(localized: "Eject on lid close"), action: #selector(toggleLidCloseEject(_:)))
         displaySleepToggle = checkbox(title: String(localized: "Eject on display sleep (experimental)"), action: #selector(toggleDisplaySleepEject(_:)))
         libraryAppToggle = checkbox(title: String(localized: "Quit Music/Photos before sleep"), action: #selector(toggleLibraryAppManagement(_:)))
         forceFallbackToggle = checkbox(title: String(localized: "Force fallback"), action: #selector(toggleForceFallback(_:)))
@@ -3135,6 +3159,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
         return pane([
             settingRow(sleepToggle, description: String(localized: "Eject all external drives right before the Mac sleeps.")),
+            settingRow(lidCloseToggle, description: String(localized: "Eject all external drives the moment you close the lid.")),
             settingRow(displaySleepToggle, description: String(localized: "Also eject when only the display goes to sleep — for Macs set to never sleep.")),
             settingRow(libraryAppToggle, description: String(localized: "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives.")),
             settingRow(forceFallbackToggle, description: String(localized: "Retry with a force unmount when a normal eject fails.")),
@@ -3358,6 +3383,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             : String(localized: "Launch at login")
         loginToggle.state = (loginStatus == .enabled || loginStatus == .requiresApproval) ? .on : .off
         sleepToggle.state = SleepEject.enabled ? .on : .off
+        lidCloseToggle.state = LidCloseEject.enabled ? .on : .off
         displaySleepToggle.state = DisplaySleepEject.enabled ? .on : .off
         libraryAppToggle.state = LibraryAppManagement.enabled ? .on : .off
         notificationsToggle.state = SettingsStore.notificationsEnabled ? .on : .off
@@ -3430,6 +3456,10 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     @objc private func toggleSleepEject(_ sender: NSButton) {
         SleepEject.enabled = sender.state == .on
+    }
+
+    @objc private func toggleLidCloseEject(_ sender: NSButton) {
+        LidCloseEject.enabled = sender.state == .on
     }
 
     @objc private func toggleDisplaySleepEject(_ sender: NSButton) {
@@ -5093,6 +5123,28 @@ enum SleepEject {
                 d.set(legacy, forKey: key)
                 d.removeObject(forKey: legacyKey)
                 return legacy
+            }
+            return true
+        }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
+/// 노트북 뚜껑(클램쉘)을 닫을 때 자동 추출 여부. `SleepEject`(잠자기 시) 와 별개 토글.
+/// 담당 경로: ① 뚜껑 닫힘 선(先)추출(clamshell pre-eject), ② '뚜껑 닫음이 일으킨 잠자기' 경로.
+/// **default = true** — 노트북 사용자의 가장 흔한 시나리오(자리 뜰 때 뚜껑 닫음).
+/// 마이그레이션: 기존엔 `ejectOnSleep` 하나가 뚜껑+잠자기를 모두 담당했으므로,
+/// 키가 없으면 현재 `ejectOnSleep` 값을 1회 상속해 업데이트 후 동작이 바뀌지 않게 한다.
+enum LidCloseEject {
+    private static let key = "ejectOnClamshell"
+
+    static var enabled: Bool {
+        get {
+            let d = UserDefaults.standard
+            if let v = d.object(forKey: key) as? Bool { return v }
+            if let inherited = d.object(forKey: "ejectOnSleep") as? Bool {
+                d.set(inherited, forKey: key)
+                return inherited
             }
             return true
         }

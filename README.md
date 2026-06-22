@@ -14,7 +14,7 @@
 
 [![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-lightgrey?logo=apple)
+![macOS](https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple)
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
 ![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
 ![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
@@ -27,6 +27,14 @@
 </div>
 
 ---
+
+<!-- 데모 GIF 자리: demo.gif 를 저장소 루트에 추가한 뒤, 이 줄과 끝의 닫는 주석만 지우면 활성화됩니다.
+<div align="center">
+
+<img src="demo.gif" width="700" alt="DiskOUT — 뚜껑 닫으면 외장이 안전하게 추출되고, 깨우면 다시 마운트됩니다">
+
+</div>
+-->
 
 > Mac 은 완벽합니다 — *"디스크가 정상적으로 추출되지 않았습니다"* 알림을 제외하면 말이죠.
 
@@ -87,7 +95,7 @@ Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능�
 
 ### 시스템 요구사항
 
-- macOS 14 (Sonoma) 이상
+- macOS 13 (Ventura) 이상
 - Apple Silicon (M1 / M2 / M3 / M4)
 
 ---

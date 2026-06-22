@@ -14,7 +14,7 @@
 
 [![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-lightgrey?logo=apple)
+![macOS](https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple)
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
 ![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
 ![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
@@ -27,6 +27,14 @@
 </div>
 
 ---
+
+<!-- 演示 GIF 占位：将 demo.gif 放到仓库根目录后，删除本行与末尾的结束注释即可启用。
+<div align="center">
+
+<img src="demo.gif" width="700" alt="DiskOUT — 睡眠时安全推出所有外置驱动器，唤醒时重新挂载，不再出现“未正确推出磁盘”警告">
+
+</div>
+-->
 
 > Mac 是完美的 — 除了 *"未正确推出磁盘"* 通知。
 
@@ -87,7 +95,7 @@ Apple 的 SSD 价格离谱,而且不能升级。只能靠外置硬盘撑着,但 
 
 ### 系统要求
 
-- macOS 14 (Sonoma) 或更高
+- macOS 13 (Ventura) 或更高
 - Apple Silicon (M1 / M2 / M3 / M4)
 
 ---

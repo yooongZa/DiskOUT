@@ -1161,6 +1161,64 @@
         }
       }
     },
+    "Eject on lid close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject on lid close"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트북을 닫으면 자동 추출"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ふたを閉じた時に取り出し"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合盖时弹出"
+          }
+        }
+      }
+    },
+    "Eject all external drives the moment you close the lid.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject all external drives the moment you close the lid."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트북 뚜껑을 닫는 순간 모든 외장 드라이브를 추출합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートブックのふたを閉じた瞬間にすべての外部ドライブを取り出します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在合上笔记本上盖的瞬间弹出所有外置驱动器。"
+          }
+        }
+      }
+    },
     "Eject on sleep": {
       "extractionState": "manual",
       "localizations": {
