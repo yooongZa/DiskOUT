@@ -216,7 +216,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | **Hotkey conflict auto-fix** | If eject / mount / eject-and-sleep would share the same preset, the conflict is detected + one is auto-moved + alerted |
 | **Missing-permission menu hint** | If Accessibility (for global hotkeys) or notification permission is missing, a ⚠ warning row appears at the top of the menu. Click to jump to the relevant System Settings page |
 | **Fine-grained notification toggles** | Separate toggles for all / success / failure notifications. All ON by default |
-| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 117 keys. First launch auto-matches system language (with English fallback for unsupported languages) + the Language popup in Settings → General lets you force a choice |
+| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 125 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
 | **Auto-update (Sparkle 2)** | 24h background check. On new version, no modal — just a small systemRed `●` in the menu bar + an "Update to X.Y.Z…" menu item with the same red-dot prefix (gentle reminder). Click → standard Sparkle download/install dialog → auto-restart. EdDSA(Ed25519) + Apple Code Signing double verification. Appcast on GitHub Pages, DMG on GitHub Releases — free hosting |
 | **Per-disk auto-eject exclude** | Per-disk toggles in the bottom *"Auto-Eject Excluded Disks"* submenu. Volume UUID-based (survives cable/port changes). Affects auto path only — explicit eject still works |
 | **Time Machine auto-protect** | TM backup disks auto-detected (`Backups.backupdb` / `.com.apple.timemachine.donotpresent`) → excluded from auto-eject on first sighting + 1 notification. Menu shows clock icon + a Time Machine badge (macOS 14+; parenthetical on 13) |
@@ -247,12 +247,14 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 ```
 diskOUT/
 ├── AppDelegate.swift            # Main logic (diskutil exec, menu cache, sleep/wake handling)
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 117 keys)
+├── LanguageRuntime.swift        # language negotiation, stored-value validation, safe relaunch policy
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 125 keys)
 ├── main.swift                   # Explicit entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen generated)
 ├── DiskOUT.entitlements         # empty plist. Prevents entitlements pitfalls in project.yml
 ├── project.yml                  # xcodegen config (sandbox OFF)
 ├── DiskOUT.xcodeproj/           # Xcode project (regeneratable via xcodegen)
+├── Tests/LanguageRuntimePolicyTests.swift # language fallback, stored-value, relaunch state tests
 ├── CHANGELOG.md
 └── README.md
 ```

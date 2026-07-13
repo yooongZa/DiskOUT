@@ -83,7 +83,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在写入 \"%@\""
+            "value": "正在写入“%@”"
           }
         }
       }
@@ -164,7 +164,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "取り出す"
+            "value": "それでも取り出す"
           }
         },
         "zh-Hans": {
@@ -199,7 +199,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "现在推出会中断复制并可能损坏文件。仍要推出吗?"
+            "value": "现在推出会中断复制并可能损坏文件。仍要推出吗？"
           }
         }
       }
@@ -228,7 +228,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 正在使用此磁盘。退出并重新推出?"
+            "value": "%@ 正在使用此磁盘。退出并重新推出？"
           }
         }
       }
@@ -576,7 +576,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "随时随地用 ⌥⌘E 弹出所有驱动器"
+            "value": "随时随地用 ⌥⌘E 推出所有驱动器"
           }
         }
       }
@@ -692,7 +692,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "一眼查看弹出结果"
+            "value": "一眼查看推出结果"
           }
         }
       }
@@ -738,7 +738,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@\n디스크는 인식되는데 mount 안 됨 — 디스크 검사 필요할 수 있음"
+            "value": "%@\n디스크가 인식되었지만 마운트되지 않습니다. 디스크 유틸리티에서 확인해 보십시오."
           }
         },
         "ja": {
@@ -750,7 +750,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@\n检测到磁盘但无法挂载。请尝试\"磁盘工具\"。"
+            "value": "%@\n检测到磁盘但无法挂载。请尝试“磁盘工具”。"
           }
         }
       }
@@ -767,7 +767,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@\n디스크가 unmount 안 된 채 — 분리 시 손상 위험. 화면 켜고 메뉴에서 수동 추출 권장."
+            "value": "%@\n디스크가 마운트된 상태입니다. 분리하면 손상될 수 있습니다. 화면을 깨운 뒤 메뉴에서 직접 추출하십시오."
           }
         },
         "ja": {
@@ -779,7 +779,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@\n磁盘仍处于挂载状态。存在断开风险。请唤醒屏幕并手动弹出。"
+            "value": "%@\n磁盘仍处于挂载状态。存在断开风险。请唤醒屏幕并手动推出。"
           }
         }
       }
@@ -796,7 +796,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@\n디스크가 unmount 안 된 채 sleep — 분리 시 손상 위험. wake 후 메뉴에서 수동 추출 권장."
+            "value": "%@\n디스크가 마운트된 채 잠자기에 들었습니다. 분리하면 손상될 수 있습니다. Mac을 깨운 뒤 메뉴에서 직접 추출하십시오."
           }
         },
         "ja": {
@@ -808,7 +808,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@\n磁盘在挂载状态下进入睡眠。存在断开风险。唤醒后请手动弹出。"
+            "value": "%@\n磁盘在挂载状态下进入睡眠。存在断开风险。唤醒后请手动推出。"
           }
         }
       }
@@ -817,27 +817,57 @@
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld drive(s) didn't eject at display sleep"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld drive didn't eject at display sleep"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld drives didn't eject at display sleep"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "화면 꺼짐 시 %lld개 디스크 추출 실패"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "화면이 잠자기에 들 때 %lld개의 드라이브를 추출하지 못했습니다"
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 台のドライブがディスプレイスリープ時に取り出せませんでした"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 台のドライブがディスプレイスリープ時に取り出せませんでした"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 个驱动器在显示器睡眠时未弹出"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个驱动器在显示器睡眠时未推出"
+                }
+              }
+            }
           }
         }
       }
@@ -846,27 +876,57 @@
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld drive(s) didn't eject before sleep"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld drive didn't eject before sleep"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld drives didn't eject before sleep"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sleep 시 %lld개 디스크 추출 실패"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "잠자기 전에 %lld개의 드라이브를 추출하지 못했습니다"
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 台のドライブがスリープ前に取り出せませんでした"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 台のドライブがスリープ前に取り出せませんでした"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 个驱动器在睡眠前未弹出"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个驱动器在睡眠前未推出"
+                }
+              }
+            }
           }
         }
       }
@@ -895,7 +955,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已弹出所有驱动器"
+            "value": "已推出所有驱动器"
           }
         }
       }
@@ -924,7 +984,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已从自动弹出中排除"
+            "value": "已从自动推出中排除"
           }
         }
       }
@@ -953,7 +1013,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "睡眠前自动退出\"音乐\"和\"照片\",唤醒后重新启动。当资料库位于外置驱动器时很有用。"
+            "value": "睡眠前自动退出“音乐”和“照片”，唤醒后重新启动。当资料库位于外置驱动器时很有用。"
           }
         }
       }
@@ -1011,7 +1071,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在\"系统设置\" → \"通用\" → \"登录项\"中授权"
+            "value": "在“系统设置” → “通用” → “登录项”中授权"
           }
         }
       }
@@ -1040,7 +1100,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点击挂载。⌘+点击同时在\"访达\"中打开。"
+            "value": "点击挂载。⌘+点击同时在“访达”中打开。"
           }
         }
       }
@@ -1069,7 +1129,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法弹出 %@"
+            "value": "无法推出 %@"
           }
         }
       }
@@ -1127,7 +1187,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "弹出失败"
+            "value": "推出失败"
           }
         }
       }
@@ -1156,7 +1216,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示器睡眠时弹出 (实验性)"
+            "value": "显示器睡眠时推出（实验性）"
           }
         }
       }
@@ -1185,7 +1245,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "合盖时弹出"
+            "value": "合盖时推出"
           }
         }
       }
@@ -1214,7 +1274,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在合上笔记本上盖的瞬间弹出所有外置驱动器。"
+            "value": "在合上笔记本上盖的瞬间推出所有外置驱动器。"
           }
         }
       }
@@ -1243,7 +1303,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "睡眠时弹出"
+            "value": "睡眠时推出"
           }
         }
       }
@@ -1272,7 +1332,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已弹出"
+            "value": "已推出"
           }
         }
       }
@@ -1388,7 +1448,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "睡眠前退出\"音乐\"/\"照片\""
+            "value": "睡眠前退出“音乐”/“照片”"
           }
         }
       }
@@ -1475,7 +1535,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有可弹出的驱动器"
+            "value": "没有可推出的驱动器"
           }
         }
       }
@@ -1620,7 +1680,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "部分驱动器未弹出"
+            "value": "部分驱动器未推出"
           }
         }
       }
@@ -1707,7 +1767,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "\"%@\" 已从自动弹出中排除。如需在睡眠时弹出,请在菜单中切换。"
+            "value": "“%@”已从自动推出中排除。如需在睡眠时推出，请在菜单中切换。"
           }
         }
       }
@@ -1770,6 +1830,64 @@
         }
       }
     },
+    "The operation couldn't be completed. Please try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The operation couldn't be completed. Please try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업을 완료할 수 없습니다. 다시 시도하십시오."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作を完了できませんでした。もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成操作。请重试。"
+          }
+        }
+      }
+    },
+    "Click to open the DiskOUT menu.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to open the DiskOUT menu."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭하여 DiskOUT 메뉴를 엽니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックして DiskOUT メニューを開きます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击以打开 DiskOUT 菜单。"
+          }
+        }
+      }
+    },
     "Eject and Sleep": {
       "extractionState": "manual",
       "localizations": {
@@ -1794,7 +1912,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "弹出并睡眠"
+            "value": "推出并睡眠"
           }
         }
       }
@@ -1852,7 +1970,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "部分驱动器未弹出。未启动睡眠。"
+            "value": "部分驱动器未推出。未启动睡眠。"
           }
         }
       }
@@ -1890,27 +2008,57 @@
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld drive(s) didn't eject before power off"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld drive didn't eject before power off"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld drives didn't eject before power off"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "종료 전 %lld개 디스크 추출 실패"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "종료 전에 %lld개의 드라이브를 추출하지 못했습니다"
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 台のドライブが電源オフ前に取り出せませんでした"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 台のドライブが電源オフ前に取り出せませんでした"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 个驱动器在关机前未弹出"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个驱动器在关机前未推出"
+                }
+              }
+            }
           }
         }
       }
@@ -1939,7 +2087,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@\n注销、重启或关机正在继续。如保持登录,请手动弹出。"
+            "value": "%@\n注销、重启或关机正在继续。如保持登录，请手动推出。"
           }
         }
       }
@@ -2014,7 +2162,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Full Disk Access 권한이 필요할 수 있음"
+            "value": "전체 디스크 접근 권한이 필요할 수 있습니다"
           }
         },
         "ja": {
@@ -2026,7 +2174,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "可能需要\"完全磁盘访问权限\""
+            "value": "可能需要“完全磁盘访问权限”"
           }
         }
       }
@@ -2258,7 +2406,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "弹出行为"
+            "value": "推出行为"
           }
         }
       }
@@ -2287,7 +2435,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "弹出全部"
+            "value": "推出全部"
           }
         }
       }
@@ -2391,7 +2539,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "강제 fallback"
+            "value": "강제 마운트 해제 재시도"
           }
         },
         "ja": {
@@ -2432,7 +2580,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录时启动 (需授权)"
+            "value": "登录时启动（需授权）"
           }
         }
       }
@@ -2519,7 +2667,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "为全局热键允许\"辅助功能\""
+            "value": "为全局热键允许“辅助功能”"
           }
         }
       }
@@ -2548,7 +2696,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许通知以查看弹出结果"
+            "value": "允许通知以查看推出结果"
           }
         }
       }
@@ -2565,7 +2713,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "추출과 마운트는 같은 단축키를 쓸 수 없음. %@ 단축키를 다른 preset 으로 이동함."
+            "value": "추출과 마운트는 같은 단축키를 사용할 수 없습니다. %@ 단축키를 다른 프리셋으로 이동했습니다."
           }
         },
         "ja": {
@@ -2577,7 +2725,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "\"弹出\"和\"挂载\"不能共用同一快捷键。%@ 已移至其他预设。"
+            "value": "“推出”和“挂载”不能共用同一快捷键。%@ 已移至其他预设。"
           }
         }
       }
@@ -2594,7 +2742,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "'추출하고 잠자기' 는 모두 추출/모두 마운트와 같은 단축키를 쓸 수 없음. 다른 preset 선택."
+            "value": "'추출하고 잠자기'는 '모두 추출' 또는 '모두 마운트'와 같은 단축키를 사용할 수 없습니다. 다른 프리셋을 선택하십시오."
           }
         },
         "ja": {
@@ -2606,7 +2754,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "\"弹出并睡眠\"不能与\"弹出全部\"或\"挂载全部\"共用快捷键。请选择其他快捷键。"
+            "value": "“推出并睡眠”不能与“推出全部”或“挂载全部”共用快捷键。请选择其他快捷键。"
           }
         }
       }
@@ -2751,7 +2899,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "右键点击菜单栏图标弹出全部"
+            "value": "右键点击菜单栏图标推出全部"
           }
         }
       }
@@ -2768,7 +2916,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "끄면 우클릭(과 ctrl+클릭)이 추출 대신 메뉴를 띄움. 실수 우클릭으로 외장이 빠지는 사고 방지용."
+            "value": "끄면 우클릭(또는 Control-클릭)이 추출 대신 메뉴를 엽니다. 실수로 외장 드라이브를 추출하는 것을 방지합니다."
           }
         },
         "ja": {
@@ -2780,7 +2928,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭时,右键 (和 Ctrl+点击) 将打开菜单,而不是弹出所有驱动器。"
+            "value": "关闭时，右键（和 Ctrl+点击）将打开菜单，而不是推出所有驱动器。"
           }
         }
       }
@@ -2983,7 +3131,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "弹出全部"
+            "value": "推出全部"
           }
         }
       }
@@ -3041,7 +3189,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "睡眠时弹出"
+            "value": "睡眠时推出"
           }
         }
       }
@@ -3070,7 +3218,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "自动弹出排除的磁盘"
+            "value": "自动推出排除的磁盘"
           }
         }
       }
@@ -3331,7 +3479,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "提示：右键点击菜单栏图标也可弹出全部。"
+            "value": "提示：右键点击菜单栏图标也可推出全部。"
           }
         }
       }
@@ -3360,7 +3508,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Mac 进入睡眠前弹出所有外置驱动器。"
+            "value": "在 Mac 进入睡眠前推出所有外置驱动器。"
           }
         }
       }
@@ -3389,7 +3537,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "仅显示器睡眠时也弹出 — 适用于设置为从不睡眠的 Mac。"
+            "value": "仅显示器睡眠时也推出——适用于设置为从不睡眠的 Mac。"
           }
         }
       }
@@ -3418,7 +3566,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "普通弹出失败时，使用强制卸载重试。"
+            "value": "普通推出失败时，使用强制卸载重试。"
           }
         }
       }
@@ -3506,6 +3654,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "立即重启"
+          }
+        }
+      }
+    },
+    "Couldn’t restart DiskOUT": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t restart DiskOUT"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT을 재시작하지 못했습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUTを再起動できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法重新启动 DiskOUT"
+          }
+        }
+      }
+    },
+    "DiskOUT is still running. Try again, or restart it later.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT is still running. Try again, or restart it later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT은 계속 실행 중입니다. 다시 시도하거나 나중에 재시작하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUTは引き続き実行中です。もう一度試すか、あとで再起動してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DiskOUT 仍在运行。请重试，或稍后重新启动。"
           }
         }
       }

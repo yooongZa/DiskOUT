@@ -216,7 +216,7 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | **단축키 충돌 자동 정정** | 추출 / 마운트 / 추출하고 잠자기 단축키가 같은 preset 으로 저장되면 충돌 감지 + 다른 preset 으로 자동 이동 + alert |
 | **권한 누락 메뉴 안내** | Accessibility(손쉬운 사용) / 알림 권한이 미허용 상태면 메뉴 상단에 ⚠ 경고 row 표시. 클릭하면 시스템 설정의 해당 페이지로 이동 |
 | **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 토글. 기본은 모두 ON |
-| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 117개 키. 첫 launch 에서 시스템 언어 자동 매칭 (지원 외 언어 사용자는 영어 fallback) + 환경설정 General 페인의 Language 팝업에서 강제 선택 가능 |
+| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 125개 키. 시스템 선호 언어 목록 전체에서 첫 지원 언어를 자동 선택하고, 모두 미지원이면 영어로 fallback. 환경설정 General → Language에서 시스템 따라가기 또는 명시 언어 선택 가능 |
 | **자동 업데이트 (Sparkle 2)** | 24시간 주기로 백그라운드 체크. 새 버전 발견 시 다이얼로그 안 띄우고 **메뉴바 아이콘에 작은 systemRed `●` + 메뉴 안 "X.Y.Z 업데이트…" 항목 (같은 빨간 점 prefix)** 으로만 표시 (gentle reminder). 사용자가 클릭하면 표준 Sparkle 다운로드/설치 다이얼로그 → 자동 재시작. EdDSA(Ed25519) + Apple Code Signing 이중 검증. appcast 호스팅은 GitHub Pages, DMG 호스팅은 GitHub Releases — 무료 운영 |
 | **Per-disk 자동 추출 제외** | 메뉴 하단 *"자동 추출 제외 디스크"* submenu 에서 디스크별 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + Time Machine badge(배지) 표기 (macOS 14+, 13은 괄호) |
@@ -247,12 +247,14 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 ```
 diskOUT/
 ├── AppDelegate.swift            # 메인 로직 (diskutil 실행, 메뉴 캐시, sleep/wake 처리)
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 117 키)
+├── LanguageRuntime.swift        # 언어 협상·저장값 검증·안전한 재시작 정책
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 125 키)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
 ├── DiskOUT.entitlements         # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
 ├── project.yml                  # xcodegen 설정 (sandbox OFF)
 ├── DiskOUT.xcodeproj/           # Xcode 프로젝트 (xcodegen 으로 재생성 가능)
+├── Tests/LanguageRuntimePolicyTests.swift # 언어 fallback·저장값·재시작 상태 테스트
 ├── CHANGELOG.md
 └── README.md
 ```

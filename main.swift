@@ -11,37 +11,16 @@ import Cocoa
 // ─── 사용자 강제 언어 적용 (NSApplication 생성 전 — Bundle.main 의 localized resource 가
 //     launch 시점에 캐시되므로 그 이전이어야 함) ──────────────────────────────
 //
-// 환경설정의 "언어" 드롭다운에서 사용자가 선택한 값을 AppleLanguages 키로 변환해 적용.
-// "system" 이면 우리가 set 한 AppleLanguages 키를 제거 → macOS 가 시스템 언어를 따라감.
-// xcstrings 는 en / ko / ja / zh-Hans 를 가짐. 사용자는 그 중 하나 또는 system 강제 선택 가능.
-//
-// 신규 설치자 smart default:
-//   - Locale.preferredLanguages.first ("ko-KR", "ja", "zh-Hans-CN" 등) 의 base language 가 지원 언어면 → 그 언어로
-//   - 지원 외 언어 사용자 (불어/스페인어 등) → "en" 으로 fallback
-// 기존 사용자가 UserDefaults 에 저장해 둔 값은 그대로 존중 (key 없을 때만 smart default 작동).
+// 환경설정의 "언어" 드롭다운에서 사용자가 명시 선택한 값을 AppleLanguages 키로 변환해 적용.
+// 키가 없으면 시스템 선호 언어 전체에서 앱이 지원하는 첫 언어를 매 launch 다시 선택한다.
+// xcstrings 는 en / ko / ja / zh-Hans 를 가짐. 지원 언어가 하나도 없으면 en 으로 fallback.
 //
 // 🚨 Bundle.main 은 절대 건드리지 말 것. Bundle.main 을 한 번이라도 접근하면 *현재* AppleLanguages
 // 값으로 localizations 가 캐시되고, 그 후 AppleLanguages 를 set 해도 무시됨 (UI 가 한 박자 늦게
 // 바뀌는 증상). 그래서 시스템 우선 언어는 Locale.preferredLanguages 로 읽음 (Bundle 건드림 없음).
 //
-// SettingsStore.Key.appLanguage / SettingsStore.supportedLanguages 와 동기화 — 변경 시 양쪽 함께 수정.
-let appLanguageKey = "settings.appLanguage"
-let supportedLanguages = ["en", "ko", "ja", "zh-Hans"]
-let systemPref = Locale.preferredLanguages.first ?? "en"
-let smartDefault: String = {
-    for lang in supportedLanguages {
-        // 정확 매칭 ("ja" == "ja") 또는 prefix 매칭 ("ko-KR".hasPrefix("ko-"), "zh-Hans-CN".hasPrefix("zh-Hans-"))
-        if systemPref == lang || systemPref.hasPrefix(lang + "-") {
-            return lang
-        }
-    }
-    return "en"
-}()
-let appLanguage = UserDefaults.standard.string(forKey: appLanguageKey) ?? smartDefault
-if appLanguage == "system" {
-    UserDefaults.standard.removeObject(forKey: "AppleLanguages")
-} else {
-    UserDefaults.standard.set([appLanguage], forKey: "AppleLanguages")
+AppLanguagePolicy.applyAtLaunch(in: .standard) {
+    Locale.preferredLanguages
 }
 
 // ─── macOS 26 (Tahoe) 자동 메뉴 아이콘 끄기 ──────────────────────────────────

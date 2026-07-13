@@ -84,6 +84,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var localKeyMonitor: Any?
     private var settingsWindowController: SettingsWindowController?
     private var onboardingWindowController: OnboardingWindowController?
+    /// 언어 변경 재시작은 새 인스턴스의 ready 신호를 받은 경우에만 현재 앱을 종료한다.
+    /// 모든 callback 은 main queue 에서 token 을 대조해 timeout/늦은 응답 경쟁을 차단한다.
+    private var languageRelaunchAttempt = AppLanguageRelaunchAttempt()
+    private var acceptedLanguageRelaunchToken: String?
+    private var languageRelaunchReadyObserver: NSObjectProtocol?
+    private var languageRelaunchTimeoutWorkItem: DispatchWorkItem?
+    private var languageRelaunchCandidate: NSRunningApplication?
     private var lastEjectAt: Date = .distantPast
     private var lastMountAt: Date = .distantPast
     /// 마지막 추출 결과 symbol (wake 후 복원용). nil 이면 default ⏏ 표시.
@@ -231,9 +238,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 self?.showOnboardingWindow()
             }
         }
+
+        // 언어 변경으로 띄운 새 인스턴스만 고유 token 을 돌려준다. 기존 인스턴스는 이 신호를
+        // 받은 뒤에만 종료하므로 open 접수만 성공하고 실제 launch 가 실패하는 경우에도 유지된다.
+        if let token = AppLanguageRelaunch.token(in: CommandLine.arguments) {
+            DistributedNotificationCenter.default().postNotificationName(
+                AppLanguageRelaunch.readyNotification,
+                object: nil,
+                userInfo: ["token": token],
+                deliverImmediately: true
+            )
+            log.notice("Language relaunch ready: \(token, privacy: .public)")
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        clearLanguageRelaunchAttempt(terminateCandidate: acceptedLanguageRelaunchToken == nil)
         tearDownPowerSleepObserver()
     }
 
@@ -566,12 +586,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             updating.isEnabled = false
             menu.addItem(updating)
             menu.addItem(NSMenuItem.separator())
-        } else if let refreshError = snapshot.refreshError {
+        } else if snapshot.refreshError != nil {
             let failed = NSMenuItem(title: String(localized: "Disk status update failed"),
                                     action: nil,
                                     keyEquivalent: "")
             failed.isEnabled = false
-            failed.toolTip = refreshError
+            failed.toolTip = localizedOperationFailure()
             menu.addItem(failed)
             menu.addItem(NSMenuItem.separator())
         }
@@ -818,23 +838,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         settingsWindowController?.show()
     }
 
-    /// 환경설정의 언어 드롭다운에서 호출 — 새 언어 저장 + 재시작 다이얼로그.
-    /// 새 언어는 다음 launch 의 main.swift 에서 `AppleLanguages` 로 적용된다.
+    /// 환경설정의 언어 드롭다운에서 호출 — 새 언어는 다음 launch 의 main.swift 에서 적용된다.
+    /// 새 인스턴스가 applicationDidFinishLaunching 까지 도달했다는 token 응답을 확인한 뒤 종료한다.
+    /// open 실패/non-zero/timeout 에서는 현재 앱을 유지하고 사용자가 즉시 재시도할 수 있게 한다.
     func relaunchApplicationForLanguageChange() {
-        let bundlePath = Bundle.main.bundlePath
-        log.notice("Relaunching for language change: \(bundlePath, privacy: .public)")
-        let task = Process()
-        task.launchPath = "/usr/bin/open"
-        task.arguments = ["-n", bundlePath]
-        do {
-            try task.run()
-        } catch {
-            log.error("Relaunch failed: \(error.localizedDescription, privacy: .public)")
+        let token = UUID().uuidString
+        guard languageRelaunchAttempt.begin(token: token) else {
+            log.notice("Language relaunch already in progress")
             return
         }
-        // 짧은 지연으로 새 인스턴스가 launch 되도록 한 다음 종료.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            NSApp.terminate(nil)
+        acceptedLanguageRelaunchToken = nil
+
+        let bundleURL = Bundle.main.bundleURL
+        log.notice("Relaunching for language change: \(bundleURL.path, privacy: .public) token=\(token, privacy: .public)")
+
+        languageRelaunchReadyObserver = DistributedNotificationCenter.default().addObserver(
+            forName: AppLanguageRelaunch.readyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let readyToken = notification.userInfo?["token"] as? String else { return }
+            self?.completeLanguageRelaunchIfCurrent(token: readyToken)
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.activates = false
+        configuration.arguments = [AppLanguageRelaunch.tokenArgument, token]
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration) { [weak self] application, error in
+            DispatchQueue.main.async {
+                self?.handleLanguageRelaunchOpenCompletion(application: application,
+                                                           error: error,
+                                                           token: token)
+            }
+        }
+
+        let timeout = DispatchWorkItem { [weak self] in
+            self?.failLanguageRelaunchIfCurrent(token: token, reason: "ready timeout")
+        }
+        languageRelaunchTimeoutWorkItem = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
+    }
+
+    private func handleLanguageRelaunchOpenCompletion(application: NSRunningApplication?,
+                                                       error: Error?,
+                                                       token: String) {
+        // ready가 open completion보다 먼저 도착해 이미 성공 처리된 경우 새 앱을 보존한다.
+        if acceptedLanguageRelaunchToken == token { return }
+
+        // timeout/실패/새 retry 뒤 늦게 뜬 이전 인스턴스는 즉시 정리해 영구 중복을 막는다.
+        guard languageRelaunchAttempt.isCurrent(token: token) else {
+            terminateLanguageRelaunchCandidate(application)
+            return
+        }
+        languageRelaunchCandidate = application
+        guard error == nil, application != nil else {
+            failLanguageRelaunchIfCurrent(token: token,
+                                          reason: error?.localizedDescription ?? "no running application")
+            return
+        }
+    }
+
+    private func completeLanguageRelaunchIfCurrent(token: String) {
+        guard languageRelaunchAttempt.finishIfCurrent(token: token) else { return }
+        log.notice("Language relaunch acknowledged: \(token, privacy: .public)")
+        acceptedLanguageRelaunchToken = token
+        clearLanguageRelaunchAttempt(terminateCandidate: false)
+        NSApp.terminate(nil)
+    }
+
+    private func failLanguageRelaunchIfCurrent(token: String, reason: String) {
+        guard languageRelaunchAttempt.finishIfCurrent(token: token) else { return }
+        log.error("Language relaunch failed; current app remains active: \(reason, privacy: .public)")
+        clearLanguageRelaunchAttempt(terminateCandidate: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Couldn’t restart DiskOUT")
+        alert.informativeText = String(localized: "DiskOUT is still running. Try again, or restart it later.")
+        alert.addButton(withTitle: String(localized: "Restart Now"))
+        alert.addButton(withTitle: String(localized: "Later"))
+        if alert.runModal() == .alertFirstButtonReturn {
+            DispatchQueue.main.async { [weak self] in
+                self?.relaunchApplicationForLanguageChange()
+            }
+        }
+    }
+
+    private func clearLanguageRelaunchAttempt(terminateCandidate: Bool) {
+        languageRelaunchTimeoutWorkItem?.cancel()
+        languageRelaunchTimeoutWorkItem = nil
+        if terminateCandidate {
+            terminateLanguageRelaunchCandidate(languageRelaunchCandidate)
+        }
+        languageRelaunchCandidate = nil
+        if let observer = languageRelaunchReadyObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
+        languageRelaunchReadyObserver = nil
+        languageRelaunchAttempt.clear()
+    }
+
+    private func terminateLanguageRelaunchCandidate(_ application: NSRunningApplication?) {
+        guard let application, !application.isTerminated else { return }
+        if !application.terminate() {
+            application.forceTerminate()
         }
     }
 
@@ -929,6 +1037,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             self.crossfadeIconChange(button)
             button.title = ""        // 숫자 title 제거 — 결과 심볼만 표시
             button.image = img
+            self.updateStatusButtonAccessibility(
+                value: Self.accessibilityValue(forResultSymbol: symbol),
+                announceChange: true
+            )
             self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
             let myGen = self.iconFlashGeneration
             DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
@@ -957,6 +1069,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
         image?.isTemplate = true
         return image
+    }
+
+    /// 결과 심볼과 VoiceOver 문구의 단일 매핑. wake 후 결과 아이콘 복원도
+    /// `setPersistentIcon` 을 다시 통과하므로 시각 상태와 접근성 상태가 함께 복구된다.
+    private static func accessibilityValue(forResultSymbol symbol: String) -> String {
+        switch symbol {
+        case "checkmark.circle.fill":       return String(localized: "All drives ejected")
+        case "xmark.circle.fill":           return String(localized: "Eject failed")
+        case "exclamationmark.circle.fill": return String(localized: "Some drives didn't eject")
+        case "questionmark.circle.fill":    return String(localized: "No drives to eject")
+        default:                             return "DiskOUT"
+        }
+    }
+
+    /// 메뉴바 버튼의 시각적 상태를 VoiceOver 속성에도 반영한다.
+    /// 완료 결과만 즉시 알리고, 자주 바뀌는 I/O 상태는 포커스 시 읽히게만 해 음성 알림 폭주를 막는다.
+    private func updateStatusButtonAccessibility(value: String, announceChange: Bool = false) {
+        guard let button = statusItem.button else { return }
+        let previousValue = button.accessibilityValue() as? String
+        button.setAccessibilityLabel("DiskOUT")
+        button.setAccessibilityValue(value)
+        button.setAccessibilityHelp(String(localized: "Click to open the DiskOUT menu."))
+        if announceChange && previousValue != value {
+            NSAccessibility.post(element: button, notification: .valueChanged)
+        }
     }
 
     /// 메뉴바 버튼을 정체성 글리프(⏏) + 현재 마운트 개수(숫자 텍스트)로 표시.
@@ -989,8 +1126,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             attr.append(activityDot(color: .systemRed))
         }
         button.attributedTitle = attr
-        button.toolTip = activityTooltip(writing: !writingPhysicalBSDs.isEmpty,
-                                         reading: !readingPhysicalBSDs.isEmpty)
+        let activity = activityTooltip(writing: !writingPhysicalBSDs.isEmpty,
+                                       reading: !readingPhysicalBSDs.isEmpty)
+        button.toolTip = activity
+
+        let driveState = mountedDriveCount > 0
+            ? "\(String(localized: "External Drives")): \(mountedDriveCount)"
+            : String(localized: "No external drives connected.")
+        let accessibleState: String
+        if let activity {
+            accessibleState = "\(driveState). \(activity)"
+        } else if let pendingUpdate {
+            accessibleState = "\(driveState). \(String(localized: "Update to \(pendingUpdate.displayVersionString)…"))"
+        } else {
+            accessibleState = driveState
+        }
+        updateStatusButtonAccessibility(value: accessibleState)
     }
 
     /// 마운트된 외장 "디바이스" 개수 — 물리 디스크(whole-disk BSD) 단위 집계.
@@ -1137,7 +1288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 } else if quittableBundleIDs.isEmpty {
                     // 끌 수 있는 앱 없음 (데몬뿐 / 진단 실패) → 기존 텍스트 알림.
                     self.notify(title: String(localized: "Couldn't eject \(name)"),
-                                body: result.errorMessage ?? String(localized: "Unknown error"),
+                                body: localizedOperationFailure(),
                                 archived: true,
                                 kind: .failure)
                 } else {
@@ -1254,7 +1405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     DispatchQueue.main.async { [weak self] in
                         self?.skipSleepAutoEjectUntil = nil
                         self?.notify(title: String(localized: "Couldn't start sleep"),
-                                     body: sleep.errorMessage ?? String(localized: "Unknown error"),
+                                     body: localizedOperationFailure(),
                                      archived: true,
                                      kind: .failure)
                     }
@@ -1291,9 +1442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         if !result.failure.isEmpty {
             lines.append(String(localized: "Failed: \(result.failure.map { $0.0 }.joined(separator: ", "))"))
-            for (name, message) in result.failure.prefix(2) {
-                lines.append("\(name): \(message)")
-            }
+            lines.append(localizedOperationFailure())
         }
         notify(title: title, body: lines.joined(separator: "\n"), archived: archived, kind: kind)
     }
@@ -1778,7 +1927,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     }
                 } else {
                     self.notify(title: String(localized: "Couldn't mount \(displayName)"),
-                                body: r.errorMessage ?? String(localized: "Unknown error"),
+                                body: localizedOperationFailure(),
                                 archived: true,
                                 kind: .failure)
                 }
@@ -2657,7 +2806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 } else {
                     // graceful terminate 라 미저장 문서 앱은 종료 거부 가능 → 솔직히 실패 알림.
                     self.notify(title: String(localized: "Still couldn't eject \(name)"),
-                                body: result.errorMessage ?? String(localized: "Unknown error"),
+                                body: localizedOperationFailure(),
                                 archived: true,
                                 kind: .failure)
                 }
@@ -2830,7 +2979,6 @@ private enum SettingsStore {
         static let ejectAndSleepHotkey = "settings.hotkey.ejectAndSleep"
         static let rightClickEjectEnabled = "settings.statusItem.rightClickEject.enabled"
         static let onboardingCompletedVersion = "settings.onboarding.completedVersion"
-        static let appLanguage = "settings.appLanguage"
         static let crashReportingEnabled = "settings.crashReporting.enabled"
     }
 
@@ -2887,29 +3035,14 @@ private enum SettingsStore {
         set { UserDefaults.standard.set(newValue, forKey: Key.crashReportingEnabled) }
     }
 
-    /// 사용자가 강제 지정한 앱 언어. "system" / "en" / "ko" / "ja" / "zh-Hans".
-    /// 신규 설치자 기본값은 main.swift 의 smart default 가 결정 (시스템 언어 매칭 → 매칭, 아니면 "en").
-    /// getter 의 fallback 도 같은 smart default — "en" 고정이면 한국어 시스템 신규 사용자의
-    /// 설정 팝업이 English 로 잘못 표시되고, 그 상태에서 English 를 선택해도 "변경 없음" 으로
-    /// 처리돼 아무 일도 일어나지 않는다 (앱은 한국어인 채).
-    /// 사용자가 명시적으로 특정 언어를 선택하면 시스템 언어와 무관하게 강제.
+    /// popup 선택값. "system" 은 저장하지 않으며 key 없음 자체가 시스템 추종을 뜻한다.
+    /// 명시 언어만 저장하므로 popup 표시와 실제 상태가 어긋나지 않고 손상값도 자동 정리된다.
     ///
     /// 적용 시점: main.swift 에서 NSApplication 생성 *전에* AppleLanguages 키를 set/remove.
     /// 변경 후에는 반드시 앱 재시작 필요 (NSBundle 의 localized resource 가 launch 시점에 캐시).
     static var appLanguage: String {
-        get { UserDefaults.standard.string(forKey: Key.appLanguage) ?? smartDefaultLanguage }
-        set { UserDefaults.standard.set(newValue, forKey: Key.appLanguage) }
-    }
-
-    /// main.swift 의 `supportedLanguages` / `smartDefault` 와 동일 로직 — 변경 시 양쪽 함께 수정.
-    /// (main.swift 는 NSApplication 생성 전에 실행되며 이 private 타입을 못 쓰므로 중복 유지.)
-    private static let supportedLanguages = ["en", "ko", "ja", "zh-Hans"]
-    private static var smartDefaultLanguage: String {
-        let systemPref = Locale.preferredLanguages.first ?? "en"
-        for lang in supportedLanguages where systemPref == lang || systemPref.hasPrefix(lang + "-") {
-            return lang
-        }
-        return "en"
+        get { AppLanguagePolicy.settingsSelection(in: .standard) }
+        set { AppLanguagePolicy.setSettingsSelection(newValue, in: .standard) }
     }
 
     static var ejectHotkey: SettingsHotkeyPreset {
@@ -3616,6 +3749,7 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
 
     /// 온보딩 콘텐츠 버전. 권한이 추가되면 올려서 기존 사용자에게 1회 재노출.
     static let version = 1
+    private static let minimumContentSize = NSSize(width: 460, height: 456)
 
     private let onClosed: () -> Void
     private let onAccessibilityGranted: () -> Void
@@ -3636,15 +3770,19 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
     init(onClosed: @escaping () -> Void, onAccessibilityGranted: @escaping () -> Void) {
         self.onClosed = onClosed
         self.onAccessibilityGranted = onAccessibilityGranted
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 456),
-                              styleMask: [.titled, .closable],
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.minimumContentSize),
+                              styleMask: [.titled, .closable, .resizable],
                               backing: .buffered,
                               defer: false)
         window.title = String(localized: "DiskOUT Permissions")
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
-        window.contentView = makeContentView()
+        let content = makeContentView()
+        window.contentView = content.view
+        window.contentMinSize = Self.minimumContentSize
+        window.setContentSize(NSSize(width: Self.minimumContentSize.width,
+                                     height: max(Self.minimumContentSize.height, content.preferredHeight)))
         window.center()
     }
 
@@ -3684,25 +3822,31 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
 
     // MARK: Layout
 
-    private func makeContentView() -> NSView {
+    private func makeContentView() -> (view: NSView, preferredHeight: CGFloat) {
         let appIcon = NSImageView()
         appIcon.image = NSApp.applicationIconImage
         appIcon.imageScaling = .scaleProportionallyUpOrDown
+        appIcon.setAccessibilityElement(false)
         appIcon.translatesAutoresizingMaskIntoConstraints = false
         appIcon.widthAnchor.constraint(equalToConstant: 52).isActive = true
         appIcon.heightAnchor.constraint(equalToConstant: 52).isActive = true
 
-        let headerTitle = NSTextField(labelWithString: String(localized: "DiskOUT Permissions"))
+        let headerTitle = NSTextField(wrappingLabelWithString: String(localized: "DiskOUT Permissions"))
         headerTitle.font = .boldSystemFont(ofSize: 16)
+        headerTitle.maximumNumberOfLines = 0
+        headerTitle.lineBreakMode = .byWordWrapping
         let headerSubtitle = NSTextField(wrappingLabelWithString:
             String(localized: "DiskOUT's core features work without any permissions. The ones below are optional — turn on what you want."))
         headerSubtitle.font = .systemFont(ofSize: 11)
         headerSubtitle.textColor = .secondaryLabelColor
+        headerSubtitle.maximumNumberOfLines = 0
+        headerSubtitle.lineBreakMode = .byWordWrapping
         headerSubtitle.preferredMaxLayoutWidth = 336
         let headerText = NSStackView(views: [headerTitle, headerSubtitle])
         headerText.orientation = .vertical
         headerText.alignment = .leading
         headerText.spacing = 3
+        headerText.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let header = NSStackView(views: [appIcon, headerText])
         header.orientation = .horizontal
         header.alignment = .centerY
@@ -3716,6 +3860,8 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
             String(localized: "You can reopen this anytime from the menu bar icon's menu."))
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
+        hint.maximumNumberOfLines = 0
+        hint.lineBreakMode = .byWordWrapping
         hint.preferredMaxLayoutWidth = 320
         hint.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
         let doneButton = NSButton(title: String(localized: "Done"), target: self, action: #selector(closeWindow))
@@ -3749,11 +3895,15 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
             constraints.append(child.widthAnchor.constraint(equalTo: stack.widthAnchor))
         }
         NSLayoutConstraint.activate(constraints)
-        return container
+        // 460pt 폭에서 먼저 실제 줄바꿈 높이를 계산한다. 기본 번역은 기존 456pt 높이를
+        // 유지하고, 긴 번역/큰 글자는 필요한 만큼 창을 늘려 하단 버튼이 잘리지 않게 한다.
+        container.frame = NSRect(origin: .zero, size: Self.minimumContentSize)
+        container.layoutSubtreeIfNeeded()
+        return (container, stack.fittingSize.height + 44)
     }
 
     private func makeAccessibilityCard() -> NSView {
-        accessibilityDot = makeStatusDot()
+        accessibilityDot = makeStatusDot(accessibilityLabel: String(localized: "Global hotkey"))
         accessibilityButton = NSButton(title: String(localized: "Allow"),
                                        target: self, action: #selector(accessibilityButtonClicked))
         accessibilityButton.bezelStyle = .rounded
@@ -3766,7 +3916,7 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
     }
 
     private func makeNotificationsCard() -> NSView {
-        notificationsDot = makeStatusDot()
+        notificationsDot = makeStatusDot(accessibilityLabel: String(localized: "Notifications"))
         notificationsButton = NSButton(title: String(localized: "Allow"),
                                        target: self, action: #selector(notificationsButtonClicked))
         notificationsButton.bezelStyle = .rounded
@@ -3778,9 +3928,11 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
 
     private func makeLoginCard() -> NSView {
         loginToggle = NSButton(checkboxWithTitle: "", target: self, action: #selector(loginToggleClicked(_:)))
-        loginHint = NSTextField(labelWithString: String(localized: "Needs approval in System Settings"))
+        loginHint = NSTextField(wrappingLabelWithString: String(localized: "Needs approval in System Settings"))
         loginHint.font = .systemFont(ofSize: UI.captionSize)
         loginHint.textColor = .systemOrange
+        loginHint.maximumNumberOfLines = 0
+        loginHint.lineBreakMode = .byWordWrapping
         // isHidden 대신 alphaValue — 각주가 나타나고 사라질 때 카드 높이가 출렁이지 않게
         // 자리는 항상 유지한다 (레이아웃 점프 방지).
         loginHint.alphaValue = 0
@@ -3798,16 +3950,20 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         icon.symbolConfiguration = .init(pointSize: 17, weight: .regular)
         icon.contentTintColor = .secondaryLabelColor
+        icon.setAccessibilityElement(false)
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.widthAnchor.constraint(equalToConstant: 26).isActive = true
 
-        let titleLabel = NSTextField(labelWithString: title)
+        let titleLabel = NSTextField(wrappingLabelWithString: title)
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        let detailLabel = NSTextField(labelWithString: detail)
+        titleLabel.maximumNumberOfLines = 0
+        titleLabel.lineBreakMode = .byWordWrapping
+        let detailLabel = NSTextField(wrappingLabelWithString: detail)
         detailLabel.font = .systemFont(ofSize: 11)
         detailLabel.textColor = .secondaryLabelColor
-        detailLabel.lineBreakMode = .byTruncatingTail
-        detailLabel.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        detailLabel.maximumNumberOfLines = 0
+        detailLabel.lineBreakMode = .byWordWrapping
+        detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         var textViews: [NSView] = [titleLabel, detailLabel]
         if let footnote { textViews.append(footnote) }
@@ -3815,6 +3971,7 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         textStack.orientation = .vertical
         textStack.alignment = .leading
         textStack.spacing = 2
+        textStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
@@ -3828,11 +3985,14 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         return row
     }
 
-    private func makeStatusDot() -> NSImageView {
+    private func makeStatusDot(accessibilityLabel: String) -> NSImageView {
         let dot = NSImageView()
         dot.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
         dot.symbolConfiguration = .init(pointSize: 9, weight: .bold)
         dot.contentTintColor = .tertiaryLabelColor
+        dot.setAccessibilityElement(true)
+        dot.setAccessibilityRole(.staticText)
+        dot.setAccessibilityLabel(accessibilityLabel)
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: 13).isActive = true
         return dot
@@ -3923,6 +4083,10 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         // 손쉬운 사용 — 변경 알림 API 가 없어 폴링으로 감지.
         let axTrusted = AXIsProcessTrusted()
         accessibilityDot.contentTintColor = axTrusted ? .systemGreen : .tertiaryLabelColor
+        accessibilityDot.setAccessibilityValue(axTrusted
+            ? String(localized: "Eject all drives anywhere with ⌥⌘E")
+            : String(localized: "Allow Accessibility for global hotkeys"))
+        accessibilityDot.setAccessibilityHelp(axTrusted ? nil : String(localized: "Allow"))
         accessibilityButton.isHidden = axTrusted
         if axTrusted && !lastAccessibilityTrusted {
             lastAccessibilityTrusted = true
@@ -3935,6 +4099,7 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         let loginStatus = LoginItem.status
         loginToggle.state = (loginStatus == .enabled || loginStatus == .requiresApproval) ? .on : .off
         loginHint.alphaValue = (loginStatus == .requiresApproval) ? 1 : 0
+        loginHint.setAccessibilityElement(loginStatus == .requiresApproval)
 
         // 알림 — getNotificationSettings 는 비동기.
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
@@ -3950,17 +4115,25 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         switch notificationStatus {
         case .authorized, .provisional, .ephemeral:
             notificationsDot.contentTintColor = .systemGreen
+            notificationsDot.setAccessibilityValue(String(localized: "See eject results at a glance"))
+            notificationsDot.setAccessibilityHelp(nil)
             notificationsButton.isHidden = true
         case .denied:
             notificationsDot.contentTintColor = .systemRed
+            notificationsDot.setAccessibilityValue(String(localized: "Open System Settings"))
+            notificationsDot.setAccessibilityHelp(String(localized: "Allow notifications to see eject results"))
             notificationsButton.isHidden = false
             notificationsButton.title = String(localized: "Open System Settings")
         case .notDetermined:
             notificationsDot.contentTintColor = .tertiaryLabelColor
+            notificationsDot.setAccessibilityValue(String(localized: "Allow notifications to see eject results"))
+            notificationsDot.setAccessibilityHelp(String(localized: "Allow"))
             notificationsButton.isHidden = false
             notificationsButton.title = String(localized: "Allow")
         @unknown default:
             notificationsDot.contentTintColor = .tertiaryLabelColor
+            notificationsDot.setAccessibilityValue(String(localized: "Allow notifications to see eject results"))
+            notificationsDot.setAccessibilityHelp(String(localized: "Allow"))
             notificationsButton.isHidden = false
             notificationsButton.title = String(localized: "Allow")
         }
@@ -3972,6 +4145,12 @@ private func menuSymbol(_ name: String, fallback: String) -> NSImage? {
         ?? NSImage(systemSymbolName: fallback, accessibilityDescription: nil)
     image?.isTemplate = true
     return image
+}
+
+/// External tools and Disk Arbitration return diagnostic text in the system language.
+/// Keep that detail in unified logging, and expose only this app-localized summary in UI.
+private func localizedOperationFailure() -> String {
+    String(localized: "The operation couldn't be completed. Please try again.")
 }
 
 // MARK: - Process / Disk Utilities

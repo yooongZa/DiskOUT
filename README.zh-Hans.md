@@ -67,10 +67,10 @@ Apple 的 SSD 价格离谱,而且不能升级。只能靠外置硬盘撑着,但 
 
 |  |  |
 |---|---|
-| **Time Machine 自动保护** | TM 备份盘自动从自动弹出对象中排除 — 防止意外打断备份 |
-| **忽略 DMG · 磁盘映像** | 已挂载的磁盘映像不会出现在菜单中,也不在自动弹出范围 |
-| **不会出现"未正确推出"警告** | 睡眠时弹出会先尝试正常 unmount(卸载) — macOS 的 "improperly ejected" 通知不会触发 |
-| **按盘选择性退出** | 可单独切换不想自动弹出的磁盘。基于 Volume UUID,即使换线缆或端口也保持设置 |
+| **Time Machine 自动保护** | TM 备份盘自动从自动推出对象中排除 — 防止意外打断备份 |
+| **忽略 DMG · 磁盘映像** | 已挂载的磁盘映像不会出现在菜单中,也不在自动推出范围 |
+| **不会出现"未正确推出"警告** | 睡眠时推出会先尝试正常 unmount(卸载) — macOS 的 "improperly ejected" 通知不会触发 |
+| **按盘选择性退出** | 可单独切换不想自动推出的磁盘。基于 Volume UUID,即使换线缆或端口也保持设置 |
 | **无广告 · 无追踪** | 只专注于外置磁盘。除自动更新检查外没有任何外部通信 |
 | **Developer ID + Apple 公证** | 通过 Gatekeeper — 没有"未识别开发者"警告,直接打开 |
 | **温和的自动更新** | 新版本到来时菜单栏图标旁出现一个小红点 + 菜单内显示对应项,不会弹出模态框。经过 EdDSA + Apple 代码签名双重验证后才安装 |
@@ -104,10 +104,10 @@ Apple 的 SSD 价格离谱,而且不能升级。只能靠外置硬盘撑着,但 
 
 | 操作 | 方法 |
 |---|---|
-| 弹出单个 | 菜单栏图标 → 点击驱动器名称 |
-| 全部弹出 | 菜单"弹出全部"或 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> |
-| 立即全部弹出 | 菜单栏图标**右键** |
-| 弹出并睡眠 | 菜单"弹出并睡眠"— 全部成功才开始睡眠 |
+| 推出单个 | 菜单栏图标 → 点击驱动器名称 |
+| 全部推出 | 菜单"推出全部"或 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> |
+| 立即全部推出 | 菜单栏图标**右键** |
+| 推出并睡眠 | 菜单"推出并睡眠"— 全部成功才开始睡眠 |
 | 挂载未挂载的外置 | 点击菜单底部区域或 <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> |
 | 挂载 + 在访达中打开 | <kbd>⌘</kbd>+点击未挂载的外置 |
 | 设置 | 菜单"设置…"或 <kbd>⌘</kbd><kbd>,</kbd> |
@@ -130,9 +130,9 @@ mount / eject 等磁盘操作在 sandbox(沙盒) 环境中限制很多。难以�
 <details>
 <summary><b>安全吗?有数据丢失风险吗?</b></summary>
 
-手动弹出使用标准的 `diskutil eject` 路径 (与访达的"推出"相同)。自动 (睡眠) 弹出会先尝试正常 unmount,只有失败时才进入 force 阶段。对于正在使用的磁盘,会通过 `lsof` 诊断占用进程并在通知中显示。
+手动推出使用标准的 `diskutil eject` 路径 (与访达的"推出"相同)。自动 (睡眠) 推出会先尝试正常 unmount,只有失败时才进入 force 阶段。对于正在使用的磁盘,会通过 `lsof` 诊断占用进程并在通知中显示。
 
-但是,即使 force 阶段也无法弹出的磁盘会保持原样并仅显示通知 — 不会冒数据风险强制弹出。
+但是,即使 force 阶段也无法推出的磁盘会保持原样并仅显示通知 — 不会冒数据风险强制推出。
 
 </details>
 
@@ -160,10 +160,10 @@ mount / eject 等磁盘操作在 sandbox(沙盒) 环境中限制很多。难以�
 <details>
 <summary><b>"未正确推出"警告仍然出现</b></summary>
 
-DiskOUT 的自动 (睡眠) 弹出会先尝试正常 unmount,通常不会触发通知。如果仍然出现,常见情况:
+DiskOUT 的自动 (睡眠) 推出会先尝试正常 unmount,通常不会触发通知。如果仍然出现,常见情况:
 
 - **有应用占用导致正常 unmount 失败 → 进入 force fallback**: 设置中"force fallback"开关为 ON 时。
-- **macOS 先开始弹出的情况**: 睡眠前另一个系统组件抢先尝试。
+- **macOS 先开始推出的情况**: 睡眠前另一个系统组件抢先尝试。
 
 解决方法: 退出占用外置的应用后再睡眠,或在设置中关闭 force fallback。
 
@@ -173,10 +173,10 @@ DiskOUT 的自动 (睡眠) 弹出会先尝试正常 unmount,通常不会触发�
 
 ## 已知限制
 
-- **合盖模式 (外接显示器 + 电源 + 合盖)**: macOS 本身不会进入 sleep → 自动弹出也不会触发。反正底座断开也不会发生,所以安全。
-- **正在使用的驱动器**: 一次正常弹出失败时会尝试 force unmount(强制卸载),但如果占用应用仍在,仍需注意数据风险。
-- **用户在睡眠中拔走外置的情况**: 应用无法处理的领域。如果需要睡眠中安全弹出,推荐 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> — wake(唤醒) + 弹出一次完成。
-- **重新挂载的可靠性**: 只有自动弹出成功的磁盘会在 wake 后重新挂载。已被物理移除的磁盘,应用无法重新挂载。
+- **合盖模式 (外接显示器 + 电源 + 合盖)**: macOS 本身不会进入 sleep → 自动推出也不会触发。反正底座断开也不会发生,所以安全。
+- **正在使用的驱动器**: 一次正常推出失败时会尝试 force unmount(强制卸载),但如果占用应用仍在,仍需注意数据风险。
+- **用户在睡眠中拔走外置的情况**: 应用无法处理的领域。如果需要睡眠中安全推出,推荐 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> — wake(唤醒) + 推出一次完成。
+- **重新挂载的可靠性**: 只有自动推出成功的磁盘会在 wake 后重新挂载。已被物理移除的磁盘,应用无法重新挂载。
 
 详细技术限制请参考 [发行说明](https://github.com/yooongZa/DiskOUT/releases)。
 
@@ -190,37 +190,37 @@ DiskOUT 的自动 (睡眠) 弹出会先尝试正常 unmount,通常不会触发�
 | 功能 | 说明 |
 |---|---|
 | 菜单栏下拉 | 列出已连接的外置驱动器。stale cache(陈旧缓存) 立即显示,然后在 background refresh(后台刷新) 完成后重新填充菜单,减少打开延迟。刷新失败时保留现有 cache 并显示失败 row(行)。**刷新 source 优先使用 DA 事件驱动的清单** → 即使 `storagekitd` 因插入 SD 卡而阻塞,菜单仍能立即正常响应 |
-| **菜单栏图标 = ⏏ + 挂载数量** | 弹出字形 (⏏) 与已挂载的外置*设备*数量并排显示 — 一眼即可识别是哪个应用的数字,等宽数字让数量变化时宽度不抖动。0 台时仅显示字形 (省略无信息的"0")。多分区 · RAID · APFS 合成卷算 1 个。基于 `DAInventory` 变化的事件驱动自动刷新 (无轮询)。弹出进行 / 结果显示中使用临时符号 (↻ · ✓ · ✗) 优先,切换带 0.15s 淡入淡出 (尊重"减弱动态效果") |
+| **菜单栏图标 = ⏏ + 挂载数量** | 推出字形 (⏏) 与已挂载的外置*设备*数量并排显示 — 一眼即可识别是哪个应用的数字,等宽数字让数量变化时宽度不抖动。0 台时仅显示字形 (省略无信息的"0")。多分区 · RAID · APFS 合成卷算 1 个。基于 `DAInventory` 变化的事件驱动自动刷新 (无轮询)。推出进行 / 结果显示中使用临时符号 (↻ · ✓ · ✗) 优先,切换带 0.15s 淡入淡出 (尊重"减弱动态效果") |
 | **读写活动提示** | 当外置磁盘有读取或写入 I/O 进行时,菜单栏数字旁出现小的 systemBlue `●` +「正在读取 / 写入 — 请勿断开」tooltip (与更新通知的红色 `●` 以颜色区分)。在菜单中,蓝色 `●` **仅出现在繁忙的那个磁盘项旁** — tooltip 区分读取 / 写入 / 两者。轮询物理磁盘 I/O 计数器 (IORegistry),间隔 1.5s;卷→物理映射通过 parent-walk 统一处理 RAID · APFS 合成 · 直连。读取采用更高阈值以避免后台索引的误报。仅在有外置磁盘时运行 (省电) |
 | **磁盘容量 / 使用率** | 每个磁盘的菜单项第二行显示*可用容量 · 使用率* — 例如 `可用 2.9 TB · 已用 40%`。打开菜单时通过 `URLResourceValues` 读取 (无进程调用) |
-| 个别弹出 | 点击驱动器名称 |
-| **写入中弹出确认** | **手动**弹出正在写入的磁盘时弹出确认对话框 (防止 force fallback 中断复制导致文件损坏)。仅选「仍然推出」才继续。sleep · 息屏 · 自动路径保持 force 行为,无需确认 |
-| **退出占用应用并重试** | 弹出失败时,若有*可退出的常规应用*占用磁盘,通知提供「退出应用并重试」按钮。点击后优雅退出 (不用 `forceTerminate`) → 重试弹出 1 次。排除 Finder · 系统守护进程 · 自身 |
-| 全部弹出 | 菜单项或快捷键 |
-| **弹出并睡眠** | 菜单项。使用 sleep 类型的 volume-first force unmount(卷优先强制卸载) 路径全部弹出后,只有全部成功才用 `pmset sleepnow` 启动系统 sleep(睡眠)。有失败则取消 sleep + 通知 |
-| 全局热键 (弹出) | 默认 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (与 中/英 输入法无关,使用物理键码比较)。可在设置中修改 E 系列 preset(预设) |
+| 个别推出 | 点击驱动器名称 |
+| **写入中推出确认** | **手动**推出正在写入的磁盘时弹出确认对话框 (防止 force fallback 中断复制导致文件损坏)。仅选「仍然推出」才继续。sleep · 息屏 · 自动路径保持 force 行为,无需确认 |
+| **退出占用应用并重试** | 推出失败时,若有*可退出的常规应用*占用磁盘,通知提供「退出应用并重试」按钮。点击后优雅退出 (不用 `forceTerminate`) → 重试推出 1 次。排除 Finder · 系统守护进程 · 自身 |
+| 全部推出 | 菜单项或快捷键 |
+| **推出并睡眠** | 菜单项。使用 sleep 类型的 volume-first force unmount(卷优先强制卸载) 路径全部推出后,只有全部成功才用 `pmset sleepnow` 启动系统 sleep(睡眠)。有失败则取消 sleep + 通知 |
+| 全局热键 (推出) | 默认 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (与 中/英 输入法无关,使用物理键码比较)。可在设置中修改 E 系列 preset(预设) |
 | 全局热键 (挂载) | 默认 <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> — 批量挂载未挂载的外置。可在设置中修改 |
-| 右键 = 全部弹出 | 右键或 ctrl+左键点击菜单栏图标。在设置 → Eject Behavior 中关闭后,右键会打开菜单 (防止误弹出 opt-out) |
+| 右键 = 全部推出 | 右键或 ctrl+左键点击菜单栏图标。在设置 → Eject Behavior 中关闭后,右键会打开菜单 (防止误推出 opt-out) |
 | **挂载未挂载的外置** | 当有候选时菜单自动显示"未挂载的外置"区域。点击 = 挂载,<kbd>⌘</kbd>+点击 = 挂载 + 在访达中打开 |
 | **挂载 / 未挂载状态一致性** | 通过 `diskutil list -plist external` 一个 snapshot(快照) 同时计算 mounted(已挂载) / unmounted(未挂载),减少实际未挂载但还残留在 mounted 区域的 stale state(陈旧状态) |
 | **磁盘类型图标** | 通过 `diskutil info -plist` 确认 SD card 信号时使用 `sdcard` 图标,其他外置使用 `externaldrive` 系图标 |
-| **进入睡眠时**自动弹出 | 菜单开关。通过 IOKit power notification(电源通知) 短暂延迟 sleep(睡眠),对每个磁盘按 正常 DA unmount(整盘优先) → DA force unmount(整盘优先) → `diskutil unmountDisk force` → `eject force` 的顺序尝试。正常 unmount 通过则不会触发 macOS 未正确推出通知 |
-| **屏幕关闭时也自动弹出** (可选) | 菜单开关,default OFF。针对 `pmset sleep=0` (自动 sleep 关闭) 环境防止底座断开事故。使用 sleep 系正常→force→`diskutil` 5 阶段路径。因频繁触发顾虑而明确 opt-in |
-| **wake / 屏幕亮起时自动重新挂载** | 只有自动弹出成功的磁盘会重新挂载。如果 enumerate(枚举) 不到,视为用户已分离,保持 silent |
+| **进入睡眠时**自动推出 | 菜单开关。通过 IOKit power notification(电源通知) 短暂延迟 sleep(睡眠),对每个磁盘按 正常 DA unmount(整盘优先) → DA force unmount(整盘优先) → `diskutil unmountDisk force` → `eject force` 的顺序尝试。正常 unmount 通过则不会触发 macOS 未正确推出通知 |
+| **屏幕关闭时也自动推出** (可选) | 菜单开关,default OFF。针对 `pmset sleep=0` (自动 sleep 关闭) 环境防止底座断开事故。使用 sleep 系正常→force→`diskutil` 5 阶段路径。因频繁触发顾虑而明确 opt-in |
+| **wake / 屏幕亮起时自动重新挂载** | 只有自动推出成功的磁盘会重新挂载。如果 enumerate(枚举) 不到,视为用户已分离,保持 silent |
 | **DMG / sparseimage 排除** | 已挂载映像通过 `hdiutil info -plist` 1 秒 timeout + `diskutil info` fallback,未挂载候选通过 `BusProtocol == "Disk Image"` 排除 |
-| 弹出路径 | 手动弹出 1 次 `diskutil eject <volumePath>` → 失败时 `diskutil unmount force <volumePath>` fallback。sleep / display sleep / "弹出并睡眠"使用 **正常 DA unmount (整盘优先,2s)** → **DA force unmount (整盘优先,3s)** → `diskutil unmountDisk force` (6s) → `diskutil eject force` (5s) → `diskutil eject` (3s) 5 阶段。正常 unmount 通过则不会触发 macOS 未正确推出通知。APFS multi-volume container 也通过 whole-disk option 一次处理。最终失败时,手动路径还会向通知添加 `lsof` 的占用 process / open file 诊断 |
-| 结果通知 | **静音** banner + 菜单栏图标 ✓ / ! / ✗ (统一为 circle 系符号)。只有不在时发生或 negative 结果 (失败 · 重新挂载失败 · sleep 弹出失败) 才**保留在通知中心**,本人 trigger + 成功仅短暂显示 banner |
-| 并行弹出 | 用 `DispatchGroup` 同时弹出 N 个驱动器 |
+| 推出路径 | 手动推出 1 次 `diskutil eject <volumePath>` → 失败时 `diskutil unmount force <volumePath>` fallback。sleep / display sleep / "推出并睡眠"使用 **正常 DA unmount (整盘优先,2s)** → **DA force unmount (整盘优先,3s)** → `diskutil unmountDisk force` (6s) → `diskutil eject force` (5s) → `diskutil eject` (3s) 5 阶段。正常 unmount 通过则不会触发 macOS 未正确推出通知。APFS multi-volume container 也通过 whole-disk option 一次处理。最终失败时,手动路径还会向通知添加 `lsof` 的占用 process / open file 诊断 |
+| 结果通知 | **静音** banner + 菜单栏图标 ✓ / ! / ✗ (统一为 circle 系符号)。只有不在时发生或 negative 结果 (失败 · 重新挂载失败 · sleep 推出失败) 才**保留在通知中心**,本人 trigger + 成功仅短暂显示 banner |
+| 并行推出 | 用 `DispatchGroup` 同时推出 N 个驱动器 |
 | **登录时自动启动** | 菜单开关。使用 `SMAppService.mainApp`。`.requiresApproval` 状态也会以勾选 + "登录项需要授权"标签显示 |
-| **设置窗口** | <kbd>⌘</kbd><kbd>,</kbd> 或菜单"设置…"。系统设置风格的**工具栏 5 个面板** — 通用 (登录 · 语言) / 弹出行为 (sleep · display sleep · Music/Photos · force fallback · 右键) / 通知 / 热键 / About (版本 · 检查更新 · 链接)。面板高度自动切换,不直观的选项均带说明行 |
-| **快捷键冲突自动修正** | 弹出 / 挂载 / 弹出并睡眠的快捷键保存为相同 preset 时检测冲突 + 自动移到其他 preset + alert |
+| **设置窗口** | <kbd>⌘</kbd><kbd>,</kbd> 或菜单"设置…"。系统设置风格的**工具栏 5 个面板** — 通用 (登录 · 语言) / 推出行为 (sleep · display sleep · Music/Photos · force fallback · 右键) / 通知 / 热键 / About (版本 · 检查更新 · 链接)。面板高度自动切换,不直观的选项均带说明行 |
+| **快捷键冲突自动修正** | 推出 / 挂载 / 推出并睡眠的快捷键保存为相同 preset 时检测冲突 + 自动移到其他 preset + alert |
 | **权限缺失菜单提示** | Accessibility(辅助功能) / 通知权限处于未授权状态时,菜单顶部显示 ⚠ 警告 row。点击跳转到系统设置的相应页面 |
 | **通知精细控制** | 全部通知、成功通知、失败通知可分别切换。默认全部 ON |
-| **多语言 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 117 个 key。首次启动按系统语言自动匹配 (不支持的语言用户回退到英语) + 设置 通用面板的 Language 弹出菜单中可强制选择 |
+| **多语言 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 125 个 key。遍历完整的系统首选语言列表并选择第一个受支持语言，仅在全部不受支持时回退到英语。可在设置 → 通用 → Language 中选择跟随系统或明确指定语言 |
 | **自动更新 (Sparkle 2)** | 24 小时周期后台检查。发现新版本时不弹出对话框,只在**菜单栏图标上显示小 systemRed `●` + 菜单内"更新到 X.Y.Z…"项 (带同色红点前缀)**(gentle reminder)。用户点击后才出现标准 Sparkle 下载 / 安装对话框 → 自动重启。EdDSA(Ed25519) + Apple 代码签名双重验证。appcast 托管在 GitHub Pages,DMG 托管在 GitHub Releases — 免费运营 |
-| **按盘自动弹出排除** | 菜单底部*"自动弹出排除的磁盘"* submenu 中按盘切换。基于 Volume UUID (即使线缆插槽改变也保持)。仅影响自动路径,显式弹出不受影响。 |
-| **Time Machine 自动保护** | 自动识别 TM 备份盘 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 检查) → 首次出现时从自动弹出中排除 + 1 次通知。菜单中显示时钟图标 + Time Machine 徽章 (macOS 14+,13 为括号标记) |
-| **外置库应用处理** | 菜单开关 (default OFF)。ON 时 sleep 前自动 quit Music / Photos (释放外置库 lock 以便弹出),wake 后在后台自动 relaunch |
+| **按盘自动推出排除** | 菜单底部*"自动推出排除的磁盘"* submenu 中按盘切换。基于 Volume UUID (即使线缆插槽改变也保持)。仅影响自动路径,显式推出不受影响。 |
+| **Time Machine 自动保护** | 自动识别 TM 备份盘 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 检查) → 首次出现时从自动推出中排除 + 1 次通知。菜单中显示时钟图标 + Time Machine 徽章 (macOS 14+,13 为括号标记) |
+| **外置库应用处理** | 菜单开关 (default OFF)。ON 时 sleep 前自动 quit Music / Photos (释放外置库 lock 以便推出),wake 后在后台自动 relaunch |
 
 </details>
 
@@ -240,19 +240,21 @@ DiskOUT 的自动 (睡眠) 弹出会先尝试正常 unmount,通常不会触发�
 | App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
 | 构建系统 | Xcodegen + xcodebuild |
 | 入口点 | `main.swift` (显式 `NSApplication.shared.run()`) |
-| 磁盘操作 | 手动弹出直接执行 `/usr/sbin/diskutil`。sleep / display sleep / "弹出并睡眠"使用 `Disk Arbitration API` 的正常 unmount → force unmount → `diskutil` fallback 5 阶段路径 |
+| 磁盘操作 | 手动推出直接执行 `/usr/sbin/diskutil`。sleep / display sleep / "推出并睡眠"使用 `Disk Arbitration API` 的正常 unmount → force unmount → `diskutil` fallback 5 阶段路径 |
 
 ### 文件结构
 
 ```
 diskOUT/
 ├── AppDelegate.swift            # 主逻辑 (diskutil 执行、菜单缓存、sleep/wake 处理)
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻译 (Xcode String Catalog,117 个 key)
+├── LanguageRuntime.swift        # 语言协商、存储值验证和安全重启策略
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻译 (Xcode String Catalog,125 个 key)
 ├── main.swift                   # 显式 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 自动生成)
 ├── DiskOUT.entitlements         # 空 plist。防止 project.yml 中 entitlements 明确指定的陷阱
 ├── project.yml                  # xcodegen 配置 (sandbox OFF)
 ├── DiskOUT.xcodeproj/           # Xcode 项目 (可通过 xcodegen 重新生成)
+├── Tests/LanguageRuntimePolicyTests.swift # 语言回退、存储值和重启状态测试
 ├── CHANGELOG.md
 └── README.md
 ```
@@ -317,7 +319,7 @@ open ~/Applications/DiskOUT.app
 | 修改对象 | 位置 |
 |---|---|
 | 添加快捷键 preset | `AppDelegate.swift` 中的 `SettingsHotkeyPreset` |
-| 自动弹出默认值 | `SleepEject.enabled` 的 default 值 |
+| 自动推出默认值 | `SleepEject.enabled` 的 default 值 |
 | 重新挂载 backoff 间隔 | 调用 `tryRemount(bsd:delays:operationID:)` 时的 `delays: [0, 1, 3, 7]` |
 | 菜单文本 | `populateMenu(_:snapshot:isRefreshing:)` 中的字符串 |
 
