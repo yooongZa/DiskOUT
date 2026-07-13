@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- ===== Primary SEO ===== -->
+<!-- 키워드 전략: "disk not ejected properly" 정면 매치는 Ejectify(전용 도메인)가 선점.
+     타이틀은 덜 경쟁적인 차별화 각도("auto-eject on sleep")를 1순위로, 분노 키워드는 2순위로 둔다. -->
+<title>DiskOUT — Auto-eject drives on sleep, no "Disk Not Ejected Properly"</title>
+<meta name="description" content="DiskOUT auto-ejects every external drive the moment your Mac sleeps and remounts them on wake — so you never see the &quot;Disk Not Ejected Properly&quot; warning. Free, notarized, Apple Silicon, 4 languages.">
+<meta name="keywords" content="auto eject external drive mac sleep, eject external drive on lid close mac, disk not ejected properly fix, safely eject usb on sleep mac, free Jettison alternative, mac menu bar eject, remount drive on wake">
+<link rel="canonical" href="https://yooongza.github.io/DiskOUT/">
+<meta name="robots" content="index, follow">
+
+<!-- ===== Open Graph ===== -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="DiskOUT — Never see &quot;Disk Not Ejected Properly&quot; again">
+<meta property="og:description" content="Close the lid. Every external drive ejects safely. Open it, they remount. Free macOS menu bar app, Apple-notarized.">
+<meta property="og:url" content="https://yooongza.github.io/DiskOUT/">
+<meta property="og:image" content="https://yooongza.github.io/DiskOUT/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:site_name" content="DiskOUT">
+
+<!-- ===== Twitter Card ===== -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DiskOUT — Stop &quot;Disk Not Ejected Properly&quot; on Mac">
+<meta name="twitter:description" content="Close the lid. Every external drive ejects safely. Free, notarized, Apple Silicon native.">
+<meta name="twitter:image" content="https://yooongza.github.io/DiskOUT/social-preview.png">
+
+<!-- ===== Structured data: SoftwareApplication ===== -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "DiskOUT",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "macOS 13 Ventura or later, Apple Silicon",
+  "description": "Free macOS menu bar app that safely ejects external drives when the Mac sleeps and remounts them on wake, eliminating the \"Disk Not Ejected Properly\" warning.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "downloadUrl": "https://github.com/yooongZa/DiskOUT/releases/latest",
+  "softwareVersion": "0.4.11",
+  "url": "https://yooongza.github.io/DiskOUT/"
+}
+</script>
+
+<!-- ===== Structured data: FAQ ===== -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How do I stop the \"Disk Not Ejected Properly\" warning on Mac?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Install DiskOUT. It safely ejects every connected external drive the moment your Mac goes to sleep (or you close the lid) and remounts them when you wake it. Because it unmounts cleanly before sleep, macOS never fires the \"Disk Not Ejected Properly\" notification." }
+    },
+    {
+      "@type": "Question",
+      "name": "Is DiskOUT free?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. DiskOUT is a free download from GitHub Releases. No account or sign-in required." }
+    },
+    {
+      "@type": "Question",
+      "name": "Is it safe? Can I lose data?",
+      "acceptedAnswer": { "@type": "Answer", "text": "DiskOUT uses the standard macOS eject path. Sleep eject attempts a clean unmount first and only escalates if needed. If a disk truly cannot be ejected, DiskOUT leaves it alone and just notifies you — it never force-ejects at the risk of your data." }
+    },
+    {
+      "@type": "Question",
+      "name": "Does it work with Time Machine drives?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. DiskOUT automatically detects Time Machine backup disks and excludes them from auto-eject so your backups are never interrupted." }
+    }
+  ]
+}
+</script>
+
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73;
+    --accent: #007aff; --card: #f5f5f7; --line: #e5e5ea; --danger: #ff3b30;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #000000; --fg: #f5f5f7; --muted: #98989d;
+            --accent: #0a84ff; --card: #1c1c1e; --line: #2c2c2e; --danger: #ff453a; }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header { position: relative; text-align: center; padding: 80px 24px 40px; }
+  header img { width: 132px; height: auto; }
+  h1 { font-size: 52px; line-height: 1.05; letter-spacing: -.02em; margin: 24px 0 8px; }
+  .tagline { font-size: 21px; color: var(--muted); margin: 0 auto 8px; max-width: 560px; }
+  .langs { font-size: 14px; color: var(--muted); margin-top: 16px; }
+  .language-picker { position: absolute; top: 20px; right: 24px; display: flex;
+    align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+  .language-picker select { color: var(--fg); background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 9px; font: inherit; }
+
+  .notif {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px 20px; max-width: 460px; margin: 32px auto;
+    display: flex; align-items: center; gap: 14px; text-align: left;
+  }
+  .notif .x { color: var(--danger); font-size: 22px; }
+  .notif s { color: var(--muted); }
+
+  .cta { display: inline-block; background: var(--accent); color: #fff;
+    padding: 15px 34px; border-radius: 980px; font-size: 18px; font-weight: 600;
+    margin: 8px 6px; }
+  .cta:hover { text-decoration: none; opacity: .9; }
+  .cta.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .meta { font-size: 14px; color: var(--muted); margin-top: 14px; }
+
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 32px; letter-spacing: -.01em; margin: 0 0 28px; }
+  h3 { font-size: 20px; margin: 0 0 6px; }
+  .step { margin-bottom: 28px; }
+  .step .n { color: var(--accent); font-weight: 700; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .feat { background: var(--card); border-radius: 14px; padding: 20px; }
+  .feat b { display: block; margin-bottom: 4px; }
+  .feat span { color: var(--muted); font-size: 15px; }
+
+  .demo { background: var(--card); border: 1px dashed var(--line); border-radius: 14px;
+    text-align: center; padding: 48px 24px; color: var(--muted); }
+
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 15px; }
+  table.cmp th, table.cmp td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+  table.cmp th:not(:first-child), table.cmp td:not(:first-child) { text-align: center; }
+  table.cmp .yes { color: #34c759; font-weight: 600; }
+
+  details { border-bottom: 1px solid var(--line); padding: 16px 0; }
+  summary { font-weight: 600; cursor: pointer; font-size: 17px; }
+  details p { color: var(--muted); margin: 10px 0 0; }
+
+  footer { text-align: center; color: var(--muted); font-size: 14px; padding: 48px 24px 64px; border-top: 1px solid var(--line); }
+
+  @media (max-width: 600px) {
+    h1 { font-size: 38px; } .grid { grid-template-columns: 1fr; }
+    header { padding-top: 80px; }
+    .language-picker { top: 16px; right: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="language-picker">
+    <label for="language-select" data-i18n="language">Language</label>
+    <select id="language-select" aria-label="Language">
+      <option value="en">English</option>
+      <option value="ko">한국어</option>
+      <option value="ja">日本語</option>
+      <option value="zh-Hans">简体中文</option>
+    </select>
+  </div>
+  <div class="wrap">
+    <img src="https://raw.githubusercontent.com/yooongZa/DiskOUT/main/DiskOUT-eject-transparent.png" alt="DiskOUT app icon" data-i18n-alt="appIconAlt">
+    <h1 data-i18n-html="heroTitle">You do nothing.<br>The disk ejects. Perfectly.</h1>
+    <p class="tagline" data-i18n="tagline">Mac is perfect — except for that one notification. DiskOUT makes it go away, for free.</p>
+
+    <div class="notif">
+      <span class="x">&#10005;</span>
+      <span data-i18n-html="notification"><s>"Disk Not Ejected Properly"</s><br><small>You'll never see this again.</small></span>
+    </div>
+
+    <a class="cta" href="https://github.com/yooongZa/DiskOUT/releases/latest" data-i18n="downloadMac">Download for Mac →</a>
+    <a class="cta ghost" href="https://github.com/yooongZa/DiskOUT" data-i18n="viewGitHub">View on GitHub</a>
+    <p class="meta" data-i18n="requirements">Free · ~4 MB · macOS 13+ · Apple Silicon · Apple-notarized</p>
+    <p class="langs">English · 한국어 · 日本語 · 简体中文</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2 data-i18n="howTitle">How it works</h2>
+    <div class="step"><h3 data-i18n-html="step1Title"><span class="n">1.</span> Close your lid — everything ejects safely.</h3>
+      <p data-i18n="step1Body">Close → eject. Open → remount. Sleep → eject. Wake → remount. You don't lift a finger.</p></div>
+    <div class="step"><h3 data-i18n-html="step2Title"><span class="n">2.</span> Eject 10 drives at once.</h3>
+      <p data-i18n="step2Body">One shortcut, or one right-click on the menu bar icon — all of them, gone.</p></div>
+    <div class="step"><h3 data-i18n-html="step3Title"><span class="n">3.</span> See your drive count at a glance.</h3>
+      <p data-i18n="step3Body">The menu bar shows how many externals are connected, as a live number.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 data-i18n="demoTitle">See it in action</h2>
+    <div class="demo">
+      <!-- ACTIVATE: assets(demo.gif / diskout-web.mp4 / poster.jpg)를 이 페이지와 같은 위치에 올린 뒤
+           아래 셋 중 하나의 주석을 풀어 교체. (생성: promo/post-recording.sh)
+
+        데모 GIF:
+        <img src="demo.gif" alt="DiskOUT ejecting drives on sleep" width="700" style="max-width:100%;border-radius:12px">
+
+        본편 영상 (로컬 mp4):
+        <video src="diskout-web.mp4" poster="poster.jpg" controls playsinline muted loop
+               width="700" style="max-width:100%;border-radius:12px"></video>
+
+        본편 영상 (YouTube): VIDEO_ID 교체:
+        <div style="position:relative;padding-top:56.25%">
+          <iframe src="https://www.youtube.com/embed/VIDEO_ID"
+                  style="position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:12px"
+                  title="DiskOUT demo" allowfullscreen></iframe>
+        </div>
+      -->
+      <span data-i18n="demoPlaceholder">▶︎ Demo goes here — lid close → drives eject → no warning → reopen → remount</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 data-i18n="safeTitle">Designed to be safe</h2>
+    <div class="grid">
+      <div class="feat"><b data-i18n="feature1Title">Time Machine auto-protect</b><span data-i18n="feature1Body">Backup disks are excluded from auto-eject — no interrupted backups.</span></div>
+      <div class="feat"><b data-i18n="feature2Title">No "improperly ejected" warnings</b><span data-i18n="feature2Body">A clean unmount runs before sleep, so macOS stays quiet.</span></div>
+      <div class="feat"><b data-i18n="feature3Title">Per-disk opt-out</b><span data-i18n="feature3Body">Volume-UUID based, so it survives cable and port changes.</span></div>
+      <div class="feat"><b data-i18n="feature4Title">No ads, no tracking</b><span data-i18n="feature4Body">No external traffic outside update checks.</span></div>
+      <div class="feat"><b data-i18n="feature5Title">Developer ID + notarized</b><span data-i18n="feature5Body">Passes Gatekeeper — no "unidentified developer" prompt.</span></div>
+      <div class="feat"><b data-i18n="feature6Title">Read / write activity dot</b><span data-i18n="feature6Body">A blue dot warns you when a drive is still busy.</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 data-i18n="compareTitle">DiskOUT vs. the alternatives</h2>
+    <table class="cmp">
+      <tr><th>&nbsp;</th><th>DiskOUT</th><th>Jettison</th><th data-i18n="macBuiltIn">macOS built-in</th></tr>
+      <tr><td data-i18n="compareSleep">Auto-eject on sleep</td><td class="yes">✓</td><td class="yes">✓</td><td>—</td></tr>
+      <tr><td data-i18n="compareWake">Auto-remount on wake</td><td class="yes">✓</td><td class="yes">✓</td><td>—</td></tr>
+      <tr><td data-i18n="compareAll">Eject all at once</td><td class="yes">✓</td><td class="yes">✓</td><td>—</td></tr>
+      <tr><td data-i18n="compareTM">Time Machine aware</td><td class="yes">✓</td><td class="yes">✓</td><td>—</td></tr>
+      <tr><td data-i18n="price">Price</td><td class="yes" data-i18n="free">Free</td><td>$6.95</td><td data-i18n="free">Free</td></tr>
+    </table>
+    <p class="meta" data-i18n="compareNote">Looking for a free Jettison alternative? DiskOUT covers the essentials at no cost.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 data-i18n="faqTitle">FAQ</h2>
+    <details open><summary data-i18n="faq1Q">How do I stop "Disk Not Ejected Properly" on Mac?</summary>
+      <p data-i18n="faq1A">Install DiskOUT. It cleanly ejects every external drive the moment your Mac sleeps and remounts them on wake — so the warning never fires.</p></details>
+    <details><summary data-i18n="faq2Q">Is it really free?</summary>
+      <p data-i18n="faq2A">Yes. Free download from GitHub Releases, no account needed.</p></details>
+    <details><summary data-i18n="faq3Q">Can I lose data?</summary>
+      <p data-i18n="faq3A">DiskOUT uses the standard macOS eject path and tries a clean unmount first. If a disk can't be ejected safely, it leaves it alone and just notifies you.</p></details>
+    <details><summary data-i18n="faq4Q">Does it work on Intel Macs?</summary>
+      <p data-i18n="faq4A">The current build is Apple Silicon only (M1/M2/M3/M4), macOS 13 Ventura or later.</p></details>
+    <details><summary data-i18n="faq5Q">Install with Homebrew?</summary>
+      <p><code>brew install --cask yooongZa/diskout/diskout</code></p></details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="cta" href="https://github.com/yooongZa/DiskOUT/releases/latest" data-i18n="downloadFree">Download DiskOUT — Free</a>
+    <p style="margin-top:24px">DiskOUT · © 2026 LIMOD · <a href="https://github.com/yooongZa/DiskOUT">GitHub</a> · <a href="https://github.com/yooongZa/DiskOUT/issues" data-i18n="feedback">Feedback</a></p>
+  </div>
+</footer>
+
+<script src="i18n.js"></script>
+</body>
+</html>
