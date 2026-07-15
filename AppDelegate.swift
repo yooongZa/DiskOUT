@@ -4446,6 +4446,16 @@ private enum DiskUtilInfo {
     static func busProtocol(in info: [String: Any]?) -> String? {
         info?["BusProtocol"] as? String
     }
+
+    static func shouldIncludeAsExternalMedia(_ info: [String: Any]?, isInternal: Bool) -> Bool {
+        let removable = (info?["RemovableMedia"] as? Bool) ?? (info?["Removable"] as? Bool)
+        return ExternalMediaPolicy.shouldInclude(
+            isInternal: isInternal,
+            busProtocol: busProtocol(in: info),
+            isRemovable: removable,
+            isEjectable: info?["Ejectable"] as? Bool
+        )
+    }
 }
 
 /// 마운트된 DMG/sparseimage/CoreSimulator 같은 disk image 는 외장 디스크처럼 보일 수 있음.
@@ -4881,7 +4891,11 @@ struct ExternalDrive {
 
         for entry in diskList.entries {
             guard let bsd = entry["DeviceIdentifier"] as? String else { continue }
-            if let internalFlag = entry["OSInternal"] as? Bool, internalFlag { continue }
+            let isInternal = entry["OSInternal"] as? Bool ?? false
+            if isInternal {
+                let info = DiskUtilExternalList.info(for: bsd, cache: &infoCache)
+                guard DiskUtilInfo.shouldIncludeAsExternalMedia(info, isInternal: true) else { continue }
+            }
             if diskImageMountPaths == nil,
                DiskUtilExternalList.isDiskImage(entry: entry, cache: &infoCache) {
                 log.debug("filter: disk image entry excluded bsd=\(bsd, privacy: .public)")
@@ -4905,6 +4919,19 @@ struct ExternalDrive {
                                             kind: .disk,
                                             volumeUUID: volume.volumeUUID,
                                             isTimeMachine: isTimeMachineDisk(volumeURL: url)))
+                mountedWholeDiskBSDs.insert(bsd)
+            }
+        }
+
+        // `diskutil list -plist external` 은 built-in SDXC reader(내장 SDXC 리더)를
+        // Internal 로 분류해 결과에서 제외한다. mountedVolumeURLs 에서 Secure Digital 이며
+        // removable/ejectable 인 볼륨만 보충해 내장 SSD 제외 동작은 그대로 보존한다.
+        var knownPaths = Set(drives.map { $0.url.standardizedFileURL.path })
+        for drive in listInternalSecureDigitalFromMountedVolumes() {
+            let path = drive.url.standardizedFileURL.path
+            guard knownPaths.insert(path).inserted else { continue }
+            drives.append(drive)
+            if let bsd = drive.wholeDiskBSDName {
                 mountedWholeDiskBSDs.insert(bsd)
             }
         }
@@ -4940,9 +4967,8 @@ struct ExternalDrive {
             let isInternal  = v.volumeIsInternal  ?? false
             let isBrowsable = v.volumeIsBrowsable ?? false
             let isLocal     = v.volumeIsLocal     ?? false
-            // 외장 = 내장 아님 + 사용자에게 보임 + 로컬 (network mount 제외)
-            // ejectable/removable 은 체크 안 함 — Thunderbolt 외장 SSD 등이 false 로 보고됨
-            guard !isInternal, isBrowsable, isLocal else { continue }
+            guard isBrowsable, isLocal else { continue }
+            if isInternal, !isSupportedInternalSecureDigitalVolume(at: url) { continue }
             // DMG / sparseimage 제외 — Chrome.dmg 같은 마운트된 디스크 이미지가 같이 빠지면 사고
             guard !(dmgPaths?.contains(url.path) ?? false),
                   !DiskImages.isKnownDiskImageMountPath(url.path)
@@ -4965,6 +4991,51 @@ struct ExternalDrive {
                                         isTimeMachine: isTM))
         }
         return drives
+    }
+
+    /// `diskutil list -plist external` 에 나오지 않는 내장 SDXC reader 매체만 보충한다.
+    /// Secure Digital + removable/ejectable 조건을 모두 통과해야 하므로 내장 SSD/시스템 볼륨은 제외된다.
+    private static func listInternalSecureDigitalFromMountedVolumes() -> [ExternalDrive] {
+        let keys: [URLResourceKey] = [
+            .volumeNameKey,
+            .volumeUUIDStringKey,
+            .volumeIsInternalKey,
+            .volumeIsBrowsableKey,
+            .volumeIsLocalKey
+        ]
+        guard let urls = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: keys,
+            options: [.skipHiddenVolumes]
+        ) else { return [] }
+
+        var drives: [ExternalDrive] = []
+        for url in urls {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)),
+                  values.volumeIsInternal == true,
+                  values.volumeIsBrowsable == true,
+                  values.volumeIsLocal == true
+            else { continue }
+            guard isSupportedInternalSecureDigitalVolume(at: url) else { continue }
+
+            drives.append(ExternalDrive(
+                name: values.volumeName ?? url.lastPathComponent,
+                url: url,
+                kind: .disk,
+                volumeUUID: values.volumeUUIDString,
+                isTimeMachine: isTimeMachineDisk(volumeURL: url)
+            ))
+        }
+        return drives
+    }
+
+    /// DA inventory(인벤토리)가 준비됐으면 외부 daemon 호출 없이 판정한다.
+    /// 아직 준비 전이거나 삽입 race(경쟁 상태)로 경로가 없을 때만 diskutil fallback 을 쓴다.
+    private static func isSupportedInternalSecureDigitalVolume(at url: URL) -> Bool {
+        if let decision = DAInventory.shared.shouldIncludeMountedInternalMedia(at: url.path) {
+            return decision
+        }
+        let info = DiskUtilInfo.plist(for: url.path, timeout: 1.0)
+        return DiskUtilInfo.shouldIncludeAsExternalMedia(info, isInternal: true)
     }
 
     /// Time Machine 백업 디스크 식별 — file 존재 검사만.
@@ -5072,6 +5143,8 @@ private final class DAInventory {
         let wholeDiskBSD: String
         let isWholeDisk: Bool
         let isInternal: Bool
+        let isRemovable: Bool?
+        let isEjectable: Bool?
         let busProtocol: String?
         let mountPath: String?
         let volumeName: String?
@@ -5174,6 +5247,8 @@ private final class DAInventory {
 
         let isWhole = (dict[kDADiskDescriptionMediaWholeKey] as? NSNumber)?.boolValue ?? false
         let isInternal = (dict[kDADiskDescriptionDeviceInternalKey] as? NSNumber)?.boolValue ?? false
+        let isRemovable = (dict[kDADiskDescriptionMediaRemovableKey] as? NSNumber)?.boolValue
+        let isEjectable = (dict[kDADiskDescriptionMediaEjectableKey] as? NSNumber)?.boolValue
         let busProtocol = dict[kDADiskDescriptionDeviceProtocolKey] as? String
         let mediaContent = dict[kDADiskDescriptionMediaContentKey] as? String
         let volumeName = dict[kDADiskDescriptionVolumeNameKey] as? String
@@ -5198,6 +5273,8 @@ private final class DAInventory {
             wholeDiskBSD: wholeDiskBSD,
             isWholeDisk: isWhole,
             isInternal: isInternal,
+            isRemovable: isRemovable,
+            isEjectable: isEjectable,
             busProtocol: busProtocol,
             mountPath: mountPath,
             volumeName: volumeName,
@@ -5225,7 +5302,12 @@ private final class DAInventory {
         for (wholeBSD, group) in groups {
             // whole-disk 엔트리에서 internal/protocol 판단 (없으면 group 의 첫 항목)
             let probe = group.first { $0.isWholeDisk } ?? group.first!
-            if probe.isInternal { continue }
+            if !ExternalMediaPolicy.shouldInclude(
+                isInternal: probe.isInternal,
+                busProtocol: probe.busProtocol,
+                isRemovable: probe.isRemovable,
+                isEjectable: probe.isEjectable
+            ) { continue }
             if let p = probe.busProtocol, p == "Disk Image" || p == "Virtual Interface" { continue }
 
             for vol in group {
@@ -5252,7 +5334,12 @@ private final class DAInventory {
         for (wholeBSD, group) in groups {
             if mountedWholeDiskBSDs.contains(wholeBSD) { continue }
             let probe = group.first { $0.isWholeDisk } ?? group.first!
-            if probe.isInternal { continue }
+            if !ExternalMediaPolicy.shouldInclude(
+                isInternal: probe.isInternal,
+                busProtocol: probe.busProtocol,
+                isRemovable: probe.isRemovable,
+                isEjectable: probe.isEjectable
+            ) { continue }
             if let p = probe.busProtocol, p == "Disk Image" || p == "Virtual Interface" { continue }
 
             let firstNamed = group.first { vol in
@@ -5270,6 +5357,23 @@ private final class DAInventory {
         }
 
         return (drives, unmounted)
+    }
+
+    /// mountedVolumeURLs fallback 에서 internal media(내장 매체)를 판정할 때 쓰는 read-only 조회.
+    /// nil 은 inventory 미준비 또는 삽입/제거 race 로 해당 mount path 를 아직 모른다는 뜻이다.
+    fileprivate func shouldIncludeMountedInternalMedia(at path: String) -> Bool? {
+        lock.lock(); defer { lock.unlock() }
+        guard ready,
+              let volume = disks.values.first(where: { $0.mountPath == path })
+        else { return nil }
+
+        let probe = disks[volume.wholeDiskBSD] ?? volume
+        return ExternalMediaPolicy.shouldInclude(
+            isInternal: probe.isInternal,
+            busProtocol: probe.busProtocol,
+            isRemovable: probe.isRemovable,
+            isEjectable: probe.isEjectable
+        )
     }
 
     /// `false` 만 반환할 때 호출자가 안전하게 skip 가능 — ready 전이거나 mounted 면 항상 true.
