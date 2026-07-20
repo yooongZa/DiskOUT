@@ -40,6 +40,7 @@ private enum UI {
     static let captionSize: CGFloat = 11      // 보조 설명 — 최소 가독 크기, 더 줄이지 않는다
 
     // 메뉴바 상태점 (활동/업데이트)
+    static let statusCountSize: CGFloat = 9   // Premium 캐릭터 옆 보조 숫자
     static let dotSize: CGFloat = 8           // 색점 글리프 크기
     static let dotBaselineOffset: CGFloat = 2 // 색점을 숫자/텍스트 광학 중심에 맞추는 오프셋
 }
@@ -59,6 +60,17 @@ private let clamshellSleepAttributionWindow: TimeInterval = 15
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
 
     private var statusItem: NSStatusItem!
+    private let statusCharacterAnimator = StatusCharacterAnimator()
+    private var billingController: PaddleBillingController?
+    private var isTerminating = false
+    private var isPurchaseInProgress = false
+    private var isOpeningPurchaseDetails = false
+    private var isCheckingPurchaseStatus = false
+    private var isRestoringPurchase = false
+    private var recoveryCodeClipboardClearWorkItem: DispatchWorkItem?
+    private var recoveryCodeClipboardChangeCount: Int?
+    /// 진행/결과 symbol 이 Premium animation tick 에 덮이지 않도록 main-thread 에서만 갱신.
+    private var isTransientStatusIconVisible = false
 
     // MARK: - Sparkle (자동 업데이트)
     //
@@ -202,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
 
         setupStatusItem()
+        setupPremiumStatusPresentation()
         setupSparkleUpdater()
         setupSleepObserver()
         setupPowerSleepObserver()
@@ -253,6 +266,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        isTerminating = true
+        isPurchaseInProgress = false
+        isOpeningPurchaseDetails = false
+        isCheckingPurchaseStatus = false
+        isRestoringPurchase = false
+        recoveryCodeClipboardClearWorkItem?.cancel()
+        recoveryCodeClipboardClearWorkItem = nil
+        clearCopiedRecoveryCodeIfUnchanged()
+        statusCharacterAnimator.invalidate()
+        billingController?.stop()
         clearLanguageRelaunchAttempt(terminateCandidate: acceptedLanguageRelaunchToken == nil)
         tearDownPowerSleepObserver()
     }
@@ -286,6 +309,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
+    /// Verified Paddle access changes only the status-item presentation. Disk discovery,
+    /// eject, mount, sleep, update, and notification behavior stay outside this gate.
+    private func setupPremiumStatusPresentation() {
+        statusCharacterAnimator.onFrameChanged = { [weak self] in
+            self?.updateAnimatedStatusCharacterFrame()
+        }
+
+        let controller = PaddleBillingController()
+        controller.onAccessChanged = { [weak self] granted in
+            guard let self else { return }
+            log.info("Premium status presentation access → \(granted, privacy: .public)")
+            self.applyCountTitle()
+        }
+        controller.onPurchasePollingChanged = { [weak self] polling in
+            self?.isPurchaseInProgress = polling
+        }
+        billingController = controller
+        controller.start()
+    }
+
+    /// Animation may update only the image portion. The right-side count and activity/update
+    /// dots are owned by applyCountTitle(), and transient/result symbols always take priority.
+    private func updateAnimatedStatusCharacterFrame() {
+        guard Thread.isMainThread,
+              !isTransientStatusIconVisible,
+              lastResultSymbol == nil,
+              hasPremiumStatusPresentationAccess else { return }
+
+        let presentation = StatusItemPresentationPolicy.presentation(
+            count: mountedDriveCount,
+            premiumState: .verified,
+            hasCharacterAsset: statusCharacterAnimator.hasFrames(for:)
+        )
+        guard case .premiumCharacter(let count) = presentation.visual,
+              let image = statusCharacterAnimator.image(for: count) else { return }
+        statusItem.button?.image = image
+    }
+
+    /// `DISKOUT_PREMIUM_PREVIEW` opens only the character presentation for a local demo build.
+    /// Distributable builds omit the flag and continue to require a verified signed lease.
+    private var hasPremiumStatusPresentationAccess: Bool {
+        PremiumRuntimeMode.hasPresentationAccess(
+            verifiedBillingAccess: billingController?.hasPremiumAccess == true
+        )
+    }
+
     // MARK: - Sparkle Updater Setup
 
     /// Sparkle 자동 업데이트 컨트롤러 초기화.
@@ -312,6 +381,180 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     @objc func showPendingUpdate(_ sender: Any?) {
         log.notice("Sparkle: user clicked pending-update menu item")
         updaterController.checkForUpdates(sender)
+    }
+
+    @objc private func purchasePremiumStatusIcons(_ sender: Any?) {
+        guard canPresentBillingUI,
+              !isPurchaseInProgress,
+              !isCheckingPurchaseStatus,
+              !isRestoringPurchase else { return }
+        guard let billingController, let checkoutURL = billingController.checkoutURL else { return }
+        guard NSWorkspace.shared.open(checkoutURL) else {
+            showBillingBrowserError()
+            return
+        }
+        billingController.startPurchasePolling()
+    }
+
+    @objc private func stopPremiumPurchaseCheck(_ sender: Any?) {
+        guard canPresentBillingUI,
+              isPurchaseInProgress,
+              let billingController else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Stop Checking for Purchase?")
+        alert.informativeText = String(localized: "This does not cancel an open Paddle checkout. Close that checkout before starting another purchase.")
+        alert.addButton(withTitle: String(localized: "Stop Checking"))
+        alert.addButton(withTitle: String(localized: "Keep Checking"))
+        guard alert.runModal() == .alertFirstButtonReturn,
+              canPresentBillingUI else { return }
+        billingController.cancelPurchasePolling()
+    }
+
+    @objc private func viewPremiumPurchaseDetails(_ sender: Any?) {
+        guard canPresentBillingUI,
+              !isOpeningPurchaseDetails,
+              let billingController else { return }
+        isOpeningPurchaseDetails = true
+        billingController.requestPurchaseDetailsURL { [weak self] portalURL in
+            guard let self else { return }
+            self.isOpeningPurchaseDetails = false
+            guard self.canPresentBillingUI else { return }
+            guard let portalURL, NSWorkspace.shared.open(portalURL) else {
+                self.showBillingBrowserError()
+                return
+            }
+        }
+    }
+
+    @objc private func copyPremiumRecoveryCode(_ sender: Any?) {
+        guard canPresentBillingUI,
+              let recoveryCode = billingController?.recoveryCode else { return }
+        recoveryCodeClipboardClearWorkItem?.cancel()
+        recoveryCodeClipboardClearWorkItem = nil
+        recoveryCodeClipboardChangeCount = nil
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(recoveryCode, forType: .string) else { return }
+        recoveryCodeClipboardChangeCount = pasteboard.changeCount
+        let clearWorkItem = DispatchWorkItem { [weak self] in
+            self?.clearCopiedRecoveryCodeIfUnchanged()
+        }
+        recoveryCodeClipboardClearWorkItem = clearWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: clearWorkItem)
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(localized: "Recovery Code Copied")
+        alert.informativeText = String(localized: "Keep this code private—it can move Premium. The clipboard clears after two minutes, but clipboard managers may retain it.")
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.runModal()
+    }
+
+    private func clearCopiedRecoveryCodeIfUnchanged() {
+        defer {
+            recoveryCodeClipboardChangeCount = nil
+            recoveryCodeClipboardClearWorkItem = nil
+        }
+        guard let expectedChangeCount = recoveryCodeClipboardChangeCount else { return }
+        let pasteboard = NSPasteboard.general
+        guard pasteboard.changeCount == expectedChangeCount else { return }
+        pasteboard.clearContents()
+    }
+
+    @objc private func restorePremiumPurchase(_ sender: Any?) {
+        guard canPresentBillingUI,
+              !isPurchaseInProgress,
+              !isRestoringPurchase,
+              !isCheckingPurchaseStatus,
+              let billingController,
+              billingController.isConfigured else { return }
+
+        let input = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        input.placeholderString = "DOUT1.…"
+        input.setAccessibilityLabel(String(localized: "Restore Purchase"))
+
+        let prompt = NSAlert()
+        prompt.alertStyle = .informational
+        prompt.messageText = String(localized: "Restore Purchase")
+        prompt.informativeText = String(localized: "Paste the recovery code from your previous Mac. Restoring moves Premium to this Mac.")
+        prompt.accessoryView = input
+        prompt.addButton(withTitle: String(localized: "Restore"))
+        prompt.addButton(withTitle: String(localized: "Cancel"))
+        prompt.window.initialFirstResponder = input
+        guard prompt.runModal() == .alertFirstButtonReturn else { return }
+
+        let recoveryCode = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !recoveryCode.isEmpty else { return }
+        isRestoringPurchase = true
+        billingController.restorePurchase(using: recoveryCode) { [weak self] success in
+            guard let self else { return }
+            self.isRestoringPurchase = false
+            guard self.canPresentBillingUI else { return }
+
+            let result = NSAlert()
+            if success {
+                result.alertStyle = .informational
+                result.messageText = String(localized: "Premium Was Restored")
+                result.informativeText = String(localized: "Premium has moved to this Mac. The previous Mac will lose access when it next checks online.")
+            } else {
+                result.alertStyle = .warning
+                result.messageText = String(localized: "Couldn’t Restore Purchase")
+                result.informativeText = String(localized: "Check the recovery code and internet connection, then try again.")
+            }
+            result.addButton(withTitle: String(localized: "OK"))
+            result.runModal()
+        }
+    }
+
+    /// This checks only the current installation-bound entitlement. Cross-device transfer is a
+    /// separate recovery-code flow and still requires a fresh signed entitlement before unlock.
+    @objc private func checkPremiumPurchaseStatus(_ sender: Any?) {
+        guard canPresentBillingUI,
+              !isPurchaseInProgress,
+              !isCheckingPurchaseStatus,
+              !isRestoringPurchase,
+              let billingController,
+              billingController.isConfigured else { return }
+        isCheckingPurchaseStatus = true
+        billingController.refresh { [weak self] success in
+            guard let self else { return }
+            self.isCheckingPurchaseStatus = false
+            guard self.canPresentBillingUI else { return }
+            let hasPremiumAccess = self.billingController?.hasPremiumAccess == true
+
+            let alert = NSAlert()
+            if success && hasPremiumAccess {
+                alert.alertStyle = .informational
+                alert.messageText = String(localized: "Premium is active")
+                alert.informativeText = String(localized: "Animated icons are unlocked on this Mac.")
+            } else if success {
+                alert.alertStyle = .informational
+                alert.messageText = String(localized: "No active purchase was found")
+                alert.informativeText = String(localized: "This checks purchases linked to this DiskOUT installation.")
+            } else {
+                alert.alertStyle = .warning
+                alert.messageText = String(localized: "Couldn’t check purchase status")
+                alert.informativeText = String(localized: "Check your internet connection and try again.")
+            }
+            alert.addButton(withTitle: String(localized: "OK"))
+            alert.runModal()
+        }
+    }
+
+    private func showBillingBrowserError() {
+        guard canPresentBillingUI else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Couldn’t open billing")
+        alert.informativeText = String(localized: "Check your internet connection and try again.")
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.runModal()
+    }
+
+    private var canPresentBillingUI: Bool {
+        !isTerminating && pendingTerminateReplyApp == nil
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -785,6 +1028,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             menu.addItem(pendingItem)
         }
 
+        // Paddle setup is deliberately fail-closed: until the public price ID, billing URL,
+        // and lease verification key are all configured, no nonfunctional purchase row appears.
+        if let billingController, billingController.isConfigured {
+            let billingItem: NSMenuItem
+            if billingController.hasPremiumAccess {
+                billingItem = NSMenuItem(title: String(localized: "View Purchase Details…"),
+                                         action: #selector(viewPremiumPurchaseDetails(_:)),
+                                         keyEquivalent: "")
+                billingItem.isEnabled = billingController.canOpenPurchaseDetails &&
+                    !isOpeningPurchaseDetails
+            } else {
+                billingItem = NSMenuItem(title: String(localized: "Unlock Animated Icons — USD 4.99 One-Time…"),
+                                         action: #selector(purchasePremiumStatusIcons(_:)),
+                                         keyEquivalent: "")
+                billingItem.isEnabled = !isPurchaseInProgress &&
+                    !isCheckingPurchaseStatus &&
+                    !isRestoringPurchase
+            }
+            billingItem.target = self
+            menu.addItem(billingItem)
+            if billingController.hasPremiumAccess {
+                let recoveryCodeItem = NSMenuItem(
+                    title: String(localized: "Copy Recovery Code…"),
+                    action: #selector(copyPremiumRecoveryCode(_:)),
+                    keyEquivalent: ""
+                )
+                recoveryCodeItem.target = self
+                recoveryCodeItem.isEnabled = billingController.recoveryCode != nil
+                menu.addItem(recoveryCodeItem)
+            } else if isPurchaseInProgress {
+                let stopPurchaseCheckItem = NSMenuItem(
+                    title: String(localized: "Stop Checking Purchase…"),
+                    action: #selector(stopPremiumPurchaseCheck(_:)),
+                    keyEquivalent: ""
+                )
+                stopPurchaseCheckItem.target = self
+                menu.addItem(stopPurchaseCheckItem)
+            } else {
+                let checkPurchaseItem = NSMenuItem(
+                    title: String(localized: "Check Purchase Status…"),
+                    action: #selector(checkPremiumPurchaseStatus(_:)),
+                    keyEquivalent: ""
+                )
+                checkPurchaseItem.target = self
+                checkPurchaseItem.isEnabled = !isPurchaseInProgress &&
+                    !isCheckingPurchaseStatus &&
+                    !isRestoringPurchase
+                menu.addItem(checkPurchaseItem)
+
+                let restorePurchaseItem = NSMenuItem(
+                    title: String(localized: "Restore Purchase…"),
+                    action: #selector(restorePremiumPurchase(_:)),
+                    keyEquivalent: ""
+                )
+                restorePurchaseItem.target = self
+                restorePurchaseItem.isEnabled = !isPurchaseInProgress &&
+                    !isCheckingPurchaseStatus &&
+                    !isRestoringPurchase
+                menu.addItem(restorePurchaseItem)
+            }
+            menu.addItem(NSMenuItem.separator())
+        }
+
         // 유틸리티 행(업데이트/설정/종료)은 아이콘 없이 텍스트만 — 아이콘은 콘텐츠(디스크)와
         // 경고(⚠)에만. 시스템 Wi-Fi/배터리 메뉴와 같은 문법 (UI 컨벤션: 아이콘 정책).
         let checkUpdates = NSMenuItem(title: String(localized: "Check for Updates…"),
@@ -1005,6 +1311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             newImg.isTemplate = true
+            self.isTransientStatusIconVisible = true
             self.crossfadeIconChange(button)
             button.title = ""        // 숫자 title 제거 — 심볼만 표시
             button.image = newImg
@@ -1014,6 +1321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 guard let self = self else { return }
                 // 그 사이 다른 flashIcon / setPersistentIcon / resetIcon 호출되었으면 skip.
                 guard self.iconFlashGeneration == myGen else { return }
+                self.isTransientStatusIconVisible = false
                 self.applyCountTitle()
             }
         }
@@ -1034,6 +1342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             img.isTemplate = true
+            self.isTransientStatusIconVisible = false
             self.crossfadeIconChange(button)
             button.title = ""        // 숫자 title 제거 — 결과 심볼만 표시
             button.image = img
@@ -1053,8 +1362,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 메뉴바를 현재 마운트 개수(숫자)로 reset. lastResultSymbol 도 clear.
     private func resetIcon() {
         lastResultSymbol = nil
+        isTransientStatusIconVisible = true
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
+            self.isTransientStatusIconVisible = false
             self.applyCountTitle()
             self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
         }
@@ -1096,11 +1407,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
-    /// 메뉴바 버튼을 정체성 글리프(⏏) + 현재 마운트 개수(숫자 텍스트)로 표시.
-    /// 글리프는 `button.image`, 숫자는 `button.attributedTitle` — title 은 길이 제한이 없어
-    /// 0~∞ 어떤 수든 표시 가능 (SF Symbol `<n>.circle.fill` 은 0~50 만 있어 폐기).
-    /// variableLength 라 폭은 자동 조정. 0대일 때는 숫자를 생략하고 글리프만 — 정보 없는
-    /// "0"이 메뉴바 자리를 차지하지 않게. 숫자는 monospacedDigit — 카운트 변화 시 폭 흔들림 방지.
+    /// 무료 상태는 기존 정체성 글리프(⏏)를 보존한다. 검증된 Premium 상태의 0...12는
+    /// `button.image`에 animation frame, `button.attributedTitle`에 오른쪽 숫자를 표시한다.
+    /// 13 이상, 미검증/만료, asset 누락은 모두 기존 무료 표시로 fail-closed 한다.
     ///
     /// 색점(●)은 한 번에 하나만 — 읽기/쓰기 활동(systemBlue)이 미설치 업데이트(systemRed)보다
     /// 우선. 업데이트는 메뉴 안 "Update to …" 항목으로도 보이므로 메뉴바에서는 양보한다.
@@ -1108,17 +1417,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     ///
     /// 반드시 main thread 에서 호출.
     private func applyCountTitle() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem.button,
+              lastResultSymbol == nil,
+              !isTransientStatusIconVisible else { return }
         crossfadeIconChange(button)
-        button.image = Self.statusGlyph()
+
+        let premiumState: PremiumVerificationState
+        if hasPremiumStatusPresentationAccess {
+            premiumState = .verified
+        } else if billingController?.isConfigured == true {
+            premiumState = .unverified
+        } else {
+            premiumState = .free
+        }
+        let presentation = StatusItemPresentationPolicy.presentation(
+            count: mountedDriveCount,
+            premiumState: premiumState,
+            hasCharacterAsset: statusCharacterAnimator.hasFrames(for:)
+        )
+
+        switch presentation.visual {
+        case .freeGlyph:
+            statusCharacterAnimator.setActive(false)
+            button.image = Self.statusGlyph()
+        case .premiumCharacter(let count):
+            statusCharacterAnimator.setActive(true)
+            button.image = statusCharacterAnimator.image(for: count) ?? Self.statusGlyph()
+        }
         button.imagePosition = .imageLeading
+        button.imageScaling = .scaleProportionallyDown
 
         let menuBarSize = NSFont.menuBarFont(ofSize: 0).pointSize  // 0 = 시스템 기본 메뉴바 크기
-        let countStr = mountedDriveCount > 0 ? "\(mountedDriveCount)" : ""
+        let countFontSize: CGFloat
+        switch presentation.visual {
+        case .freeGlyph:
+            countFontSize = menuBarSize
+        case .premiumCharacter:
+            countFontSize = UI.statusCountSize
+        }
+        let countStr = presentation.countTitle
 
         let attr = NSMutableAttributedString(
             string: countStr,
-            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: menuBarSize, weight: .regular)]
+            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: countFontSize, weight: .regular)]
         )
         if isDiskActive {
             attr.append(activityDot(color: .systemBlue))
@@ -1166,9 +1507,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             writingPhysicalBSDs = []
             readingPhysicalBSDs = []
         }
-        guard lastResultSymbol == nil else {
+        guard lastResultSymbol == nil, !isTransientStatusIconVisible else {
             if changed {
-                log.info("drive count → \(count, privacy: .public) (deferred — result icon showing)")
+                log.info("drive count → \(count, privacy: .public) (deferred — status feedback icon showing)")
             }
             return
         }
@@ -1185,7 +1526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         guard writingPhysicalBSDs != writing || readingPhysicalBSDs != reading else { return }
         writingPhysicalBSDs = writing
         readingPhysicalBSDs = reading
-        if lastResultSymbol == nil {
+        if lastResultSymbol == nil, !isTransientStatusIconVisible {
             applyCountTitle()
         }
         log.debug("disk activity → writing=\(writing.sorted(), privacy: .public) reading=\(reading.sorted(), privacy: .public)")
@@ -3582,7 +3923,8 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
                 }
             }
         } catch {
-            showError(error.localizedDescription)
+            log.error("Settings login item update failed: \(error.localizedDescription, privacy: .public)")
+            showError(localizedLoginItemUpdateFailure())
         }
         refreshControls()
     }
@@ -4043,9 +4385,10 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
                 }
             }
         } catch {
+            log.error("Onboarding login item update failed: \(error.localizedDescription, privacy: .public)")
             let alert = NSAlert()
             alert.messageText = String(localized: "Couldn't update login item")
-            alert.informativeText = error.localizedDescription
+            alert.informativeText = localizedLoginItemUpdateFailure()
             alert.alertStyle = .warning
             alert.runModal()
         }
@@ -4151,6 +4494,12 @@ private func menuSymbol(_ name: String, fallback: String) -> NSImage? {
 /// Keep that detail in unified logging, and expose only this app-localized summary in UI.
 private func localizedOperationFailure() -> String {
     String(localized: "The operation couldn't be completed. Please try again.")
+}
+
+/// Login item framework errors are diagnostic text outside DiskOUT's localization policy.
+/// Keep the original detail in unified logging and show one actionable app-localized message.
+private func localizedLoginItemUpdateFailure() -> String {
+    String(localized: "DiskOUT couldn’t update the login item. Check System Settings → General → Login Items, then try again.")
 }
 
 // MARK: - Process / Disk Utilities

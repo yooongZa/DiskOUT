@@ -22,7 +22,8 @@
 
 [ダウンロード](https://github.com/yooongZa/DiskOUT/releases/latest) ·
 [変更履歴](https://github.com/yooongZa/DiskOUT/releases) ·
-[Issue / フィードバック](https://github.com/yooongZa/DiskOUT/issues)
+[Issue / フィードバック](https://github.com/yooongZa/DiskOUT/issues) ·
+[利用規約](TERMS.md) · [返金ポリシー](REFUND_POLICY.md) · [プライバシー](PRIVACY.md)
 
 </div>
 
@@ -60,6 +61,7 @@ Apple の SSD 価格はおかしいです。しかもアップグレード不可
 ### 3️⃣ 外付けディスクが何個か、一目で確認。
 
 メニューバーに接続されたディスクの数が数字で表示されます。
+取り出し・マウントなどの基本機能と従来の数字表示は無料のままです。USD 4.99 の買い切り Premium では、0〜12 をかわいい 6 フレームのアニメーションキャラクターに変え、右側に小さな数字も表示します。「視差効果を減らす」が有効な場合は静止フレームになります。
 
 ---
 
@@ -71,7 +73,7 @@ Apple の SSD 価格はおかしいです。しかもアップグレード不可
 | **DMG · ディスクイメージ無視** | マウント済みディスクイメージはメニューに出ず、自動取り出し対象でもない |
 | **「取り出し失敗」通知なし** | スリープ取り出しは正常 unmount(マウント解除) を先に試す — macOS の「improperly ejected」通知が出ない |
 | **ディスク別オプトアウト** | 自動取り出しから除外したいディスクだけ個別にトグル。Volume UUID 基準でケーブル / ポートが変わっても維持 |
-| **広告 · トラッキング 0** | 外付けディスクを扱うことだけに集中。自動アップデートチェック以外の外部通信なし |
+| **広告なし · 決済情報を分離** | ディスク名やファイルパスを決済サーバーへ送信しません。Paddle ベースのサーバーとの通信は Premium の購入・利用権確認・移行・購入内容の表示時だけで、アプリは署名済み entitlement(利用権)のみを検証します |
 | **Developer ID + Apple 公証** | Gatekeeper を通過 — 「未確認の開発元」警告なしでそのまま開きます |
 | **静かな自動アップデート** | 新しいバージョンが出るとメニューバーアイコンの横に小さな赤い点 + メニュー内項目で通知。モーダルは出ません。EdDSA + Apple Code Signing の二重検証後にインストール |
 
@@ -139,7 +141,14 @@ mount / eject などのディスク操作は sandbox(サンドボックス) 環�
 <details>
 <summary><b>無料ですか?</b></summary>
 
-現在は無料ダウンロードです。今後のポリシー変更の可能性のためライセンスは「All rights reserved」としていますが、個人ユーザーが受け取って使う分には制限ありません。
+はい。取り出し・マウント・スリープ自動化と従来の数字表示は無料のままです。任意の Premium メニューバーキャラクターは USD 4.99 の買い切りです。production 決済設定が完了するまでは、開発ビルドに購入メニューは表示されません。
+
+</details>
+
+<details>
+<summary><b>Premium を新しい Mac に移せますか?</b></summary>
+
+はい。購入後にアプリメニューの「復旧コードをコピー…」で recovery code(復旧コード)を保管し、新しい Mac で入力すると Premium を移行できます。移行後、以前の Mac は次回のオンライン確認で利用できなくなります。サーバーに接続できない間も、最後に検証した利用権は最大 30 日間維持されます。
 
 </details>
 
@@ -216,7 +225,7 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 | **ショートカット衝突自動修正** | 取り出し / マウント / 取り出してスリープのショートカットが同じ preset で保存されると衝突検出 + 別 preset に自動移動 + alert |
 | **権限不足メニュー案内** | Accessibility(アクセシビリティ) / 通知権限が許可されていない状態だとメニュー上部に ⚠ 警告 row 表示。クリックでシステム設定の該当ページへ移動 |
 | **通知の詳細制御** | 全体通知、成功通知、失敗通知をそれぞれトグル。デフォルトは全て ON |
-| **多言語 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 125 個のキー。システムの優先言語リスト全体から最初の対応言語を選び、該当がない場合のみ英語にフォールバック。設定 → 一般 → Language でシステム設定または明示言語を選択可能 |
+| **多言語 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 153 個のキー。システムの優先言語リスト全体から最初の対応言語を選び、該当がない場合のみ英語にフォールバック。設定 → 一般 → Language でシステム設定または明示言語を選択可能 |
 | **自動アップデート (Sparkle 2)** | 24 時間周期でバックグラウンドチェック。新バージョン発見時にダイアログを出さず**メニューバーアイコンに小さな systemRed `●` + メニュー内「X.Y.Z にアップデート…」項目 (同じ赤い点 prefix)** だけで表示 (gentle reminder)。ユーザーがクリックすると標準 Sparkle ダウンロード / インストールダイアログ → 自動再起動。EdDSA(Ed25519) + Apple Code Signing の二重検証。appcast ホスティングは GitHub Pages、DMG ホスティングは GitHub Releases — 無料運用 |
 | **ディスク別自動取り出し除外** | メニュー下部の*「自動取り出しから除外されたディスク」* submenu でディスク別トグル。Volume UUID 基準 (ケーブルスロットが変わっても維持)。自動 path だけ影響、明示的取り出しはそのまま。 |
 | **Time Machine 自動保護** | TM バックアップディスクを自動識別 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 検査) → 初回登場時に自動取り出しから除外 + 1 回通知。メニューに時計アイコン + Time Machine バッジ表記 (macOS 14+、13 は括弧) |
@@ -248,7 +257,7 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 diskOUT/
 ├── AppDelegate.swift            # メインロジック (diskutil 実行、メニューキャッシュ、sleep/wake 処理)
 ├── LanguageRuntime.swift        # 言語ネゴシエーション・保存値検証・安全な再起動ポリシー
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻訳 (Xcode String Catalog、125 キー)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻訳 (Xcode String Catalog、153 キー)
 ├── main.swift                   # 明示的 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 自動生成)
 ├── DiskOUT.entitlements         # 空の plist。project.yml の entitlements 明示でハマるのを防止
@@ -272,45 +281,68 @@ xcodegen generate                  # project.yml → DiskOUT.xcodeproj
 
 ```bash
 cd ~/Documents/diskOUT
+BUILD_WORK_DIR="/private/tmp/diskout-build.$(uuidgen)"
 xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
-  -derivedDataPath /tmp/DiskOUT-derived build
-pkill -f DiskOUT
-rm -rf ~/Applications/DiskOUT.app
-cp -R /tmp/DiskOUT-derived/Build/Products/Release/DiskOUT.app ~/Applications/
-open ~/Applications/DiskOUT.app
+  -derivedDataPath "$BUILD_WORK_DIR/DerivedData" build
+printf 'Built app: %s\n' "$BUILD_WORK_DIR/DerivedData/Build/Products/Release/DiskOUT.app"
 ```
 
-または Xcode を開いて `DiskOUT.xcodeproj` → <kbd>⌘</kbd><kbd>R</kbd>。
+インストールには下のロールバック可能な手順を使用します。または Xcode で `DiskOUT.xcodeproj` を開き、<kbd>⌘</kbd><kbd>R</kbd> を押します。
 
 **安全インストール (ロールバック可能)**
 
 新ビルドの検証が終わっていない時に推奨。既存の `.app` を先にバックアップしてから置換。
 
 ```bash
-# 1. ビルド
+set -euo pipefail
+
+# 1. 明示した一時パスにビルドし、bundle ID を検証
 cd ~/Documents/diskOUT
-xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build
+INSTALL_WORK_DIR="/private/tmp/diskout-install.$(uuidgen)"
+SOURCE_APP="$INSTALL_WORK_DIR/DerivedData/Build/Products/Release/DiskOUT.app"
+TARGET_APP="$HOME/Applications/DiskOUT.app"
+BACKUP_APP="$HOME/Applications/DiskOUT.app.backup.$(uuidgen)"
+xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
+  -derivedDataPath "$INSTALL_WORK_DIR/DerivedData" build
+[ "$(plutil -extract CFBundleIdentifier raw -o - "$SOURCE_APP/Contents/Info.plist")" = \
+  "com.yongza.ejectdrives" ]
 
-# 2. 終了 + バックアップ + 置換
-pkill -f DiskOUT
-mv ~/Applications/DiskOUT.app ~/Applications/DiskOUT.app.prev.bak
-DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name "DiskOUT.app" -type d | head -1)
-cp -R "$DERIVED" ~/Applications/DiskOUT.app
-xattr -cr ~/Applications/DiskOUT.app   # provenance / quarantine 整理
-open ~/Applications/DiskOUT.app
+# 2. 正確な process だけを終了し、旧アプリを固有パスへ保存
+mkdir -p "$HOME/Applications"
+pkill -x DiskOUT 2>/dev/null || true
+if [ -e "$TARGET_APP" ]; then
+  mv "$TARGET_APP" "$BACKUP_APP"
+  printf 'Rollback backup: %s\n' "$BACKUP_APP"
+else
+  BACKUP_APP=""
+  printf 'Rollback backup: none (既存インストールなし)\n'
+fi
 
-# 3. 検証
+# 3. 検証済み product だけをインストールして起動
+ditto "$SOURCE_APP" "$TARGET_APP"
+xattr -cr "$TARGET_APP"
+open "$TARGET_APP"
+
+# 4. 検証
 log show --predicate 'subsystem == "com.yongza.ejectdrives"' --info --last 1m
-
-# 4a. 問題なければバックアップ除去
-rm -rf ~/Applications/DiskOUT.app.prev.bak
-
-# 4b. 問題があればロールバック
-pkill -f DiskOUT
-rm -rf ~/Applications/DiskOUT.app
-mv ~/Applications/DiskOUT.app.prev.bak ~/Applications/DiskOUT.app
-open ~/Applications/DiskOUT.app
 ```
+
+問題がある場合は、上で表示された正確な backup パスを `BACKUP_APP` に設定します。現在のアプリも削除せず固有の failed パスへ保存してから復元します。
+
+```bash
+set -euo pipefail
+TARGET_APP="$HOME/Applications/DiskOUT.app"
+BACKUP_APP="<上で表示された Rollback backup の絶対パス>"
+FAILED_APP="$HOME/Applications/DiskOUT.app.failed.$(uuidgen)"
+[ -d "$BACKUP_APP" ]
+pkill -x DiskOUT 2>/dev/null || true
+mv "$TARGET_APP" "$FAILED_APP"
+mv "$BACKUP_APP" "$TARGET_APP"
+open "$TARGET_APP"
+printf 'Failed build preserved at: %s\n' "$FAILED_APP"
+```
+
+検証後、不要な backup / failed アプリは Finder のゴミ箱へ移動します。
 
 ### オプション変更箇所
 
@@ -383,6 +415,7 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 
 [リリース](https://github.com/yooongZa/DiskOUT/releases) ·
 [変更履歴](https://github.com/yooongZa/DiskOUT/releases) ·
-[Issue](https://github.com/yooongZa/DiskOUT/issues)
+[Issue](https://github.com/yooongZa/DiskOUT/issues) ·
+[利用規約](TERMS.md) · [返金ポリシー](REFUND_POLICY.md) · [プライバシー](PRIVACY.md)
 
 </div>

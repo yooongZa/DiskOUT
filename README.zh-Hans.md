@@ -22,7 +22,8 @@
 
 [下载](https://github.com/yooongZa/DiskOUT/releases/latest) ·
 [更新日志](https://github.com/yooongZa/DiskOUT/releases) ·
-[反馈 / 问题](https://github.com/yooongZa/DiskOUT/issues)
+[反馈 / 问题](https://github.com/yooongZa/DiskOUT/issues) ·
+[使用条款](TERMS.md) · [退款政策](REFUND_POLICY.md) · [隐私政策](PRIVACY.md)
 
 </div>
 
@@ -60,6 +61,7 @@ Apple 的 SSD 价格离谱,而且不能升级。只能靠外置硬盘撑着,但 
 ### 3️⃣ 外置磁盘有几个,一眼看清。
 
 菜单栏显示已连接磁盘的数量。
+推出、挂载等核心功能与现有数字显示将继续免费。可选 Premium 为 USD 4.99 一次性购买，会把 0–12 变成可爱的 6 帧循环动画角色，同时在右侧保留较小的数字。启用“减弱动态效果”时会显示静止帧。
 
 ---
 
@@ -71,7 +73,7 @@ Apple 的 SSD 价格离谱,而且不能升级。只能靠外置硬盘撑着,但 
 | **忽略 DMG · 磁盘映像** | 已挂载的磁盘映像不会出现在菜单中,也不在自动推出范围 |
 | **不会出现"未正确推出"警告** | 睡眠时推出会先尝试正常 unmount(卸载) — macOS 的 "improperly ejected" 通知不会触发 |
 | **按盘选择性退出** | 可单独切换不想自动推出的磁盘。基于 Volume UUID,即使换线缆或端口也保持设置 |
-| **无广告 · 无追踪** | 只专注于外置磁盘。除自动更新检查外没有任何外部通信 |
+| **无广告 · 支付数据分离** | 磁盘名称和文件路径不会发送到支付服务器。仅在购买、验证或转移 Premium，以及查看购买详情时连接 Paddle 支付服务器；应用只验证签名后的 entitlement(使用权限) |
 | **Developer ID + Apple 公证** | 通过 Gatekeeper — 没有"未识别开发者"警告,直接打开 |
 | **温和的自动更新** | 新版本到来时菜单栏图标旁出现一个小红点 + 菜单内显示对应项,不会弹出模态框。经过 EdDSA + Apple 代码签名双重验证后才安装 |
 
@@ -139,7 +141,14 @@ mount / eject 等磁盘操作在 sandbox(沙盒) 环境中限制很多。难以�
 <details>
 <summary><b>免费吗?</b></summary>
 
-目前是免费下载。为以后政策变更的可能性留有余地,许可证设为 "All rights reserved",但个人用户下载使用没有限制。
+是的。推出、挂载、睡眠自动化和现有数字显示将继续免费。可选的 Premium 菜单栏动画角色价格为 USD 4.99，一次购买永久使用；在 production 支付配置完成前，开发版本不会显示购买菜单。
+
+</details>
+
+<details>
+<summary><b>可以将 Premium 转移到新 Mac 吗？</b></summary>
+
+可以。购买后请从应用菜单选择“复制恢复代码…”，妥善保存 recovery code(恢复代码)，并在新 Mac 上使用它转移 Premium。转移后，旧 Mac 会在下次联网检查时失去权限。无法连接服务器时，最后一次验证的权限最多可继续使用 30 天。
 
 </details>
 
@@ -216,7 +225,7 @@ DiskOUT 的自动 (睡眠) 推出会先尝试正常 unmount,通常不会触发�
 | **快捷键冲突自动修正** | 推出 / 挂载 / 推出并睡眠的快捷键保存为相同 preset 时检测冲突 + 自动移到其他 preset + alert |
 | **权限缺失菜单提示** | Accessibility(辅助功能) / 通知权限处于未授权状态时,菜单顶部显示 ⚠ 警告 row。点击跳转到系统设置的相应页面 |
 | **通知精细控制** | 全部通知、成功通知、失败通知可分别切换。默认全部 ON |
-| **多语言 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 125 个 key。遍历完整的系统首选语言列表并选择第一个受支持语言，仅在全部不受支持时回退到英语。可在设置 → 通用 → Language 中选择跟随系统或明确指定语言 |
+| **多语言 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 153 个 key。遍历完整的系统首选语言列表并选择第一个受支持语言，仅在全部不受支持时回退到英语。可在设置 → 通用 → Language 中选择跟随系统或明确指定语言 |
 | **自动更新 (Sparkle 2)** | 24 小时周期后台检查。发现新版本时不弹出对话框,只在**菜单栏图标上显示小 systemRed `●` + 菜单内"更新到 X.Y.Z…"项 (带同色红点前缀)**(gentle reminder)。用户点击后才出现标准 Sparkle 下载 / 安装对话框 → 自动重启。EdDSA(Ed25519) + Apple 代码签名双重验证。appcast 托管在 GitHub Pages,DMG 托管在 GitHub Releases — 免费运营 |
 | **按盘自动推出排除** | 菜单底部*"自动推出排除的磁盘"* submenu 中按盘切换。基于 Volume UUID (即使线缆插槽改变也保持)。仅影响自动路径,显式推出不受影响。 |
 | **Time Machine 自动保护** | 自动识别 TM 备份盘 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 检查) → 首次出现时从自动推出中排除 + 1 次通知。菜单中显示时钟图标 + Time Machine 徽章 (macOS 14+,13 为括号标记) |
@@ -248,7 +257,7 @@ DiskOUT 的自动 (睡眠) 推出会先尝试正常 unmount,通常不会触发�
 diskOUT/
 ├── AppDelegate.swift            # 主逻辑 (diskutil 执行、菜单缓存、sleep/wake 处理)
 ├── LanguageRuntime.swift        # 语言协商、存储值验证和安全重启策略
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻译 (Xcode String Catalog,125 个 key)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻译 (Xcode String Catalog,153 个 key)
 ├── main.swift                   # 显式 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 自动生成)
 ├── DiskOUT.entitlements         # 空 plist。防止 project.yml 中 entitlements 明确指定的陷阱
@@ -272,45 +281,68 @@ xcodegen generate                  # project.yml → DiskOUT.xcodeproj
 
 ```bash
 cd ~/Documents/diskOUT
+BUILD_WORK_DIR="/private/tmp/diskout-build.$(uuidgen)"
 xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
-  -derivedDataPath /tmp/DiskOUT-derived build
-pkill -f DiskOUT
-rm -rf ~/Applications/DiskOUT.app
-cp -R /tmp/DiskOUT-derived/Build/Products/Release/DiskOUT.app ~/Applications/
-open ~/Applications/DiskOUT.app
+  -derivedDataPath "$BUILD_WORK_DIR/DerivedData" build
+printf 'Built app: %s\n' "$BUILD_WORK_DIR/DerivedData/Build/Products/Release/DiskOUT.app"
 ```
 
-或在 Xcode 中打开 `DiskOUT.xcodeproj` → <kbd>⌘</kbd><kbd>R</kbd>。
+安装请使用下方可回滚流程，或在 Xcode 中打开 `DiskOUT.xcodeproj` 后按 <kbd>⌘</kbd><kbd>R</kbd>。
 
 **安全安装 (可回滚)**
 
 新版本未完全验证时推荐。先备份现有 `.app` 再替换。
 
 ```bash
-# 1. 构建
+set -euo pipefail
+
+# 1. 在明确的临时路径构建并验证 bundle ID
 cd ~/Documents/diskOUT
-xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build
+INSTALL_WORK_DIR="/private/tmp/diskout-install.$(uuidgen)"
+SOURCE_APP="$INSTALL_WORK_DIR/DerivedData/Build/Products/Release/DiskOUT.app"
+TARGET_APP="$HOME/Applications/DiskOUT.app"
+BACKUP_APP="$HOME/Applications/DiskOUT.app.backup.$(uuidgen)"
+xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
+  -derivedDataPath "$INSTALL_WORK_DIR/DerivedData" build
+[ "$(plutil -extract CFBundleIdentifier raw -o - "$SOURCE_APP/Contents/Info.plist")" = \
+  "com.yongza.ejectdrives" ]
 
-# 2. 结束 + 备份 + 替换
-pkill -f DiskOUT
-mv ~/Applications/DiskOUT.app ~/Applications/DiskOUT.app.prev.bak
-DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name "DiskOUT.app" -type d | head -1)
-cp -R "$DERIVED" ~/Applications/DiskOUT.app
-xattr -cr ~/Applications/DiskOUT.app   # 清理 provenance / quarantine
-open ~/Applications/DiskOUT.app
+# 2. 只结束准确的 process，并将旧应用保存到唯一目录
+mkdir -p "$HOME/Applications"
+pkill -x DiskOUT 2>/dev/null || true
+if [ -e "$TARGET_APP" ]; then
+  mv "$TARGET_APP" "$BACKUP_APP"
+  printf 'Rollback backup: %s\n' "$BACKUP_APP"
+else
+  BACKUP_APP=""
+  printf 'Rollback backup: none (没有旧安装)\n'
+fi
 
-# 3. 验证
+# 3. 只安装已验证的 product 并启动
+ditto "$SOURCE_APP" "$TARGET_APP"
+xattr -cr "$TARGET_APP"
+open "$TARGET_APP"
+
+# 4. 验证
 log show --predicate 'subsystem == "com.yongza.ejectdrives"' --info --last 1m
-
-# 4a. 没问题就删除备份
-rm -rf ~/Applications/DiskOUT.app.prev.bak
-
-# 4b. 有问题就回滚
-pkill -f DiskOUT
-rm -rf ~/Applications/DiskOUT.app
-mv ~/Applications/DiskOUT.app.prev.bak ~/Applications/DiskOUT.app
-open ~/Applications/DiskOUT.app
 ```
+
+若有问题，请把上方输出的准确 backup 路径填入 `BACKUP_APP`。不要删除当前应用，先将它保存到唯一的 failed 路径，再恢复旧版本。
+
+```bash
+set -euo pipefail
+TARGET_APP="$HOME/Applications/DiskOUT.app"
+BACKUP_APP="<上方输出的 Rollback backup 绝对路径>"
+FAILED_APP="$HOME/Applications/DiskOUT.app.failed.$(uuidgen)"
+[ -d "$BACKUP_APP" ]
+pkill -x DiskOUT 2>/dev/null || true
+mv "$TARGET_APP" "$FAILED_APP"
+mv "$BACKUP_APP" "$TARGET_APP"
+open "$TARGET_APP"
+printf 'Failed build preserved at: %s\n' "$FAILED_APP"
+```
+
+验证完成后，在 Finder 中把不再需要的 backup / failed 应用移到废纸篓。
 
 ### 选项修改位置
 
@@ -383,6 +415,7 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 
 [发布](https://github.com/yooongZa/DiskOUT/releases) ·
 [更新日志](https://github.com/yooongZa/DiskOUT/releases) ·
-[问题反馈](https://github.com/yooongZa/DiskOUT/issues)
+[问题反馈](https://github.com/yooongZa/DiskOUT/issues) ·
+[使用条款](TERMS.md) · [退款政策](REFUND_POLICY.md) · [隐私政策](PRIVACY.md)
 
 </div>

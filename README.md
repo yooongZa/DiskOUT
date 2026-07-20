@@ -22,7 +22,8 @@
 
 [다운로드](https://github.com/yooongZa/DiskOUT/releases/latest) ·
 [변경 내역](https://github.com/yooongZa/DiskOUT/releases) ·
-[이슈 / 피드백](https://github.com/yooongZa/DiskOUT/issues)
+[이슈 / 피드백](https://github.com/yooongZa/DiskOUT/issues) ·
+[이용약관](TERMS.md) · [환불 정책](REFUND_POLICY.md) · [개인정보 처리방침](PRIVACY.md)
 
 </div>
 
@@ -60,6 +61,7 @@ Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능�
 ### 3️⃣ 외장 디스크가 몇 개인지, 한눈에 확인하세요.
 
 메뉴바에 연결된 디스크 수가 숫자로 표시됩니다.
+핵심 기능은 그대로 무료이며, USD 4.99 일회성 Premium 은 0~12의 숫자를 귀여운 6-frame 캐릭터 animation(애니메이션)으로 바꿉니다. 캐릭터는 filled reverse pictogram(채운 반전 픽토그램)과 얇은 negative-space detail(음각 디테일)로 메뉴바 가시성을 높이고, 숫자는 캐릭터별 투명 여백만 제외해 오른쪽에 가깝게 붙인 9pt 보조 정보로 유지됩니다.
 
 ---
 
@@ -71,7 +73,7 @@ Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능�
 | **DMG · 디스크 이미지 무시** | 마운트된 디스크 이미지는 메뉴에도 안 뜨고, 자동 추출 대상도 아님 |
 | **"비정상 추출" 알림 없음** | sleep 추출은 정상 unmount(마운트 해제) 를 먼저 시도 — macOS 의 "improperly ejected" 알림이 안 뜸 |
 | **Per-disk 옵트아웃** | 자동 추출에서 빼고 싶은 디스크만 개별 토글. Volume UUID 기반이라 케이블 슬롯 바뀌어도 유지 |
-| **광고 · 추적 0** | 외장 디스크 다루는 일에만 집중. 자동 업데이트 체크 외에는 외부 통신 없음 |
+| **광고 없음 · 결제 정보 분리** | 디스크 이름·파일 경로는 결제 서버로 보내지 않음. Premium 구매·권한 확인·구매 이전·구매 내역 조회에만 Paddle 기반 결제 서버와 통신하고, 앱은 서명된 entitlement(이용 권한)만 검증 |
 | **Developer ID + Apple 공증** | Gatekeeper(게이트키퍼) 통과 — "확인되지 않은 개발자" 경고 없이 그냥 열림 |
 | **자동 업데이트 (조용한 알림)** | 새 버전이 나오면 메뉴바 아이콘 옆에 작은 빨간 점 + 메뉴 안 항목으로만 표시. 모달 안 뜸. EdDSA + Apple Code Signing 이중 검증 후 설치 |
 
@@ -139,7 +141,14 @@ mount / eject 같은 디스크 조작은 sandbox(샌드박스) 환경에서 제�
 <details>
 <summary><b>무료인가요?</b></summary>
 
-현재는 무료 다운로드입니다. 향후 정책 변경 가능성을 위해 라이센스는 "All rights reserved" 로 두었지만, 개인 사용자가 받아 쓰는 데는 제한 없습니다.
+네. 추출·마운트·잠자기 자동화 등 실질 기능과 기존 숫자 메뉴바 표시는 그대로 무료입니다. 선택 사항인 Premium 메뉴바 캐릭터는 USD 4.99 일회성 구매이며, 운영 결제 설정 전 개발 빌드에서는 구매 메뉴가 표시되지 않습니다.
+
+</details>
+
+<details>
+<summary><b>Premium을 새 Mac으로 옮길 수 있나요?</b></summary>
+
+네. 구매 후 앱 메뉴의 `복구 코드 복사…`에서 recovery code(복구 코드)를 안전한 곳에 보관하면 새 Mac에서 Premium을 이전할 수 있습니다. 이전이 완료되면 기존 Mac의 권한은 다음 온라인 확인 때 해제됩니다. 서버 확인에 연결할 수 없는 동안에는 마지막으로 검증된 권한을 최대 30일간 사용할 수 있습니다.
 
 </details>
 
@@ -190,7 +199,7 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | 기능 | 설명 |
 |---|---|
 | 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임. 갱신 실패 시 기존 cache 를 유지하고 실패 row(행)를 표시. **갱신 source 는 DA event-driven 인벤토리가 1순위** → SD 카드 삽입으로 `storagekitd` 가 막혀도 메뉴 즉시 정상 |
-| **메뉴바 아이콘 = ⏏ + 마운트 개수** | eject 글리프(⏏)와 마운트된 외장 *디바이스* 개수를 함께 표시 — 어느 앱의 숫자인지 한눈에 식별되고, monospaced 숫자라 카운트가 변해도 폭이 안 흔들림. 0대일 땐 글리프만 (정보 없는 "0" 생략). 다중 파티션·RAID·APFS 합성 볼륨은 1 개로 집계. `DAInventory` 변화에 이벤트 기반 자동 갱신 (폴링 없음). 추출 진행/결과 표시 중에는 임시 심볼(↻·✓·✗)이 우선, 아이콘 전환은 0.15s 페이드 (시스템 "동작 줄이기" 존중) |
+| **메뉴바 아이콘 = 캐릭터/⏏ + 마운트 개수** | 무료 버전은 기존 eject 글리프(⏏)와 숫자를 유지. 검증된 Premium 은 0~12에 해당하는 21pt 반전 캐릭터와 오른쪽 9pt 숫자를 표시하며, count별 안전한 trailing trim(뒤쪽 여백 제외)으로 둘 사이 간격을 줄임. 13 이상·asset 누락·권한 미검증 시 무료 표시로 안전하게 복귀. 다중 파티션·RAID·APFS 합성 볼륨은 1개로 집계. `DAInventory` 변화에 이벤트 기반 자동 갱신하며, 추출 진행/결과 심볼(↻·✓·✗)이 animation보다 우선. Reduce Motion(동작 줄이기)에서는 첫 frame으로 정지 |
 | **읽기/쓰기 활동 표시** | 외장에 읽기·쓰기 I/O 가 진행 중이면 메뉴바 숫자 옆 작은 systemBlue `●` + "읽는 중 / 쓰는 중 — 분리하지 마세요" tooltip (업데이트 알림의 빨간 `●` 와 색으로 구분). 메뉴에서는 **그 디스크 항목 옆에만** 파란 `●` — 어떤 디스크가 바쁜지 바로 식별하고, tooltip 으로 읽기·쓰기·둘 다를 구분. 물리 디스크 I/O 카운터(IORegistry)를 1.5s 폴링, 볼륨→물리 매핑은 parent-walk 로 RAID·APFS 합성·직결 모두 처리. 읽기는 background 인덱싱 오탐 방지로 임계가 높음. 외장 있을 때만 가동 (배터리) |
 | **디스크 용량 / 사용률** | 각 디스크 메뉴 항목 2번째 줄에 *남은 용량 · 사용률* 표시 — 예 `2.9 TB free · 40% used`. 메뉴 열 때 `URLResourceValues` 로 조회 (프로세스 호출 없음) |
 | 개별 추출 | 드라이브 이름 클릭 |
@@ -216,7 +225,7 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | **단축키 충돌 자동 정정** | 추출 / 마운트 / 추출하고 잠자기 단축키가 같은 preset 으로 저장되면 충돌 감지 + 다른 preset 으로 자동 이동 + alert |
 | **권한 누락 메뉴 안내** | Accessibility(손쉬운 사용) / 알림 권한이 미허용 상태면 메뉴 상단에 ⚠ 경고 row 표시. 클릭하면 시스템 설정의 해당 페이지로 이동 |
 | **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 토글. 기본은 모두 ON |
-| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 125개 키. 시스템 선호 언어 목록 전체에서 첫 지원 언어를 자동 선택하고, 모두 미지원이면 영어로 fallback. 환경설정 General → Language에서 시스템 따라가기 또는 명시 언어 선택 가능 |
+| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 153개 키. 시스템 선호 언어 목록 전체에서 첫 지원 언어를 자동 선택하고, 모두 미지원이면 영어로 fallback. 환경설정 General → Language에서 시스템 따라가기 또는 명시 언어 선택 가능 |
 | **자동 업데이트 (Sparkle 2)** | 24시간 주기로 백그라운드 체크. 새 버전 발견 시 다이얼로그 안 띄우고 **메뉴바 아이콘에 작은 systemRed `●` + 메뉴 안 "X.Y.Z 업데이트…" 항목 (같은 빨간 점 prefix)** 으로만 표시 (gentle reminder). 사용자가 클릭하면 표준 Sparkle 다운로드/설치 다이얼로그 → 자동 재시작. EdDSA(Ed25519) + Apple Code Signing 이중 검증. appcast 호스팅은 GitHub Pages, DMG 호스팅은 GitHub Releases — 무료 운영 |
 | **Per-disk 자동 추출 제외** | 메뉴 하단 *"자동 추출 제외 디스크"* submenu 에서 디스크별 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + Time Machine badge(배지) 표기 (macOS 14+, 13은 괄호) |
@@ -248,7 +257,11 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 diskOUT/
 ├── AppDelegate.swift            # 메인 로직 (diskutil 실행, 메뉴 캐시, sleep/wake 처리)
 ├── LanguageRuntime.swift        # 언어 협상·저장값 검증·안전한 재시작 정책
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 125 키)
+├── PaddleBilling.swift          # Paddle checkout·서명 lease·Keychain 상태
+├── PremiumAccessPolicy.swift    # fail-closed entitlement 검증 정책
+├── StatusCharacterAnimator.swift # 0~12 메뉴바 character animation
+├── StatusItemPresentation.swift # 무료/Premium 표시와 Preview build 경계
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 153 키)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
 ├── DiskOUT.entitlements         # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
@@ -272,45 +285,81 @@ xcodegen generate                  # project.yml → DiskOUT.xcodeproj
 
 ```bash
 cd ~/Documents/diskOUT
+BUILD_WORK_DIR="/private/tmp/diskout-build.$(uuidgen)"
 xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
-  -derivedDataPath /tmp/DiskOUT-derived build
-pkill -f DiskOUT
-rm -rf ~/Applications/DiskOUT.app
-cp -R /tmp/DiskOUT-derived/Build/Products/Release/DiskOUT.app ~/Applications/
-open ~/Applications/DiskOUT.app
+  -derivedDataPath "$BUILD_WORK_DIR/DerivedData" build
+printf 'Built app: %s\n' "$BUILD_WORK_DIR/DerivedData/Build/Products/Release/DiskOUT.app"
 ```
 
-또는 Xcode 열어서 `DiskOUT.xcodeproj` → <kbd>⌘</kbd><kbd>R</kbd>.
+설치하려면 아래 rollback(롤백) 가능한 절차를 사용합니다. 또는 Xcode에서 `DiskOUT.xcodeproj`를 열고 <kbd>⌘</kbd><kbd>R</kbd>을 누릅니다.
+
+### Premium Preview 로컬 빌드
+
+결제 운영 credential(자격 증명) 없이 캐릭터 UI만 검수할 때 사용하는 개발 전용 build flag(빌드 플래그)입니다. Paddle lease(이용 권한) 검증 코드는 바꾸지 않으며, 일반 빌드에는 플래그가 없어서 계속 fail-closed(안전 차단)됩니다. 배포·Archive 빌드에는 사용하지 않습니다.
+
+```bash
+cd ~/Documents/diskOUT
+xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
+  -derivedDataPath /private/tmp/DiskOUT-premium-preview-derived \
+  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DISKOUT_PREMIUM_PREVIEW' build
+```
+
+정상 배포 경로와 Preview 경계를 함께 확인하려면 같은 표시 정책 테스트를 플래그 없이 한 번, `-D DISKOUT_PREMIUM_PREVIEW`와 함께 한 번 실행합니다.
 
 **안전 설치 (롤백 가능)**
 
 새 빌드 검증이 안 끝났을 때 권장. 기존 .app 을 먼저 백업 후 교체.
 
 ```bash
-# 1. 빌드
+set -euo pipefail
+
+# 1. 명시된 임시 경로에 빌드하고 bundle ID 검증
 cd ~/Documents/diskOUT
-xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build
+INSTALL_WORK_DIR="/private/tmp/diskout-install.$(uuidgen)"
+SOURCE_APP="$INSTALL_WORK_DIR/DerivedData/Build/Products/Release/DiskOUT.app"
+TARGET_APP="$HOME/Applications/DiskOUT.app"
+BACKUP_APP="$HOME/Applications/DiskOUT.app.backup.$(uuidgen)"
+xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
+  -derivedDataPath "$INSTALL_WORK_DIR/DerivedData" build
+[ "$(plutil -extract CFBundleIdentifier raw -o - "$SOURCE_APP/Contents/Info.plist")" = \
+  "com.yongza.ejectdrives" ]
 
-# 2. 종료 + 백업 + 교체
-pkill -f DiskOUT
-mv ~/Applications/DiskOUT.app ~/Applications/DiskOUT.app.prev.bak
-DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name "DiskOUT.app" -type d | head -1)
-cp -R "$DERIVED" ~/Applications/DiskOUT.app
-xattr -cr ~/Applications/DiskOUT.app   # provenance/quarantine 정리
-open ~/Applications/DiskOUT.app
+# 2. 정확한 process(프로세스)만 종료하고 기존 앱을 고유 경로에 백업
+mkdir -p "$HOME/Applications"
+pkill -x DiskOUT 2>/dev/null || true
+if [ -e "$TARGET_APP" ]; then
+  mv "$TARGET_APP" "$BACKUP_APP"
+  printf 'Rollback backup: %s\n' "$BACKUP_APP"
+else
+  BACKUP_APP=""
+  printf 'Rollback backup: none (기존 설치 없음)\n'
+fi
 
-# 3. 검증
+# 3. 검증한 산출물만 설치·실행
+ditto "$SOURCE_APP" "$TARGET_APP"
+xattr -cr "$TARGET_APP"
+open "$TARGET_APP"
+
+# 4. 검증
 log show --predicate 'subsystem == "com.yongza.ejectdrives"' --info --last 1m
-
-# 4a. 문제 없으면 백업 제거
-rm -rf ~/Applications/DiskOUT.app.prev.bak
-
-# 4b. 문제 있으면 롤백
-pkill -f DiskOUT
-rm -rf ~/Applications/DiskOUT.app
-mv ~/Applications/DiskOUT.app.prev.bak ~/Applications/DiskOUT.app
-open ~/Applications/DiskOUT.app
 ```
+
+문제가 있으면 위에서 출력된 정확한 backup(백업) 경로를 `BACKUP_APP`에 넣고, 현재 앱도 삭제하지 말고 고유한 failed 경로로 옮긴 뒤 복구합니다.
+
+```bash
+set -euo pipefail
+TARGET_APP="$HOME/Applications/DiskOUT.app"
+BACKUP_APP="<위에서 출력된 Rollback backup 절대 경로>"
+FAILED_APP="$HOME/Applications/DiskOUT.app.failed.$(uuidgen)"
+[ -d "$BACKUP_APP" ]
+pkill -x DiskOUT 2>/dev/null || true
+mv "$TARGET_APP" "$FAILED_APP"
+mv "$BACKUP_APP" "$TARGET_APP"
+open "$TARGET_APP"
+printf 'Failed build preserved at: %s\n' "$FAILED_APP"
+```
+
+검증이 끝난 백업·failed 앱은 Finder의 휴지통으로 옮겨 정리합니다.
 
 ### 옵션 변경 위치
 
@@ -383,6 +432,7 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 
 [릴리즈](https://github.com/yooongZa/DiskOUT/releases) ·
 [변경 내역](https://github.com/yooongZa/DiskOUT/releases) ·
-[이슈](https://github.com/yooongZa/DiskOUT/issues)
+[이슈](https://github.com/yooongZa/DiskOUT/issues) ·
+[이용약관](TERMS.md) · [환불 정책](REFUND_POLICY.md) · [개인정보 처리방침](PRIVACY.md)
 
 </div>

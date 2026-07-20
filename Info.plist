@@ -27,6 +27,12 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>DiskOUTBillingBaseURL</key>
+	<string>https://diskout-paddle-billing.sukmack.workers.dev</string>
+	<key>DiskOUTEntitlementPublicKey</key>
+	<string>ptsyyuHUpc6JBSSw3E/EQ6HEh5aF+u86HnwcFmdjnik=</string>
+	<key>DiskOUTPaddleOneTimePriceID</key>
+	<string>pri_01kxz609bdn1m025acsb60b366</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>

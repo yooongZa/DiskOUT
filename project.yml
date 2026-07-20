@@ -12,8 +12,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 495S4FVMCB
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: "0.4.12"
-    CURRENT_PROJECT_VERSION: "12"
+    MARKETING_VERSION: "0.5.0"
+    CURRENT_PROJECT_VERSION: "14"
 
 # Swift Package Manager 의존성.
 # Sparkle 2: 자동 업데이트 프레임워크 (https://sparkle-project.org).
@@ -31,9 +31,15 @@ targets:
       - path: AppDelegate.swift
       - path: DiskClassification.swift
       - path: LanguageRuntime.swift
+      - path: PaddleBilling.swift
+      - path: PremiumAccessPolicy.swift
+      - path: StatusCharacterAnimator.swift
+      - path: StatusItemPresentation.swift
       - path: main.swift
       - path: Localizable.xcstrings
       - path: Assets.xcassets
+      - path: Resources
+        buildPhase: resources
     dependencies:
       - package: Sparkle
     info:
@@ -66,6 +72,12 @@ targets:
         SUPublicEDKey: "ObQo/BNVRTo8chYqk127BR2sOIE7NNQaYGQEEuGdIFE="
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400
+        # Paddle public configuration only. API keys, webhook secrets, and the Ed25519
+        # private signing key belong exclusively in the billing Worker secrets.
+        # Missing or invalid values deliberately hide purchase UI and keep the free presentation.
+        DiskOUTBillingBaseURL: "https://diskout-paddle-billing.sukmack.workers.dev"
+        DiskOUTPaddleOneTimePriceID: "pri_01kxz609bdn1m025acsb60b366"
+        DiskOUTEntitlementPublicKey: "ptsyyuHUpc6JBSSw3E/EQ6HEh5aF+u86HnwcFmdjnik="
     settings:
       base:
         # Bundle ID 는 사용자 데이터(UserDefaults·LoginItem·키체인) 호환성 위해 유지

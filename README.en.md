@@ -22,7 +22,8 @@
 
 [Download](https://github.com/yooongZa/DiskOUT/releases/latest) ·
 [Changelog](https://github.com/yooongZa/DiskOUT/releases) ·
-[Issues / Feedback](https://github.com/yooongZa/DiskOUT/issues)
+[Issues / Feedback](https://github.com/yooongZa/DiskOUT/issues) ·
+[Terms](TERMS.md) · [Refund Policy](REFUND_POLICY.md) · [Privacy](PRIVACY.md)
 
 </div>
 
@@ -60,6 +61,7 @@ One shortcut, or one right-click on the menu bar icon — all of them, gone.
 ### 3️⃣ See how many drives are connected, at a glance.
 
 The menu bar shows the count as a number.
+Core features and the existing numeric menu-bar display remain free. Optional Premium is a USD 4.99 one-time purchase that turns counts 0–12 into cute six-frame animated characters, while keeping a smaller count on the right. Reduce Motion shows a still frame.
 
 ---
 
@@ -71,7 +73,7 @@ The menu bar shows the count as a number.
 | **Ignores DMG / disk images** | Mounted disk images don't appear in the menu and aren't auto-ejected |
 | **No "improperly ejected" warnings** | Sleep eject tries a normal unmount first — macOS "improperly ejected" notifications don't fire |
 | **Per-disk opt-out** | Exclude specific disks from auto-eject individually. Volume UUID-based, so it survives cable/port changes |
-| **No ads, no tracking** | Focused on disk ejection. No external traffic outside of update checks |
+| **No ads · billing data separated** | Disk names and file paths are never sent to the billing server. The Paddle-backed server is contacted only to purchase, verify or transfer Premium, or view purchase details; the app trusts only a signed entitlement |
 | **Developer ID + Apple notarized** | Passes Gatekeeper — no "unidentified developer" warning, just opens |
 | **Gentle auto-update** | A small red dot in the menu bar + an item in the menu announces new versions. No modal pop-ups. Installed only after EdDSA + Apple Code Signing double verification |
 
@@ -139,7 +141,14 @@ If even force unmount fails, the disk is left alone — we won't risk data corru
 <details>
 <summary><b>Is it free?</b></summary>
 
-Currently a free download. The license is "All rights reserved" to keep future flexibility, but individual users can download and use it without restriction.
+Yes. Eject, mount, sleep automation, and the existing numeric menu-bar display remain free. Optional Premium animated menu-bar characters cost USD 4.99 once; development builds hide the purchase menu until production billing is configured.
+
+</details>
+
+<details>
+<summary><b>Can I move Premium to a new Mac?</b></summary>
+
+Yes. After purchase, choose `Copy Recovery Code…` in the app menu and save that code, then use it to transfer Premium to a new Mac. The old Mac loses access on its next online check. If the server cannot be reached, the last verified access remains available for up to 30 days.
 
 </details>
 
@@ -216,7 +225,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | **Hotkey conflict auto-fix** | If eject / mount / eject-and-sleep would share the same preset, the conflict is detected + one is auto-moved + alerted |
 | **Missing-permission menu hint** | If Accessibility (for global hotkeys) or notification permission is missing, a ⚠ warning row appears at the top of the menu. Click to jump to the relevant System Settings page |
 | **Fine-grained notification toggles** | Separate toggles for all / success / failure notifications. All ON by default |
-| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 125 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
+| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 153 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
 | **Auto-update (Sparkle 2)** | 24h background check. On new version, no modal — just a small systemRed `●` in the menu bar + an "Update to X.Y.Z…" menu item with the same red-dot prefix (gentle reminder). Click → standard Sparkle download/install dialog → auto-restart. EdDSA(Ed25519) + Apple Code Signing double verification. Appcast on GitHub Pages, DMG on GitHub Releases — free hosting |
 | **Per-disk auto-eject exclude** | Per-disk toggles in the bottom *"Auto-Eject Excluded Disks"* submenu. Volume UUID-based (survives cable/port changes). Affects auto path only — explicit eject still works |
 | **Time Machine auto-protect** | TM backup disks auto-detected (`Backups.backupdb` / `.com.apple.timemachine.donotpresent`) → excluded from auto-eject on first sighting + 1 notification. Menu shows clock icon + a Time Machine badge (macOS 14+; parenthetical on 13) |
@@ -248,7 +257,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 diskOUT/
 ├── AppDelegate.swift            # Main logic (diskutil exec, menu cache, sleep/wake handling)
 ├── LanguageRuntime.swift        # language negotiation, stored-value validation, safe relaunch policy
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 125 keys)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 153 keys)
 ├── main.swift                   # Explicit entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen generated)
 ├── DiskOUT.entitlements         # empty plist. Prevents entitlements pitfalls in project.yml
@@ -272,45 +281,68 @@ xcodegen generate                  # project.yml → DiskOUT.xcodeproj
 
 ```bash
 cd ~/Documents/diskOUT
+BUILD_WORK_DIR="/private/tmp/diskout-build.$(uuidgen)"
 xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
-  -derivedDataPath /tmp/DiskOUT-derived build
-pkill -f DiskOUT
-rm -rf ~/Applications/DiskOUT.app
-cp -R /tmp/DiskOUT-derived/Build/Products/Release/DiskOUT.app ~/Applications/
-open ~/Applications/DiskOUT.app
+  -derivedDataPath "$BUILD_WORK_DIR/DerivedData" build
+printf 'Built app: %s\n' "$BUILD_WORK_DIR/DerivedData/Build/Products/Release/DiskOUT.app"
 ```
 
-Or open `DiskOUT.xcodeproj` in Xcode → <kbd>⌘</kbd><kbd>R</kbd>.
+Use the rollback-capable procedure below to install it, or open `DiskOUT.xcodeproj` in Xcode → <kbd>⌘</kbd><kbd>R</kbd>.
 
 **Safe install (rollback-capable)**
 
 Recommended when a new build hasn't been fully verified. Backs up the existing `.app` before replacement.
 
 ```bash
-# 1. Build
+set -euo pipefail
+
+# 1. Build at an explicit temporary path and verify the bundle ID
 cd ~/Documents/diskOUT
-xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Debug build
+INSTALL_WORK_DIR="/private/tmp/diskout-install.$(uuidgen)"
+SOURCE_APP="$INSTALL_WORK_DIR/DerivedData/Build/Products/Release/DiskOUT.app"
+TARGET_APP="$HOME/Applications/DiskOUT.app"
+BACKUP_APP="$HOME/Applications/DiskOUT.app.backup.$(uuidgen)"
+xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
+  -derivedDataPath "$INSTALL_WORK_DIR/DerivedData" build
+[ "$(plutil -extract CFBundleIdentifier raw -o - "$SOURCE_APP/Contents/Info.plist")" = \
+  "com.yongza.ejectdrives" ]
 
-# 2. Stop + backup + replace
-pkill -f DiskOUT
-mv ~/Applications/DiskOUT.app ~/Applications/DiskOUT.app.prev.bak
-DERIVED=$(find ~/Library/Developer/Xcode/DerivedData -name "DiskOUT.app" -type d | head -1)
-cp -R "$DERIVED" ~/Applications/DiskOUT.app
-xattr -cr ~/Applications/DiskOUT.app   # clear provenance/quarantine
-open ~/Applications/DiskOUT.app
+# 2. Stop only the exact process and preserve the old app at a unique path
+mkdir -p "$HOME/Applications"
+pkill -x DiskOUT 2>/dev/null || true
+if [ -e "$TARGET_APP" ]; then
+  mv "$TARGET_APP" "$BACKUP_APP"
+  printf 'Rollback backup: %s\n' "$BACKUP_APP"
+else
+  BACKUP_APP=""
+  printf 'Rollback backup: none (no previous install)\n'
+fi
 
-# 3. Verify
+# 3. Install only the verified product and launch it
+ditto "$SOURCE_APP" "$TARGET_APP"
+xattr -cr "$TARGET_APP"
+open "$TARGET_APP"
+
+# 4. Verify
 log show --predicate 'subsystem == "com.yongza.ejectdrives"' --info --last 1m
-
-# 4a. If OK, drop the backup
-rm -rf ~/Applications/DiskOUT.app.prev.bak
-
-# 4b. If problems, rollback
-pkill -f DiskOUT
-rm -rf ~/Applications/DiskOUT.app
-mv ~/Applications/DiskOUT.app.prev.bak ~/Applications/DiskOUT.app
-open ~/Applications/DiskOUT.app
 ```
+
+If there is a problem, put the exact printed backup path in `BACKUP_APP`. Preserve the failed app at a unique path instead of deleting it, then restore:
+
+```bash
+set -euo pipefail
+TARGET_APP="$HOME/Applications/DiskOUT.app"
+BACKUP_APP="<absolute Rollback backup path printed above>"
+FAILED_APP="$HOME/Applications/DiskOUT.app.failed.$(uuidgen)"
+[ -d "$BACKUP_APP" ]
+pkill -x DiskOUT 2>/dev/null || true
+mv "$TARGET_APP" "$FAILED_APP"
+mv "$BACKUP_APP" "$TARGET_APP"
+open "$TARGET_APP"
+printf 'Failed build preserved at: %s\n' "$FAILED_APP"
+```
+
+After verification, move unneeded backup or failed apps to the Trash in Finder.
 
 ### Where to change options
 
@@ -383,6 +415,7 @@ guard !isInternal, isBrowsable, isLocal else { continue }
 
 [Releases](https://github.com/yooongZa/DiskOUT/releases) ·
 [Changelog](https://github.com/yooongZa/DiskOUT/releases) ·
-[Issues](https://github.com/yooongZa/DiskOUT/issues)
+[Issues](https://github.com/yooongZa/DiskOUT/issues) ·
+[Terms](TERMS.md) · [Refund Policy](REFUND_POLICY.md) · [Privacy](PRIVACY.md)
 
 </div>

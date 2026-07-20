@@ -9,6 +9,10 @@ xcuserdata/
 *.app
 *.dSYM
 
+# Python-generated character asset caches
+__pycache__/
+*.py[cod]
+
 # Xcode user state
 *.xcent
 
