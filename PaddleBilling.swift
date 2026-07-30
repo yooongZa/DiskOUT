@@ -88,6 +88,27 @@ struct PaddleBillingConfiguration {
     }
 }
 
+/// The browser callback is only an authenticated-refresh hint. It never carries credentials or
+/// grants access; the app still requires a valid Worker-signed entitlement before showing Premium.
+enum PremiumRefreshCallbackPolicy {
+    static let callbackURLString = "diskout://premium/refresh"
+
+    static func accepts(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "diskout",
+              components.host?.lowercased() == "premium",
+              components.path == "/refresh",
+              components.user == nil,
+              components.password == nil,
+              components.port == nil,
+              components.percentEncodedQuery == nil,
+              components.percentEncodedFragment == nil else {
+            return false
+        }
+        return true
+    }
+}
+
 private struct SignedPremiumEntitlement: Codable {
     let payload: String
     let signature: String
@@ -450,6 +471,24 @@ final class PaddleBillingController {
         purchasePollTask?.cancel()
         purchasePollTask = nil
         setPurchasePolling(false)
+    }
+
+    /// Returning focus from the checkout browser is a best-effort fast path. It is intentionally
+    /// active only while a bounded purchase poll is running, so ordinary app activations do not
+    /// add billing traffic. `refresh()` remains single-flight if a timer fires at the same moment.
+    func refreshAfterReturningFromCheckout() {
+        precondition(Thread.isMainThread)
+        guard isPurchasePolling else { return }
+        refresh()
+    }
+
+    /// A custom-URL callback may cold-launch DiskOUT after the in-memory polling state was lost.
+    /// Treat it only as a refresh hint: the binding credential and Ed25519 lease validation remain
+    /// the sole authority, and overlapping callbacks coalesce through `refresh()`.
+    func refreshAfterPurchaseCallback() {
+        precondition(Thread.isMainThread)
+        guard !isStopped, isConfigured else { return }
+        refresh()
     }
 
     func requestPurchaseDetailsURL(completion: @escaping (URL?) -> Void) {

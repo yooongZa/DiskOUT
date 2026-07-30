@@ -12,8 +12,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 495S4FVMCB
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: "0.5.0"
-    CURRENT_PROJECT_VERSION: "14"
+    MARKETING_VERSION: "0.5.2"
+    CURRENT_PROJECT_VERSION: "16"
 
 # Swift Package Manager 의존성.
 # Sparkle 2: 자동 업데이트 프레임워크 (https://sparkle-project.org).
@@ -29,6 +29,7 @@ targets:
     platform: macOS
     sources:
       - path: AppDelegate.swift
+      - path: DiskActivityPolicy.swift
       - path: DiskClassification.swift
       - path: LanguageRuntime.swift
       - path: PaddleBilling.swift
@@ -60,6 +61,11 @@ targets:
           - ko
           - zh-Hans
         CFBundleDevelopmentRegion: en
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Viewer
+            CFBundleURLName: com.yongza.ejectdrives.premium-refresh
+            CFBundleURLSchemes:
+              - diskout
         # Sparkle 자동 업데이트 설정.
         # SUFeedURL: appcast.xml 피드 URL. Cloudflare Worker(scripts/appcast-proxy/)가
         #            익명 업데이트 체크를 집계한 뒤 GitHub Pages 의 서명 appcast 를 그대로

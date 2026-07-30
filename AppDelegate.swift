@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var statusItem: NSStatusItem!
     private let statusCharacterAnimator = StatusCharacterAnimator()
     private var billingController: PaddleBillingController?
+    private var pendingPremiumRefreshCallback = false
     private var isTerminating = false
     private var isPurchaseInProgress = false
     private var isOpeningPurchaseDetails = false
@@ -186,6 +187,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     // MARK: - Lifecycle
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Register before didFinishLaunching so a custom URL that cold-launches this LSUIElement
+        // app cannot arrive before the Apple Event handler exists.
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handlePremiumRefreshURL(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
@@ -215,6 +227,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         setupStatusItem()
         setupPremiumStatusPresentation()
+        if pendingPremiumRefreshCallback {
+            pendingPremiumRefreshCallback = false
+            billingController?.refreshAfterPurchaseCallback()
+        }
         setupSparkleUpdater()
         setupSleepObserver()
         setupPowerSleepObserver()
@@ -265,6 +281,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard !isTerminating else { return }
+        billingController?.refreshAfterReturningFromCheckout()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
         isPurchaseInProgress = false
@@ -276,8 +297,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         clearCopiedRecoveryCodeIfUnchanged()
         statusCharacterAnimator.invalidate()
         billingController?.stop()
+        NSAppleEventManager.shared().removeEventHandler(
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
         clearLanguageRelaunchAttempt(terminateCandidate: acceptedLanguageRelaunchToken == nil)
         tearDownPowerSleepObserver()
+    }
+
+    /// `diskout://premium/refresh` can be invoked by any local process, so it is deliberately a
+    /// parameter-free, exact-match hint. It cannot mutate billing state or unlock Premium; it only
+    /// starts the normal authenticated request whose Ed25519 response is verified by the controller.
+    @objc private func handlePremiumRefreshURL(
+        _ event: NSAppleEventDescriptor,
+        withReplyEvent replyEvent: NSAppleEventDescriptor
+    ) {
+        guard !isTerminating,
+              let rawURL = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: rawURL),
+              PremiumRefreshCallbackPolicy.accepts(url) else {
+            log.error("Rejected malformed Premium refresh callback")
+            return
+        }
+
+        guard let billingController else {
+            pendingPremiumRefreshCallback = true
+            return
+        }
+        log.notice("Accepted Premium refresh callback")
+        billingController.refreshAfterPurchaseCallback()
     }
 
     // MARK: - Status Bar
@@ -5946,25 +5994,25 @@ enum LibraryAppHandler {
     }
 }
 
-// MARK: - Disk I/O Monitor (외장 쓰기 활동 감지)
+// MARK: - Disk I/O Monitor (외장 읽기/쓰기 활동 감지)
 
-/// 외장 물리 디스크의 쓰기 I/O 를 폴링해 "지금 어떤 디스크가 쓰는 중" 을 감지 — 사용자가 쓰기
+/// 외장 물리 디스크의 I/O 를 폴링해 "최근 어떤 디스크가 읽기/쓰기 중" 을 감지 — 사용자가 활동
 /// 도중 분리하지 않도록 메뉴바 + 메뉴에 표시하기 위한 신호.
 ///
 /// **왜 물리 디스크 레벨인가**: APFS synthesized 볼륨(disk5 등)·virtual 컨테이너(disk4)는
 /// `IOBlockStorageDriver` 가 없어 byte 카운터가 없다. 카운터는 물리 디바이스에만 있으므로
-/// `IOBlockStorageDriver` 를 직접 열거하고, `Protocol Characteristics` 의
-/// `Physical Interconnect Location == "External"` 로 외장만 필터한다 (내장 disk0 / 내장 SD 리더 /
-/// 디스크 이미지[loc=File] 자동 제외).
+/// `IOBlockStorageDriver` 를 직접 열거하고 `DiskActivityMediaPolicy` 로 외장 장치와 분리 가능한
+/// 내장 SDXC 만 포함한다 (내장 disk0 / 디스크 이미지[loc=File] 자동 제외).
 ///
-/// 디스크별 누적 `Bytes (Read)`·`Bytes (Write)` 를 폴 간격마다 비교해 델타가 각 threshold 이상인
-/// 쓰는 중/읽는 중 **물리 whole-disk BSD** 집합(예: ["disk7","disk8"])을 보고한다. 볼륨→물리 매핑은 메뉴 쪽
-/// (`physicalWholeDisks(forVolumeURL:)`)이 담당 — 여기선 물리 단위로만 본다. spawn 0 (순수
-/// IORegistry).
+/// 디스크별 누적 `Bytes (Read)`·`Bytes (Write)` 를 폴 간격마다 비교한다. threshold 이상이면
+/// 활동을 시작하고, 이후 작은 I/O 도 상태를 유지하며, 3회 연속 완전한 무활동 뒤 해제한다.
+/// 쓰는 중/읽는 중 **물리 whole-disk BSD** 집합(예: ["disk7","disk8"])을 보고한다. 볼륨→물리
+/// 매핑은 메뉴 쪽(`physicalWholeDisks(forVolumeURL:)`)이 담당 — 여기선 물리 단위로만 본다.
+/// spawn 0 (순수 IORegistry).
 final class DiskIOMonitor {
     static let shared = DiskIOMonitor()
 
-    /// 폴링 간격 — 반응성 vs 배터리. 외장이 있을 때만 (AppDelegate 가 start/stop) 돈다.
+    /// 폴링 간격 — 반응성 vs 배터리. 대상 매체가 있을 때만 (AppDelegate 가 start/stop) 돈다.
     private let interval: TimeInterval = 1.5
     /// 폴 간 write 델타가 이 값 이상이면 "쓰는 중" — 작은 metadata flush 오탐 방지.
     private let writeThreshold: UInt64 = 256 * 1024   // 256 KB
@@ -5980,6 +6028,8 @@ final class DiskIOMonitor {
     /// 물리 whole-disk BSD → 직전 폴의 누적 (read, write) 바이트.
     private var lastIOByDisk: [String: (read: UInt64, write: UInt64)] = [:]
     private var hasBaseline = false
+    /// macOS buffering 으로 polling 한두 구간의 물리 I/O 가 비어도 활동 표시를 유지한다.
+    private var activityState = DiskActivityState()
     /// 직전에 보고한 "쓰는 중"/"읽는 중" 물리 BSD 집합 — 변화 감지용.
     private var lastWritingSet: Set<String> = []
     private var lastReadingSet: Set<String> = []
@@ -5988,7 +6038,7 @@ final class DiskIOMonitor {
     /// (writing, reading) 둘 다 빈 집합이면 비활성. 닷은 둘 중 하나라도 있으면 표시.
     var onActivityChanged: ((_ writing: Set<String>, _ reading: Set<String>) -> Void)?
 
-    /// 외장이 마운트됐을 때 호출. idempotent.
+    /// 대상 매체가 마운트됐을 때 호출. idempotent.
     func start() {
         queue.async { [weak self] in
             guard let self = self, self.timer == nil else { return }
@@ -6001,30 +6051,31 @@ final class DiskIOMonitor {
         }
     }
 
-    /// 외장이 모두 사라졌을 때 호출. idempotent. 상태 리셋 + (켜져 있었으면) 비활성 통지.
+    /// 대상 매체가 모두 사라졌을 때 호출. idempotent. 상태 리셋 + (켜져 있었으면) 비활성 통지.
     func stop() {
         queue.async { [weak self] in
-            guard let self = self, let t = self.timer else { return }
-            t.cancel()
+            guard let self = self else { return }
+            let wasRunning = self.timer != nil
+            self.timer?.cancel()
             self.timer = nil
             self.hasBaseline = false
             self.lastIOByDisk = [:]
-            if !self.lastWritingSet.isEmpty || !self.lastReadingSet.isEmpty {
-                self.lastWritingSet = []
-                self.lastReadingSet = []
-                DispatchQueue.main.async { [weak self] in self?.onActivityChanged?([], []) }
+            let cleared = self.activityState.reset()
+            self.setActive(writing: cleared.writing, reading: cleared.reading)
+            if wasRunning {
+                log.notice("DiskIOMonitor: stopped")
             }
-            log.notice("DiskIOMonitor: stopped")
         }
     }
 
     private func poll() {
-        let (io, hasExternal) = Self.externalIOByDisk()
-        // 외장 없으면 baseline 리셋 + 비활성 (start/stop race 로 잠깐 외장 0 인 경우 대비).
-        guard hasExternal else {
+        let (io, hasEligibleMedia) = Self.externalIOByDisk()
+        // 대상 매체가 없으면 baseline + grace 상태를 즉시 리셋한다.
+        guard hasEligibleMedia else {
             hasBaseline = false
             lastIOByDisk = [:]
-            setActive(writing: [], reading: [])
+            let cleared = activityState.reset()
+            setActive(writing: cleared.writing, reading: cleared.reading)
             return
         }
         // 첫 폴은 baseline 만 기록 (직전 누적값을 모르므로 델타 계산 불가).
@@ -6033,18 +6084,29 @@ final class DiskIOMonitor {
             hasBaseline = true
             return
         }
-        var writing = Set<String>()
-        var reading = Set<String>()
+        var detectedWriting = Set<String>()
+        var detectedReading = Set<String>()
+        var observedWriting = Set<String>()
+        var observedReading = Set<String>()
         for (bsd, cur) in io {
             // 새로 꽂힌 디스크는 last == cur 로 둬 첫 폴 오탐 방지 (다음 폴부터 델타 유효).
             let last = lastIOByDisk[bsd] ?? cur
             let wDelta = cur.write >= last.write ? cur.write - last.write : 0
             let rDelta = cur.read  >= last.read  ? cur.read  - last.read  : 0
-            if wDelta >= writeThreshold { writing.insert(bsd) }
-            if rDelta >= readThreshold  { reading.insert(bsd) }
+            if wDelta > 0 { observedWriting.insert(bsd) }
+            if rDelta > 0 { observedReading.insert(bsd) }
+            if wDelta >= writeThreshold { detectedWriting.insert(bsd) }
+            if rDelta >= readThreshold  { detectedReading.insert(bsd) }
         }
         lastIOByDisk = io
-        setActive(writing: writing, reading: reading)
+        let activity = activityState.update(
+            detectedWriting: detectedWriting,
+            detectedReading: detectedReading,
+            observedWriting: observedWriting,
+            observedReading: observedReading,
+            presentDisks: Set(io.keys)
+        )
+        setActive(writing: activity.writing, reading: activity.reading)
     }
 
     private func setActive(writing: Set<String>, reading: Set<String>) {
@@ -6055,9 +6117,12 @@ final class DiskIOMonitor {
         DispatchQueue.main.async { [weak self] in self?.onActivityChanged?(writing, reading) }
     }
 
-    /// 외장 물리 디스크별 누적 (read, write) 바이트 (whole-disk BSD → bytes) + 외장 존재 여부.
+    /// 대상 물리 디스크별 누적 (read, write) 바이트 (whole-disk BSD → bytes) + 대상 매체 존재 여부.
     /// IORegistry 만 사용.
-    private static func externalIOByDisk() -> (io: [String: (read: UInt64, write: UInt64)], hasExternal: Bool) {
+    private static func externalIOByDisk() -> (
+        io: [String: (read: UInt64, write: UInt64)],
+        hasEligibleMedia: Bool
+    ) {
         let opts = IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
         var iter: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault,
@@ -6068,44 +6133,67 @@ final class DiskIOMonitor {
         defer { IOObjectRelease(iter) }
 
         var io: [String: (read: UInt64, write: UInt64)] = [:]
-        var hasExternal = false
+        var hasEligibleMedia = false
         var svc = IOIteratorNext(iter)
         while svc != IO_OBJECT_NULL {
             if let pc = IORegistryEntrySearchCFProperty(svc, kIOServicePlane,
                                                         "Protocol Characteristics" as CFString,
                                                         kCFAllocatorDefault, opts) as? [String: Any],
-               (pc["Physical Interconnect Location"] as? String) == "External" {
-                hasExternal = true
-                if let bsd = wholeDiskBSD(forDriver: svc),
-                   let stats = IORegistryEntryCreateCFProperty(svc, "Statistics" as CFString,
+               let media = wholeDiskMedia(forDriver: svc),
+               DiskActivityMediaPolicy.shouldInclude(
+                   physicalLocation: pc["Physical Interconnect Location"] as? String,
+                   busProtocol: pc["Physical Interconnect"] as? String,
+                   isRemovable: media.isRemovable,
+                   isEjectable: media.isEjectable
+               ) {
+                hasEligibleMedia = true
+                if let stats = IORegistryEntryCreateCFProperty(svc, "Statistics" as CFString,
                                                                kCFAllocatorDefault, 0)?
                     .takeRetainedValue() as? [String: Any] {
                     let w = (stats["Bytes (Write)"] as? NSNumber)?.uint64Value ?? 0
                     let r = (stats["Bytes (Read)"] as? NSNumber)?.uint64Value ?? 0
-                    io[bsd] = (read: r, write: w)
+                    io[media.bsd] = (read: r, write: w)
                 }
             }
             IOObjectRelease(svc)
             svc = IOIteratorNext(iter)
         }
-        return (io, hasExternal)
+        return (io, hasEligibleMedia)
     }
 
-    /// `IOBlockStorageDriver` 의 자식 whole `IOMedia` 의 BSD name (예: "disk7"). I/O 카운터를
-    /// 디스크별로 귀속시키는 키.
-    private static func wholeDiskBSD(forDriver driver: io_service_t) -> String? {
+    private struct WholeDiskMedia {
+        let bsd: String
+        let isRemovable: Bool?
+        let isEjectable: Bool?
+    }
+
+    /// `IOBlockStorageDriver` 의 자식 whole `IOMedia` 속성. BSD name 은 I/O 카운터 귀속에,
+    /// removable/ejectable 은 내장 SDXC 와 내장 SSD 구분에 사용한다.
+    private static func wholeDiskMedia(forDriver driver: io_service_t) -> WholeDiskMedia? {
         var it: io_iterator_t = 0
         guard IORegistryEntryGetChildIterator(driver, kIOServicePlane, &it) == KERN_SUCCESS else { return nil }
         defer { IOObjectRelease(it) }
-        var found: String?
+        var found: WholeDiskMedia?
         var child = IOIteratorNext(it)
         while child != IO_OBJECT_NULL {
             if found == nil,
                IOObjectConformsTo(child, "IOMedia") != 0,
                (IORegistryEntryCreateCFProperty(child, "Whole" as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? Bool) == true {
-                found = IORegistryEntryCreateCFProperty(child, "BSD Name" as CFString, kCFAllocatorDefault, 0)?
-                    .takeRetainedValue() as? String
+                .takeRetainedValue() as? Bool) == true,
+               let bsd = IORegistryEntryCreateCFProperty(
+                   child, "BSD Name" as CFString, kCFAllocatorDefault, 0
+               )?.takeRetainedValue() as? String {
+                let removable = IORegistryEntryCreateCFProperty(
+                    child, "Removable" as CFString, kCFAllocatorDefault, 0
+                )?.takeRetainedValue() as? Bool
+                let ejectable = IORegistryEntryCreateCFProperty(
+                    child, "Ejectable" as CFString, kCFAllocatorDefault, 0
+                )?.takeRetainedValue() as? Bool
+                found = WholeDiskMedia(
+                    bsd: bsd,
+                    isRemovable: removable,
+                    isEjectable: ejectable
+                )
             }
             IOObjectRelease(child)
             child = IOIteratorNext(it)

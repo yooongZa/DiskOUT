@@ -1285,6 +1285,111 @@ private enum PaddleBillingControllerTests {
         expect(delays.count <= 12, "default purchase polling remains request-count bounded")
     }
 
+    private static func testPremiumRefreshCallbackURLIsExactAndParameterFree() {
+        let accepted = [
+            "diskout://premium/refresh",
+            "DISKOUT://PREMIUM/refresh",
+        ]
+        for rawURL in accepted {
+            expect(PremiumRefreshCallbackPolicy.accepts(URL(string: rawURL)!),
+                   "exact parameter-free Premium callback is accepted: \(rawURL)")
+        }
+
+        let rejected = [
+            "diskout://premium",
+            "diskout://premium/refresh/",
+            "diskout://premium/other",
+            "diskout://other/refresh",
+            "diskout:premium/refresh",
+            "diskout://user@premium/refresh",
+            "diskout://premium:443/refresh",
+            "diskout://premium/refresh?transaction_id=txn_fake",
+            "diskout://premium/refresh#credential",
+            "https://premium/refresh",
+        ]
+        for rawURL in rejected {
+            expect(!PremiumRefreshCallbackPolicy.accepts(URL(string: rawURL)!),
+                   "malformed or parameterized Premium callback is rejected: \(rawURL)")
+        }
+    }
+
+    private static func testPurchaseReturnAndCallbackRefreshAreImmediateSingleFlight() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let base = Date(timeIntervalSince1970: 2_000_450_000)
+        let active = try signedEnvelope(
+            status: .active,
+            key: key,
+            issuedAt: base,
+            expiresAt: base.addingTimeInterval(60)
+        )
+        let deliveryGate = DispatchSemaphore(value: 0)
+        StubURLProtocol.reset { _, _ in
+            StubURLProtocol.Plan(data: active, deliveryGate: deliveryGate)
+        }
+        let scheduler = TestBillingScheduler(now: base)
+        let session = makeSession()
+        let controller = PaddleBillingController(
+            configuration: makeConfiguration(publicKey: key.publicKey),
+            secureStore: makeStore(),
+            session: session,
+            scheduler: scheduler,
+            purchasePollDelays: [300]
+        )
+        var pollingChanges: [Bool] = []
+        controller.onPurchasePollingChanged = { pollingChanges.append($0) }
+
+        controller.refreshAfterReturningFromCheckout()
+        expect(StubURLProtocol.requestCount == 0,
+               "ordinary app activation outside purchase polling performs no billing request")
+
+        controller.startPurchasePolling()
+        controller.refreshAfterReturningFromCheckout()
+        expect(waitUntil { StubURLProtocol.requestCount == 1 },
+               "returning from checkout refreshes immediately without waiting for the poll timer")
+        controller.refreshAfterPurchaseCallback()
+        controller.refreshAfterReturningFromCheckout()
+        expect(StubURLProtocol.requestCount == 1,
+               "callback and activation races join the in-flight entitlement request")
+
+        deliveryGate.signal()
+        expect(waitUntil { controller.hasPremiumAccess },
+               "the immediate path still requires and applies a valid signed entitlement")
+        expect(!controller.isPurchasePolling && pollingChanges == [true, false],
+               "a signed grant cancels the long fallback timer exactly once")
+        expect(scheduler.pendingActionCount == 2,
+               "only active lease renewal and expiry timers remain after purchase grant")
+
+        controller.stop()
+        controller.refreshAfterPurchaseCallback()
+        expect(StubURLProtocol.requestCount == 1,
+               "a callback after stop cannot start late network work")
+        session.invalidateAndCancel()
+    }
+
+    private static func testColdLaunchCallbackRefreshesWithoutPollingState() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let active = try signedEnvelope(status: .active, key: key)
+        StubURLProtocol.reset { _, _ in StubURLProtocol.Plan(data: active) }
+        let session = makeSession()
+        let controller = PaddleBillingController(
+            configuration: makeConfiguration(publicKey: key.publicKey),
+            secureStore: makeStore(),
+            session: session,
+            purchasePollDelays: [300]
+        )
+
+        controller.refreshAfterPurchaseCallback()
+        expect(waitUntil { controller.hasPremiumAccess },
+               "a custom URL cold-launch hint refreshes even without in-memory polling state")
+        expect(StubURLProtocol.requestCount == 1,
+               "the cold-launch callback performs one authenticated entitlement request")
+        expect(!controller.isPurchasePolling,
+               "the callback does not invent or extend a purchase polling lifecycle")
+
+        controller.stop()
+        session.invalidateAndCancel()
+    }
+
     private static func testCancelPurchasePollingIsImmediateIdempotentAndRestartable() {
         StubURLProtocol.reset { _, _ in StubURLProtocol.Plan(data: Data()) }
         let key = Curve25519.Signing.PrivateKey()
@@ -1946,6 +2051,9 @@ private enum PaddleBillingControllerTests {
         try testPurchasePollAndRenewalShareSingleFlight()
         try testStopCancelsAllScheduledBillingWork()
         testDefaultPurchasePollingCoversDelayedWebhooksButIsBounded()
+        testPremiumRefreshCallbackURLIsExactAndParameterFree()
+        try testPurchaseReturnAndCallbackRefreshAreImmediateSingleFlight()
+        try testColdLaunchCallbackRefreshesWithoutPollingState()
         testCancelPurchasePollingIsImmediateIdempotentAndRestartable()
         try testCancelPurchasePollingWinsReentrancyAndLateRefreshRace()
         try testPurchasePollingStopsAfterBoundedFreeResponses()
