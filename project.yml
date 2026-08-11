@@ -12,8 +12,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 495S4FVMCB
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: "0.5.2"
-    CURRENT_PROJECT_VERSION: "16"
+    MARKETING_VERSION: "0.5.3"
+    CURRENT_PROJECT_VERSION: "17"
 
 # Swift Package Manager 의존성.
 # Sparkle 2: 자동 업데이트 프레임워크 (https://sparkle-project.org).
@@ -33,7 +33,10 @@ targets:
       - path: DiskClassification.swift
       - path: LanguageRuntime.swift
       - path: PaddleBilling.swift
+      - path: PowerSleepAckCoordinator.swift
       - path: PremiumAccessPolicy.swift
+      - path: SleepEpisodeCoordinator.swift
+      - path: SleepUnmountPolicy.swift
       - path: StatusCharacterAnimator.swift
       - path: StatusItemPresentation.swift
       - path: main.swift

@@ -1,0 +1,343 @@
+import Foundation
+
+private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+    guard condition() else {
+        fputs("FAIL: \(message)\n", stderr)
+        exit(1)
+    }
+}
+
+private func disk(_ bsd: String,
+                  generation: UInt64 = 1,
+                  mediaRegistryEntryID: UInt64? = nil) -> SleepRemountTarget {
+    SleepRemountTarget(wholeDiskBSD: bsd,
+                       physicalGeneration: generation,
+                       mediaRegistryEntryID: mediaRegistryEntryID ?? generation)
+}
+
+@main
+private enum SleepEpisodeCoordinatorTests {
+    static func main() {
+        testRepeatedCloseAndRealRecloseEpisodes()
+        testAmphetamineLidOpenWithoutWakeSchedulesRemount()
+        testWakeWhileClosedDoesNotRemount()
+        testOpenBeforeCleanCallbackSchedulesWhenTargetArrives()
+        testDuplicateWakeSchedulesOnce()
+        testRecloseCancelsScheduledRemountWithoutLosingTargets()
+        testRecloseDuringActiveRemountRequeuesCanceledTargets()
+        testLateTargetDuringActiveRemountSchedulesFollowUp()
+        testLateTargetAfterFinishedRemountStillSchedules()
+        testPhysicalGenerationRemainsPartOfRemountIdentity()
+        testUnknownStaleCompletionCannotInjectTargets()
+        testNewEjectInvalidatesStaleWakeRequest()
+        testNewEjectDoesNotRescheduleCanceledRemountBeforeWake()
+        testAmphetamineLateSleepGetsOnlyOneFailedEpisodeRetry()
+        testNewCloseGenerationJoinedToActiveWorkRequiresFreshInventory()
+        testPowerBoundaryWaitsForRefreshAndRetriesAtMostOnce()
+        print("SleepEpisodeCoordinatorTests: PASS")
+    }
+
+    private static func testRepeatedCloseAndRealRecloseEpisodes() {
+        var state = SleepEpisodeCoordinator()
+        let first = state.lidDidClose()
+        let duplicate = state.lidDidClose()
+        _ = state.lidDidOpen()
+        let second = state.lidDidClose()
+
+        expect(first.isNewEpisode, "first close must create an episode")
+        expect(!duplicate.isNewEpisode && duplicate.generation == first.generation,
+               "repeated closed notification must join the same episode")
+        expect(second.isNewEpisode && second.generation != first.generation,
+               "open then close must create a new episode even within ten seconds")
+    }
+
+    private static func testAmphetamineLidOpenWithoutWakeSchedulesRemount() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.lidDidClose()
+        expect(state.recordCleanUnmountTargets([disk("disk7")], operationID: "op", reason: "clamshell") == nil,
+               "closed lid must retain targets without remounting")
+        let schedule = state.lidDidOpen()
+        expect(schedule != nil, "lid open alone must schedule remount when no didWake is emitted")
+        let work = schedule.flatMap { state.claimRemount($0.token) }
+        expect(work?.disks == [disk("disk7")], "lid-open work must contain the clean target")
+    }
+
+    private static func testWakeWhileClosedDoesNotRemount() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.lidDidClose()
+        _ = state.recordCleanUnmountTargets([disk("disk2")], operationID: "op", reason: "clamshell")
+        expect(state.wakeDidOccur() == nil, "dark wake while lid is closed must not mount")
+        expect(state.pendingTargets == [disk("disk2")], "suppressed dark wake must retain target")
+    }
+
+    private static func testOpenBeforeCleanCallbackSchedulesWhenTargetArrives() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.lidDidClose()
+        expect(state.lidDidOpen() == nil, "open before callback has no target yet")
+        let schedule = state.recordCleanUnmountTargets([disk("disk10")], operationID: "late", reason: "clamshell")
+        expect(schedule != nil, "late clean callback after open must schedule remount")
+    }
+
+    private static func testDuplicateWakeSchedulesOnce() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.recordCleanUnmountTargets([disk("disk4")], operationID: "display", reason: "displaySleep")
+        let first = state.wakeDidOccur()
+        let second = state.wakeDidOccur()
+        expect(first != nil && second == nil, "didWake and screensDidWake must share one scheduled token")
+    }
+
+    private static func testRecloseCancelsScheduledRemountWithoutLosingTargets() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.recordCleanUnmountTargets([disk("disk8")], operationID: "op", reason: "sleep")
+        let scheduled = state.wakeDidOccur()!
+        _ = state.lidDidClose()
+        expect(state.claimRemount(scheduled.token) == nil, "stale timer must be rejected after re-close")
+        expect(state.pendingTargets == [disk("disk8")], "cancelled scheduled work must retain targets")
+    }
+
+    private static func testRecloseDuringActiveRemountRequeuesCanceledTargets() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.recordCleanUnmountTargets([disk("disk1"), disk("disk3")], operationID: "op", reason: "sleep")
+        let schedule = state.wakeDidOccur()!
+        let work = state.claimRemount(schedule.token)!
+        _ = state.lidDidClose()
+        expect(!state.isRemountAllowed(work.token), "active token must become invalid when lid closes")
+        expect(state.finishRemount(work.token, canceledDisks: [disk("disk3")]) == nil,
+               "canceled disk must stay pending while closed")
+        expect(state.pendingTargets == [disk("disk3")], "only canceled work must be requeued")
+        expect(state.lidDidOpen() != nil, "next lid open must reschedule the requeued disk")
+    }
+
+    private static func testLateTargetDuringActiveRemountSchedulesFollowUp() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.recordCleanUnmountTargets([disk("diskA")], operationID: "op", reason: "clamshell")
+        let first = state.wakeDidOccur()!
+        let work = state.claimRemount(first.token)!
+
+        expect(state.recordCleanUnmountTargets([disk("diskB")], operationID: "op", reason: "clamshell") == nil,
+               "a second clean target must wait while the first remount is active")
+        let followUp = state.finishRemount(work.token, canceledDisks: [])
+        expect(followUp != nil, "finishing the active remount must schedule the late clean target")
+        let secondWork = followUp.flatMap { state.claimRemount($0.token) }
+        expect(secondWork?.disks == [disk("diskB")], "follow-up work must contain only the late target")
+    }
+
+    private static func testLateTargetAfterFinishedRemountStillSchedules() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.recordCleanUnmountTargets([disk("diskA")], operationID: "op", reason: "clamshell")
+        let first = state.wakeDidOccur()!
+        let work = state.claimRemount(first.token)!
+        expect(state.finishRemount(work.token, canceledDisks: []) == nil,
+               "a completed batch with no pending target needs no immediate follow-up")
+
+        let late = state.recordCleanUnmountTargets([disk("diskB")], operationID: "op", reason: "clamshell")
+        expect(late != nil, "a clean target arriving after the prior worker finished must still schedule")
+        let lateWork = late.flatMap { state.claimRemount($0.token) }
+        expect(lateWork?.disks == [disk("diskB")], "post-finish late callback must not be stranded")
+    }
+
+    private static func testPhysicalGenerationRemainsPartOfRemountIdentity() {
+        var state = SleepEpisodeCoordinator()
+        let original = disk("disk7", generation: 8)
+        let replacement = disk("disk7", generation: 9)
+        _ = state.recordCleanUnmountTargets([original, replacement], operationID: "op", reason: "sleep")
+        let schedule = state.wakeDidOccur()!
+        let work = state.claimRemount(schedule.token)!
+
+        expect(work.disks == [original, replacement],
+               "a reused BSD name must not collapse two physical generations during remount")
+    }
+
+    private static func testUnknownStaleCompletionCannotInjectTargets() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.recordCleanUnmountTargets([disk("disk1")], operationID: "op", reason: "sleep")
+        _ = state.wakeDidOccur()
+        let unknown = SleepEpisodeCoordinator.RemountToken(lidGeneration: 999, nonce: 999)
+
+        expect(state.finishRemount(unknown, canceledDisks: [disk("replacement")]) == nil,
+               "an unknown stale worker must not schedule work")
+        expect(!state.pendingTargets.contains(disk("replacement")),
+               "an unknown stale worker must not inject a disk into the current episode")
+    }
+
+    private static func testNewEjectInvalidatesStaleWakeRequest() {
+        var state = SleepEpisodeCoordinator()
+        state.automaticEjectDidStart(operationID: "old", reason: "sleep")
+        expect(state.wakeDidOccur() == nil, "wake with no clean target has nothing to schedule")
+        state.automaticEjectDidStart(operationID: "new", reason: "ejectAndSleep")
+        expect(state.recordCleanUnmountTargets([disk("disk5")], operationID: "new", reason: "ejectAndSleep") == nil,
+               "a later eject must not inherit an unrelated stale wake request")
+    }
+
+    private static func testNewEjectDoesNotRescheduleCanceledRemountBeforeWake() {
+        var state = SleepEpisodeCoordinator()
+        state.automaticEjectDidStart(operationID: "old", reason: "sleep")
+        _ = state.recordCleanUnmountTargets([disk("disk6")], operationID: "old", reason: "sleep")
+        let schedule = state.wakeDidOccur()!
+        let work = state.claimRemount(schedule.token)!
+
+        state.automaticEjectDidStart(operationID: "new", reason: "displaySleep")
+        expect(state.finishRemount(work.token, canceledDisks: work.disks) == nil,
+               "a new eject must keep canceled targets pending until its next wake")
+        expect(state.pendingTargets == [disk("disk6")], "canceled target must remain preserved")
+        expect(state.wakeDidOccur() != nil, "the next real wake must schedule the preserved target")
+    }
+
+    private static func testAmphetamineLateSleepGetsOnlyOneFailedEpisodeRetry() {
+        expect(
+            SleepLidRetryPolicy.shouldStartPowerRetry(
+                priorSucceeded: false,
+                isSleepBoundaryTrigger: true,
+                retryAlreadyStarted: false,
+                hasActiveOperation: false
+            ),
+            "a failed lid eject must get one retry when Amphetamine later permits sleep"
+        )
+        expect(
+            !SleepLidRetryPolicy.shouldStartPowerRetry(
+                priorSucceeded: false,
+                isSleepBoundaryTrigger: false,
+                retryAlreadyStarted: false,
+                hasActiveOperation: false
+            ),
+            "duplicate clamshell notifications must not retry a failed episode"
+        )
+        expect(
+            !SleepLidRetryPolicy.shouldStartPowerRetry(
+                priorSucceeded: false,
+                isSleepBoundaryTrigger: true,
+                retryAlreadyStarted: true,
+                hasActiveOperation: false
+            ),
+            "the late sleep boundary must not start a second retry"
+        )
+        expect(
+            !SleepLidRetryPolicy.shouldStartPowerRetry(
+                priorSucceeded: true,
+                isSleepBoundaryTrigger: true,
+                retryAlreadyStarted: false,
+                hasActiveOperation: false
+            ),
+            "a successful close-time eject must be joined without retry"
+        )
+        expect(
+            !SleepLidRetryPolicy.shouldStartPowerRetry(
+                priorSucceeded: false,
+                isSleepBoundaryTrigger: true,
+                retryAlreadyStarted: false,
+                hasActiveOperation: true
+            ),
+            "a sleep boundary must join an active eject instead of overlapping it"
+        )
+    }
+
+    private static func testNewCloseGenerationJoinedToActiveWorkRequiresFreshInventory() {
+        expect(
+            SleepLidInventoryPolicy.needsRefreshAfterJoiningActive(
+                previousGeneration: 4,
+                requestedGeneration: 5
+            ),
+            "a new close generation must take a fresh inventory after older active work"
+        )
+        expect(
+            !SleepLidInventoryPolicy.needsRefreshAfterJoiningActive(
+                previousGeneration: 5,
+                requestedGeneration: 5
+            ),
+            "duplicate callbacks in the same close generation must only join"
+        )
+        expect(
+            SleepLidInventoryPolicy.needsBoundaryRefresh(
+                currentClosedGeneration: 6,
+                completedInventoryGeneration: 5,
+                explicitRefreshPending: false
+            ),
+            "a newer close generation must keep the power boundary open until its inventory completes"
+        )
+        expect(
+            !SleepLidInventoryPolicy.needsBoundaryRefresh(
+                currentClosedGeneration: 6,
+                completedInventoryGeneration: 6,
+                explicitRefreshPending: false
+            ),
+            "the current close generation may finish after its own inventory completes"
+        )
+        expect(
+            SleepLidInventoryPolicy.needsBoundaryRefresh(
+                currentClosedGeneration: 6,
+                completedInventoryGeneration: 6,
+                explicitRefreshPending: true
+            ),
+            "a mounted-media event must override a completed generation"
+        )
+    }
+
+    private static func testPowerBoundaryWaitsForRefreshAndRetriesAtMostOnce() {
+        expect(
+            PowerBoundaryEjectPolicy.nextAction(
+                deadlineRemaining: true,
+                hasDifferentActiveOperation: true,
+                inventoryRefreshPending: true,
+                hasRunFreshBoundaryInventory: false,
+                lastAttemptSucceeded: true,
+                retryAlreadyStarted: false
+            ) == .waitForActive,
+            "a power boundary must first wait for any newer active eject"
+        )
+        expect(
+            PowerBoundaryEjectPolicy.nextAction(
+                deadlineRemaining: true,
+                hasDifferentActiveOperation: false,
+                inventoryRefreshPending: true,
+                hasRunFreshBoundaryInventory: true,
+                lastAttemptSucceeded: true,
+                retryAlreadyStarted: false
+            ) == .refreshInventory,
+            "pending media refresh must remain inside the power ACK chain"
+        )
+        expect(
+            PowerBoundaryEjectPolicy.nextAction(
+                deadlineRemaining: true,
+                hasDifferentActiveOperation: false,
+                inventoryRefreshPending: false,
+                hasRunFreshBoundaryInventory: false,
+                lastAttemptSucceeded: true,
+                retryAlreadyStarted: false
+            ) == .refreshInventory,
+            "joining an older task must still run a fresh power-boundary inventory"
+        )
+        expect(
+            PowerBoundaryEjectPolicy.nextAction(
+                deadlineRemaining: true,
+                hasDifferentActiveOperation: false,
+                inventoryRefreshPending: false,
+                hasRunFreshBoundaryInventory: true,
+                lastAttemptSucceeded: false,
+                retryAlreadyStarted: false
+            ) == .retry,
+            "one failed fresh boundary attempt may retry within the deadline"
+        )
+        expect(
+            PowerBoundaryEjectPolicy.nextAction(
+                deadlineRemaining: true,
+                hasDifferentActiveOperation: false,
+                inventoryRefreshPending: false,
+                hasRunFreshBoundaryInventory: true,
+                lastAttemptSucceeded: false,
+                retryAlreadyStarted: true
+            ) == .finish,
+            "a second failed boundary attempt must not start another retry"
+        )
+        expect(
+            PowerBoundaryEjectPolicy.nextAction(
+                deadlineRemaining: false,
+                hasDifferentActiveOperation: true,
+                inventoryRefreshPending: true,
+                hasRunFreshBoundaryInventory: false,
+                lastAttemptSucceeded: false,
+                retryAlreadyStarted: false
+            ) == .finish,
+            "the absolute power deadline must stop the chain"
+        )
+    }
+}
