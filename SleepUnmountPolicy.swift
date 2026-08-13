@@ -96,6 +96,67 @@ enum SleepUnmountOperation: Equatable, Sendable {
     case wholeForce
 }
 
+/// Typed view of the raw `DADissenterGetStatus` value. Automatic force fallback is intentionally
+/// limited to contention: every permission, unsupported, I/O, and unknown status fails closed.
+enum SleepUnmountDissenterStatus: Equatable, Sendable {
+    case busy
+    case exclusiveAccess
+    case unixBusy
+    case other(UInt32)
+
+    init(rawValue: UInt32) {
+        switch rawValue {
+        case 0xF8DA0002: // kDAReturnBusy
+            self = .busy
+        case 0xF8DA0004: // kDAReturnExclusiveAccess
+            self = .exclusiveAccess
+        case 0xC010: // unix_err(EBUSY)
+            self = .unixBusy
+        default:
+            self = .other(rawValue)
+        }
+    }
+
+    var rawValue: UInt32 {
+        switch self {
+        case .busy:
+            return 0xF8DA0002
+        case .exclusiveAccess:
+            return 0xF8DA0004
+        case .unixBusy:
+            return 0xC010
+        case let .other(rawValue):
+            return rawValue
+        }
+    }
+
+    var isForceEligible: Bool {
+        switch self {
+        case .busy, .exclusiveAccess, .unixBusy:
+            return true
+        case .other:
+            return false
+        }
+    }
+}
+
+/// One instance belongs to one sleep episode. Multiple callbacks or joiners may race to continue
+/// the same physical request, but only the first claimant may submit its force operation.
+final class SleepEpisodeForceClaimLedger: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimedPhysicalRequestKeys = Set<SleepUnmountGroupKey>()
+
+    @discardableResult
+    func claimForce(for requestKey: SleepUnmountGroupKey) -> Bool {
+        guard case .physicalDisk = requestKey else { return false }
+
+        lock.lock()
+        let inserted = claimedPhysicalRequestKeys.insert(requestKey).inserted
+        lock.unlock()
+        return inserted
+    }
+}
+
 enum SleepMountedSiblingPolicy {
     static func isSnapshotStillSafe(expectedMountedVolumeBSDs: Set<String>,
                                     currentMountedVolumeBSDs: Set<String>,
@@ -188,6 +249,16 @@ struct SleepForceContinuationReservationCounter: Equatable, Sendable {
     }
 }
 
+enum SleepForceContinuationReleasePolicy {
+    /// Timeout release belongs to DAInventory because the underlying request remains pending.
+    /// A caller owns a release only after receiving an explicit dissenter callback.
+    static func callerOwnsRelease(forceContinuationReserved: Bool,
+                                  requestWasForced: Bool,
+                                  dissenterStatus: SleepUnmountDissenterStatus?) -> Bool {
+        forceContinuationReserved && !requestWasForced && dissenterStatus != nil
+    }
+}
+
 struct SleepUnmountRequest: Equatable, Sendable {
     let key: SleepUnmountGroupKey
     /// 기존 설정 의미를 보존한다: 첫 요청은 항상 normal이고, 명시적인 decline 뒤에만 force를 허용한다.
@@ -250,13 +321,15 @@ enum SleepUnmountPolicy {
     }
 
     /// DADiskUnmount에는 request cancel API가 없다. 따라서 timeout/disconnect/unavailable 뒤에는
-    /// force 요청을 겹치지 않고, normal callback이 명시적으로 거절한 경우에만 순차 fallback한다.
+    /// force 요청을 겹치지 않는다. 명시적인 normal callback 중에서도 busy/exclusive contention만
+    /// 순차 force fallback 대상이며, 다른 dissenter status는 fail-closed 처리한다.
     static func nextOperation(after event: SleepUnmountEvidenceEvent,
                               requestWasForced: Bool = false,
                               forceFallback: Bool) -> SleepUnmountOperation? {
         guard forceFallback,
-              event == .callbackFailure,
-              !requestWasForced else { return nil }
+              !requestWasForced,
+              case let .callbackFailure(status) = event,
+              status.isForceEligible else { return nil }
         return .wholeForce
     }
 
@@ -326,7 +399,7 @@ enum SleepProtectionPolicy {
 enum SleepUnmountFailure: Equatable, Sendable {
     case disconnect
     case unavailable
-    case callbackFailure
+    case callbackFailure(SleepUnmountDissenterStatus)
 }
 
 enum SleepUnmountEvidenceState: Equatable, Sendable {
@@ -339,7 +412,7 @@ enum SleepUnmountEvidenceState: Equatable, Sendable {
 
 enum SleepUnmountEvidenceEvent: Equatable, Sendable {
     case callbackSuccess
-    case callbackFailure
+    case callbackFailure(SleepUnmountDissenterStatus)
     case timeout
     case disconnect
     case unavailable
@@ -355,8 +428,8 @@ enum SleepUnmountEvidenceReducer {
         switch event {
         case .callbackSuccess:
             return .clean
-        case .callbackFailure:
-            return .failure(.callbackFailure)
+        case let .callbackFailure(status):
+            return .failure(.callbackFailure(status))
         case .timeout:
             return .pendingAfterTimeout
         case .disconnect:

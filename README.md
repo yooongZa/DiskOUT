@@ -6,7 +6,7 @@
 
 **한국어** · [English](README.en.md) · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
 
-### Mac 필수 무료 프로그램, DiskOUT 을 소개합니다.
+### Mac 필수 무료 프로그램, DiskOUT을 소개합니다.
 
 **한국어 · English · 日本語 · 中文 (简体)** · 자동 추출 · Apple Silicon 네이티브
 
@@ -39,11 +39,11 @@
 
 > Mac 은 완벽합니다 — *"디스크가 정상적으로 추출되지 않았습니다"* 알림을 제외하면 말이죠.
 
-## 아무것도 안 해도, 디스크가 정상적으로 추출됩니다. 완벽하게.
+## 아무것도 안 해도, 잠자기 전에 디스크 추출을 시도합니다.
 
 이젠 맥북을 덮고, 뽑고, 넣고 외출하세요.
 
-Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능하죠. 외장하드로 버티고 있지만 *"Disk Not Ejected Properly"* 알림은 지겹습니다. **DiskOUT** 을 사용하면 이제 더 이상 그런 알림을 볼 필요가 없습니다.
+Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능하죠. 외장하드로 버티고 있지만 *"Disk Not Ejected Properly"* 알림은 지겹습니다. **DiskOUT** 은 케이블을 뽑기 전에 clean unmount가 끝날 수 있도록 잠자기를 잠깐 지연합니다.
 
 ---
 
@@ -71,7 +71,7 @@ Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능�
 |---|---|
 | **Time Machine 자동 보호** | TM 백업 디스크는 자동 추출 대상에서 자동 제외 — 실수로 백업 끊김 방지 |
 | **DMG · 디스크 이미지 무시** | 마운트된 디스크 이미지는 메뉴에도 안 뜨고, 자동 추출 대상도 아님 |
-| **"비정상 추출" 알림 없음** | sleep 추출은 정상 unmount(마운트 해제) 를 먼저 시도 — macOS 의 "improperly ejected" 알림이 안 뜸 |
+| **비정상 추출 경고 예방** | sleep 추출은 normal unmount를 먼저 시도. clean callback 성공 뒤 분리하면 경고를 피할 수 있지만, 완료 전 또는 실패한 디스크를 뽑으면 경고가 날 수 있음 |
 | **Per-disk 옵트아웃** | 자동 추출에서 빼고 싶은 디스크만 개별 토글. Volume UUID 기반이라 케이블 슬롯 바뀌어도 유지 |
 | **광고 없음 · 결제 정보 분리** | 디스크 이름·파일 경로는 결제 서버로 보내지 않음. Premium 구매·권한 확인·구매 이전·구매 내역 조회에만 Paddle 기반 결제 서버와 통신하고, 앱은 서명된 entitlement(이용 권한)만 검증 |
 | **Developer ID + Apple 공증** | Gatekeeper(게이트키퍼) 통과 — "확인되지 않은 개발자" 경고 없이 그냥 열림 |
@@ -116,7 +116,7 @@ Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능�
 
 ### 자동 실행
 
-메뉴의 **"로그인 시 자동 실행"** 토글 → 시스템 자동 등록. macOS 가 추가 승인을 요청하면 시스템 설정 → 일반 → 로그인 항목에서 한 번 허용해주면 됩니다.
+환경설정 → General의 **“로그인 시 자동 실행”**에서 설정합니다. macOS가 추가 승인을 요청하면 시스템 설정 → 일반 → 로그인 항목에서 한 번 허용해주면 됩니다.
 
 ---
 
@@ -132,7 +132,7 @@ mount / eject 같은 디스크 조작은 sandbox(샌드박스) 환경에서 제�
 <details>
 <summary><b>안전한가요? 데이터 손실 위험은?</b></summary>
 
-수동 추출은 `diskutil eject` 표준 경로를 사용합니다 (Finder 의 "추출"과 동일). 자동(잠자기) 추출은 정상 unmount 를 먼저 시도하고, 실패할 때만 force 단계로 떨어집니다. 사용 중인 디스크는 점유 프로세스를 진단해서 알림에 표시합니다.
+수동 추출은 `diskutil eject` 표준 경로를 사용합니다 (Finder 의 "추출"과 동일). 자동 추출은 항상 정상 unmount 를 먼저 시도합니다. 뚜껑 닫기와 forced sleep(강제 잠자기)은 명확한 busy(사용 중) 거절일 때만 force unmount 를 1회 허용하고, idle sleep(유휴 잠자기)과 display sleep(화면 잠자기)은 force 하지 않습니다.
 
 단, force 단계까지 가도 추출되지 않는 디스크는 그대로 두고 알림만 띄웁니다 — 데이터 위험을 감수하면서 강제 추출하지 않습니다.
 
@@ -148,7 +148,7 @@ mount / eject 같은 디스크 조작은 sandbox(샌드박스) 환경에서 제�
 <details>
 <summary><b>Premium을 새 Mac으로 옮길 수 있나요?</b></summary>
 
-네. 구매 후 앱 메뉴의 `복구 코드 복사…`에서 recovery code(복구 코드)를 안전한 곳에 보관하면 새 Mac에서 Premium을 이전할 수 있습니다. 이전이 완료되면 기존 Mac의 권한은 다음 온라인 확인 때 해제됩니다. 서버 확인에 연결할 수 없는 동안에는 마지막으로 검증된 권한을 최대 30일간 사용할 수 있습니다.
+네. 구매 후 환경설정 → Premium의 `복구 코드 복사…`에서 recovery code(복구 코드)를 안전한 곳에 보관하면 새 Mac에서 Premium을 이전할 수 있습니다. 이전이 완료되면 기존 Mac의 권한은 다음 온라인 확인 때 해제됩니다. 서버 확인에 연결할 수 없는 동안에는 마지막으로 검증된 권한을 최대 30일간 사용할 수 있습니다.
 
 </details>
 
@@ -171,10 +171,10 @@ mount / eject 같은 디스크 조작은 sandbox(샌드박스) 환경에서 제�
 
 DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도하기 때문에 보통은 알림이 뜨지 않습니다. 그래도 뜬다면 보통 다음 경우입니다.
 
-- **사용 중인 앱이 있어 정상 unmount 실패 → force fallback 으로 진행**: 메뉴의 "force fallback" 토글이 ON 일 때.
+- **사용 중인 앱이 있어 normal unmount 실패**: **강제 마운트 해제 허용**이 ON이고, 수동 추출·“추출하고 잠자기”·뚜껑 닫기·forced sleep 경로에서 busy 응답이 확인됐을 때만 force를 1회 시도합니다. idle/display sleep은 force하지 않습니다.
 - **macOS 가 먼저 추출을 시작한 케이스**: 잠자기 직전 다른 시스템 컴포넌트가 먼저 시도.
 
-해결: 외장에 액세스하던 앱을 종료한 뒤 잠자기, 또는 환경설정에서 force fallback 을 OFF.
+해결: 외장에 액세스하던 앱을 종료한 뒤 잠자기, 또는 환경설정에서 **강제 마운트 해제 허용**을 끄세요.
 
 </details>
 
@@ -183,8 +183,8 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 ## 알려진 제한
 
 - **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS 가 sleep(잠자기) 자체를 안 들어감 → 자동 추출도 트리거 안 됨. 어차피 dock(도크) 분리도 안 일어나므로 안전.
-- **사용 중 드라이브**: 1차 정상 추출 실패 시 force unmount(강제 마운트 해제) 를 시도하지만, 점유 앱이 있는 경우 데이터 위험을 여전히 주의해야 합니다.
-- **사용자가 슬립 중 외장만 뽑아간 경우**: 우리 앱이 잡을 수 있는 영역이 아닙니다. 슬립 중 안전 추출이 필요하면 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> 추천 — wake(깨우기) + 추출 한 번에.
+- **사용 중 드라이브**: 뚜껑 닫기·forced sleep·“추출하고 잠자기”는 busy 응답 뒤 force unmount(강제 마운트 해제) 를 1회 시도할 수 있어, 진행 중인 작업이 끊길 위험이 있습니다. idle/display sleep은 normal unmount만 시도합니다.
+- **잠자기 직후 케이블 분리**: 자동 추출의 clean callback(정상 완료 응답)이 오기 전에 케이블을 뽑거나 추출이 실패한 디스크를 뽑으면 macOS 비정상 추출 경고가 나타날 수 있습니다. 성공 알림을 확인한 뒤 분리해야 합니다.
 - **재마운트 신뢰도**: 자동 추출에 성공한 디스크만 wake 후 재마운트합니다. 물리적으로 이미 빠진 디스크는 앱이 다시 마운트할 수 없습니다.
 
 자세한 기술적 제한 사항은 [릴리스 노트](https://github.com/yooongZa/DiskOUT/releases) 참고.
@@ -203,33 +203,33 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | **읽기/쓰기 활동 표시** | 외장에 읽기·쓰기 I/O 가 진행 중이면 메뉴바 숫자 옆 작은 systemBlue `●` + "읽는 중 / 쓰는 중 — 분리하지 마세요" tooltip (업데이트 알림의 빨간 `●` 와 색으로 구분). 메뉴에서는 **그 디스크 항목 옆에만** 파란 `●` — 어떤 디스크가 바쁜지 바로 식별하고, tooltip 으로 읽기·쓰기·둘 다를 구분. 물리 디스크 I/O 카운터(IORegistry)를 1.5s 폴링, 볼륨→물리 매핑은 parent-walk 로 RAID·APFS 합성·직결 모두 처리. 읽기는 background 인덱싱 오탐 방지로 임계가 높음. 외장 있을 때만 가동 (배터리) |
 | **디스크 용량 / 사용률** | 각 디스크 메뉴 항목 2번째 줄에 *남은 용량 · 사용률* 표시 — 예 `2.9 TB free · 40% used`. 메뉴 열 때 `URLResourceValues` 로 조회 (프로세스 호출 없음) |
 | 개별 추출 | 드라이브 이름 클릭 |
-| **쓰는 중 추출 확인** | 쓰는 중인 디스크를 **수동** 추출하면 확인 대화상자 (force fallback 이 복사를 끊어 파일 손상시키는 사고 방지). "그래도 추출" 선택 시에만 진행. sleep · 화면 꺼짐 · 자동 경로는 확인 없이 기존 force 동작 |
+| **쓰는 중 추출 확인** | 쓰는 중인 디스크를 수동 추출하거나 **“추출하고 잠자기”**를 실행하면 확인 대화상자(취소가 기본). forced/lid 자동 경로는 확인 없이 busy force가 가능하고, idle/display sleep은 force하지 않음 |
 | **점유 앱 끄고 재시도** | 추출 실패 시 디스크를 잡고 있는 앱 중 *끌 수 있는 일반 앱*이 있으면 알림에 "앱 종료 후 재시도" 버튼. 누르면 graceful 종료(`forceTerminate` 안 씀) → 1회 재추출. Finder · 시스템 데몬 · 자기 자신 제외 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
-| **추출하고 잠자기** | 메뉴 항목. sleep 계열 volume-first force unmount(볼륨 우선 강제 마운트 해제) 경로로 전체 추출 후, 모두 성공할 때만 `pmset sleepnow` 로 시스템 sleep(잠자기) 시작. 실패가 있으면 sleep 취소 + 알림 |
+| **추출하고 잠자기** | 메뉴 항목. whole-disk DA normal → busy면 DA force 1회로 전체 추출하고, 모두 성공할 때만 `pmset sleepnow`로 잠자기 시작. 쓰기 중이면 취소가 기본인 경고를 먼저 표시하며, 추출 실패 시 잠자기 취소 + 성공분 재마운트 |
 | 전역 단축키 (추출) | 기본 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (한/영 IME 무관, 물리 키 코드 비교). 환경설정에서 E 기반 preset(프리셋) 변경 가능 |
 | 전역 단축키 (마운트) | 기본 <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> — 마운트 안 된 외장 일괄 마운트. 환경설정에서 변경 가능 |
 | 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭. 환경설정 → Eject Behavior 에서 끄면 우클릭이 메뉴를 띄움 (실수 추출 방지 opt-out) |
 | **마운트 안 된 외장 마운트** | 메뉴에 "마운트 안 된 외장" 섹션 자동 노출 (후보 있을 때만). 클릭 = 마운트, <kbd>⌘</kbd>+클릭 = 마운트 + Finder 열기 |
 | **마운트/미마운트 상태 정합성** | `diskutil list -plist external` 한 snapshot(스냅샷)에서 mounted(마운트됨) / unmounted(마운트 안 됨)를 함께 계산해, 실제 마운트가 없는데 mounted 섹션에 남는 stale state(오래된 상태)를 줄임 |
 | **디스크 종류 아이콘** | `diskutil info -plist` 의 SD card 신호가 확인되면 `sdcard` 아이콘, 그 외 외장은 `externaldrive` 계열 아이콘 사용 |
-| **잠자기 진입 시** 자동 추출 | 메뉴 토글. IOKit power notification(전원 알림)으로 sleep(잠자기)을 잠깐 지연하고, 각 디스크에 대해 정상 DA unmount(whole-disk 우선) → DA force unmount(whole-disk 우선) → `diskutil unmountDisk force` → `eject force` 순서로 시도. 정상 unmount 가 통과하면 macOS 비정상 추출 알림이 뜨지 않음 |
-| **화면 꺼질 때도 자동 추출** (옵션) | 메뉴 토글, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. sleep 계열 정상→force→`diskutil` 5 단계 경로 사용. 빈번한 발동 우려로 명시적 opt-in |
+| **잠자기 진입 시** 자동 추출 | 환경설정 → 추출 동작에서 설정. IOKit power notification(전원 알림)으로 잠자기를 잠깐 지연하고 whole-disk DA normal unmount를 먼저 시도. Apple 메뉴·전원 키·저전력 등 forced sleep은 명확한 busy일 때만 DA force unmount 1회, 자동 idle sleep은 normal만 시도 |
+| **화면 꺼질 때도 자동 추출** (옵션) | 환경설정 → 추출 동작에서 설정, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. whole-disk DA normal unmount만 시도하고 화면이 켜지면 성공한 디스크를 재마운트 |
 | **wake / 화면 켜질 때 자동 재마운트** | 자동 추출에 성공한 디스크만 재마운트. enumerate(열거) 안 되면 사용자가 분리한 것으로 보고 silent |
 | **DMG / sparseimage 제외** | 마운트된 이미지는 `hdiutil info -plist` 1초 timeout + `diskutil info` fallback, unmounted 후보는 `BusProtocol == "Disk Image"` 로 제외 |
-| 추출 경로 | 수동 추출은 1차 `diskutil eject <volumePath>` → 실패 시 `diskutil unmount force <volumePath>` fallback. sleep/display sleep/"추출하고 잠자기"는 **정상 DA unmount (whole disk 우선, 2s)** → **DA force unmount (whole disk 우선, 3s)** → `diskutil unmountDisk force` (6s) → `diskutil eject force` (5s) → `diskutil eject` (3s) 5단계. 정상 unmount 가 통과하면 macOS 비정상 추출 알림이 뜨지 않는다. APFS multi-volume container 도 whole-disk option 으로 한 번에 처리. 최종 실패 시 수동 경로는 `lsof` 로 점유 process / open file 진단을 알림에 추가 |
+| 추출 경로 | 수동 추출은 `diskutil eject <volumePath>` → 설정에 따라 `diskutil unmount force <volumePath>` fallback. sleep/display sleep/“추출하고 잠자기”는 whole-disk DA normal unmount가 기본이며, trigger 정책과 **강제 마운트 해제 허용** 설정이 모두 허용하고 normal callback이 busy로 거절된 경우에만 DA force unmount를 정확히 1회 시도. timeout·물리 분리·unknown error 뒤에는 force를 겹치지 않음 |
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/!/✗ (circle 계열 심볼로 통일). 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
-| **로그인 시 자동 실행** | 메뉴 토글. `SMAppService.mainApp` 사용. `.requiresApproval` 상태도 체크 표시 + "로그인 항목 허용 필요" 라벨로 표시 |
-| **환경설정 창** | <kbd>⌘</kbd><kbd>,</kbd> 또는 메뉴의 "환경설정…". 시스템 설정식 **툴바 페인 5개** — General(로그인·언어) / Eject Behavior(잠자기·화면 꺼짐·Music/Photos·force fallback·우클릭) / Notifications / Hotkeys / About(버전·업데이트 확인·링크). 페인별 높이 자동 전환, 비자명 옵션마다 설명 줄 |
+| **로그인 시 자동 실행** | 환경설정 → General에서 설정. `SMAppService.mainApp` 사용. `.requiresApproval`이면 혼합 상태와 “로그인 항목 허용 필요” 라벨을 표시하고 시스템 설정으로 안내 |
+| **환경설정 창** | <kbd>⌘</kbd><kbd>,</kbd> 또는 메뉴의 “환경설정…”. 시스템 설정식 **툴바 페인 6개** — General(로그인·언어·오류 보고) / Eject Behavior(잠자기·화면 꺼짐·Music/Photos·강제 마운트 해제·우클릭) / Notifications / Hotkeys / Premium(구매·복원·상태) / About(버전·업데이트·링크). 페인별 높이 자동 전환, 비자명 옵션마다 설명 줄 |
 | **단축키 충돌 자동 정정** | 추출 / 마운트 / 추출하고 잠자기 단축키가 같은 preset 으로 저장되면 충돌 감지 + 다른 preset 으로 자동 이동 + alert |
 | **권한 누락 메뉴 안내** | Accessibility(손쉬운 사용) / 알림 권한이 미허용 상태면 메뉴 상단에 ⚠ 경고 row 표시. 클릭하면 시스템 설정의 해당 페이지로 이동 |
-| **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 토글. 기본은 모두 ON |
-| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 153개 키. 시스템 선호 언어 목록 전체에서 첫 지원 언어를 자동 선택하고, 모두 미지원이면 영어로 fallback. 환경설정 General → Language에서 시스템 따라가기 또는 명시 언어 선택 가능 |
+| **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 토글. 기본은 모두 ON. macOS 시스템 설정에서 알림이 차단됐으면 상태를 표시하고 해당 설정을 바로 열 수 있음 |
+| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 156개 키. 시스템 선호 언어 목록 전체에서 첫 지원 언어를 자동 선택하고, 모두 미지원이면 영어로 fallback. 환경설정 General → Language에서 시스템 따라가기 또는 명시 언어 선택 가능 |
 | **자동 업데이트 (Sparkle 2)** | 24시간 주기로 백그라운드 체크. 새 버전 발견 시 다이얼로그 안 띄우고 **메뉴바 아이콘에 작은 systemRed `●` + 메뉴 안 "X.Y.Z 업데이트…" 항목 (같은 빨간 점 prefix)** 으로만 표시 (gentle reminder). 사용자가 클릭하면 표준 Sparkle 다운로드/설치 다이얼로그 → 자동 재시작. EdDSA(Ed25519) + Apple Code Signing 이중 검증. appcast 호스팅은 GitHub Pages, DMG 호스팅은 GitHub Releases — 무료 운영 |
 | **Per-disk 자동 추출 제외** | 메뉴 하단 *"자동 추출 제외 디스크"* submenu 에서 디스크별 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + Time Machine badge(배지) 표기 (macOS 14+, 13은 괄호) |
-| **외장 라이브러리 앱 처리** | 메뉴 토글 (default OFF). ON 이면 sleep 직전 Music / Photos 자동 quit (외장 라이브러리 lock 풀어 추출 가능), wake 후 백그라운드 자동 relaunch |
+| **외장 라이브러리 앱 처리** | 환경설정 → Eject Behavior 토글 (default OFF). ON이면 자동 sleep/display sleep 또는 **“추출하고 잠자기”** 직전에 Music / Photos를 정상 종료해 외장 라이브러리 lock을 풀고, wake 후 종료했던 앱만 백그라운드에서 한 번 재실행. 겹친 sleep 이벤트도 재실행 기록을 잃지 않음 |
 
 </details>
 
@@ -249,7 +249,7 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
 | 빌드 시스템 | Xcodegen + xcodebuild |
 | 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
-| 디스크 작업 | 수동 추출은 `/usr/sbin/diskutil` 직접 실행. sleep/display sleep/"추출하고 잠자기"는 `Disk Arbitration API` 의 정상 unmount → force unmount → `diskutil` fallback 의 5단계 경로 |
+| 디스크 작업 | 수동 추출은 `/usr/sbin/diskutil` 직접 실행. 자동 sleep/display sleep/“추출하고 잠자기”는 `Disk Arbitration API` whole-disk normal이 기본이며 허용된 trigger의 busy 응답에만 force 1회 |
 
 ### 파일 구성
 
@@ -261,7 +261,7 @@ diskOUT/
 ├── PremiumAccessPolicy.swift    # fail-closed entitlement 검증 정책
 ├── StatusCharacterAnimator.swift # 0~12 메뉴바 character animation
 ├── StatusItemPresentation.swift # 무료/Premium 표시와 Preview build 경계
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 153 키)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 156 키)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
 ├── DiskOUT.entitlements         # 빈 plist. project.yml 의 entitlements 명시 함정 방지용

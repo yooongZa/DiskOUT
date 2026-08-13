@@ -34,7 +34,10 @@ private final class AckRecorder: @unchecked Sendable {
 @main
 private enum PowerSleepAckCoordinatorTests {
     static func main() {
-        testWillSleepSideEffectDeduplicationPerEpoch()
+        testCanSystemSleepThenWillSleepIsIdle()
+        testWillSleepWithoutIdleCandidateIsForced()
+        testAdvanceEpochClearsIdleCandidate()
+        testWillSleepDeduplicationAndNotificationIDReuse()
         testCompletionAndDeadlineEachAckOnce()
         testSynchronousBoundaryCommitAcksBeforeGroupCompletion()
         testDuplicateKeyAndDifferentMessageTypes()
@@ -46,16 +49,43 @@ private enum PowerSleepAckCoordinatorTests {
         print("PowerSleepAckCoordinatorTests: PASS")
     }
 
-    private static func testWillSleepSideEffectDeduplicationPerEpoch() {
+    private static func testCanSystemSleepThenWillSleepIsIdle() {
         var deduplicator = PowerSleepCycleDeduplicator()
-        expect(deduplicator.beginWillSleep(notificationID: 7),
+        deduplicator.recordCanSystemSleep()
+
+        expect(deduplicator.beginWillSleep(notificationID: 1) == .idle,
+               "CanSystemSleep followed by the first unique WillSleep must be classified as idle")
+    }
+
+    private static func testWillSleepWithoutIdleCandidateIsForced() {
+        var deduplicator = PowerSleepCycleDeduplicator()
+
+        expect(deduplicator.beginWillSleep(notificationID: 2) == .forced,
+               "WillSleep without a preceding CanSystemSleep must be classified as forced")
+    }
+
+    private static func testAdvanceEpochClearsIdleCandidate() {
+        var deduplicator = PowerSleepCycleDeduplicator()
+        deduplicator.recordCanSystemSleep()
+        deduplicator.advanceEpoch()
+
+        expect(deduplicator.beginWillSleep(notificationID: 3) == .forced,
+               "an epoch boundary must discard a stale idle candidate")
+    }
+
+    private static func testWillSleepDeduplicationAndNotificationIDReuse() {
+        var deduplicator = PowerSleepCycleDeduplicator()
+        expect(deduplicator.beginWillSleep(notificationID: 7) == .forced,
                "first willSleep token in an epoch must start the eject chain")
-        expect(!deduplicator.beginWillSleep(notificationID: 7),
+        deduplicator.recordCanSystemSleep()
+        expect(deduplicator.beginWillSleep(notificationID: 7) == nil,
                "duplicate willSleep token must not repeat the eject side effect")
-        expect(deduplicator.beginWillSleep(notificationID: 8),
+        expect(deduplicator.beginWillSleep(notificationID: 8) == .idle,
+               "a duplicate willSleep token must not consume the pending idle candidate")
+        expect(deduplicator.beginWillSleep(notificationID: 9) == .forced,
                "a distinct willSleep token in the same epoch remains independent")
         deduplicator.advanceEpoch()
-        expect(deduplicator.beginWillSleep(notificationID: 7),
+        expect(deduplicator.beginWillSleep(notificationID: 7) == .forced,
                "wake/cancel epoch boundary must permit notification ID reuse")
     }
 

@@ -71,7 +71,7 @@ Core features and the existing numeric menu-bar display remain free. Optional Pr
 |---|---|
 | **Time Machine auto-protect** | TM backup disks are automatically excluded from auto-eject — no accidental backup interruption |
 | **Ignores DMG / disk images** | Mounted disk images don't appear in the menu and aren't auto-ejected |
-| **No "improperly ejected" warnings** | Sleep eject tries a normal unmount first — macOS "improperly ejected" notifications don't fire |
+| **Prevents improper-eject warnings** | Sleep eject tries a normal unmount first. Disconnect after the clean callback; unplugging before completion or after failure can still trigger a warning |
 | **Per-disk opt-out** | Exclude specific disks from auto-eject individually. Volume UUID-based, so it survives cable/port changes |
 | **No ads · billing data separated** | Disk names and file paths are never sent to the billing server. The Paddle-backed server is contacted only to purchase, verify or transfer Premium, or view purchase details; the app trusts only a signed entitlement |
 | **Developer ID + Apple notarized** | Passes Gatekeeper — no "unidentified developer" warning, just opens |
@@ -116,7 +116,7 @@ Core features and the existing numeric menu-bar display remain free. Optional Pr
 
 ### Auto-launch at login
 
-Toggle **"Launch at login"** in the menu → registered with macOS automatically. If macOS asks for additional approval, allow once in System Settings → General → Login Items.
+Enable **“Launch at login”** in Settings → General. If macOS asks for additional approval, allow it once in System Settings → General → Login Items.
 
 ---
 
@@ -148,7 +148,7 @@ Yes. Eject, mount, sleep automation, and the existing numeric menu-bar display r
 <details>
 <summary><b>Can I move Premium to a new Mac?</b></summary>
 
-Yes. After purchase, choose `Copy Recovery Code…` in the app menu and save that code, then use it to transfer Premium to a new Mac. The old Mac loses access on its next online check. If the server cannot be reached, the last verified access remains available for up to 30 days.
+Yes. After purchase, open Settings → Premium, choose `Copy Recovery Code…`, and save that code, then use it to transfer Premium to a new Mac. The old Mac loses access on its next online check. If the server cannot be reached, the last verified access remains available for up to 30 days.
 
 </details>
 
@@ -171,10 +171,10 @@ Current builds are Apple Silicon only. No Intel builds planned.
 
 DiskOUT's sleep eject tries a normal unmount first, so this notification usually doesn't appear. When it does, common causes:
 
-- **An app is holding the disk → normal unmount fails → force fallback runs**: when "force fallback" is ON in settings
+- **An app is holding the disk → normal unmount fails**: one force attempt is allowed only when **Allow Force Unmount** is on, the callback reports busy, and the path is manual eject, Eject and Sleep, lid close, or forced sleep. Idle/display sleep never forces
 - **macOS started ejecting first**: another system component beat us to it before sleep
 
-Fix: quit the app holding the external before sleeping, or turn "force fallback" OFF in settings.
+Fix: quit the app holding the external before sleeping, or turn **Allow Force Unmount** off in Settings.
 
 </details>
 
@@ -203,33 +203,33 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | **Read/write activity indicator** | When read or write I/O is active on an external, a small systemBlue `●` appears next to the menu bar number + a "Reading / Writing — don't disconnect" tooltip (color-distinct from the red update dot). In the menu, the blue `●` appears **only next to the busy disk** — and the tooltip distinguishes reading / writing / both. Polls physical-disk I/O counters (IORegistry) every 1.5 s; volume→physical mapping via parent-walk handles RAID / APFS-synthesized / direct uniformly. Reads use a higher threshold to avoid background-indexing false positives. Runs only while externals are present (battery) |
 | **Disk capacity / usage** | Each disk's menu item shows *free · usage* on a second line — e.g. `2.9 TB free · 40% used`. Read via `URLResourceValues` on menu open (no process spawn) |
 | Individual eject | Click drive name |
-| **Confirm eject while writing** | **Manually** ejecting a disk that's being written shows a confirm dialog (prevents force-fallback from interrupting a copy and corrupting files). Proceeds only on "Eject Anyway". Sleep · display-sleep · auto paths keep force behavior without a prompt |
+| **Confirm eject while writing** | Manually ejecting a disk or choosing **Eject and Sleep** while a disk is being written shows a warning with Cancel as the default. Automatic forced/lid sleep can still force once after a busy response; idle/display sleep never forces |
 | **Quit blocker & retry** | On eject failure, if a *quittable regular app* is holding the disk, the notification offers a "Quit apps and retry" button → graceful quit (never `forceTerminate`) → one eject retry. Excludes Finder, system daemons, and itself |
 | Eject all | Menu item or shortcut |
-| **Eject and Sleep** | Menu item. Sleep-class volume-first force unmount path tries to eject everything, and only on full success does it call `pmset sleepnow`. Any failure → sleep canceled + notification |
+| **Eject and Sleep** | Menu item. Whole-disk DA normal first, then one force attempt only after a busy callback. Active writes show a warning with Cancel as default. Sleep starts only after full success; any failure cancels sleep |
 | Global hotkey (eject) | Default <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (IME-independent, physical key code comparison). Preset configurable in settings |
 | Global hotkey (mount) | Default <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> — bulk mount unmounted externals. Configurable |
 | Right-click = eject all | Right-click or ctrl+left-click the menu bar icon. Disable in Settings → Eject Behavior for opt-out (prevents accidental ejection) |
 | **Mount unmounted externals** | Auto-shown menu section when candidates exist. Click = mount, <kbd>⌘</kbd>+click = mount + open in Finder |
 | **Mount state consistency** | `diskutil list -plist external` snapshot calculates mounted / unmounted together, reducing stale state in the mounted section |
 | **Disk-type icons** | `sdcard` icon when `diskutil info -plist` confirms SD card signals, `externaldrive` family otherwise |
-| **Eject on sleep** | Menu toggle. IOKit power notification delays sleep briefly, then for each disk: normal DA unmount (whole-disk first) → DA force unmount (whole-disk first) → `diskutil unmountDisk force` → `eject force`. Normal unmount passing means macOS doesn't fire the improper-eject notification |
-| **Eject on display sleep (optional)** | Menu toggle, default OFF. Designed for `pmset sleep=0` (auto-sleep disabled) setups — prevents dock-disconnect mishaps. Same 5-stage path. Explicit opt-in due to frequent firing concerns |
+| **Eject on sleep** | Configure in Settings → Eject Behavior. IOKit delays sleep briefly. Forced sleep uses whole-disk DA normal, then one force attempt only for an explicit busy callback; automatic idle sleep stays normal-only |
+| **Eject on display sleep (optional)** | Configure in Settings → Eject Behavior, default OFF. Designed for `pmset sleep=0` setups. Whole-disk DA normal only; successful disks remount when the display wakes |
 | **Auto-remount on wake / display wake** | Only disks successfully auto-ejected get remounted. If enumeration fails, treated as user-removed and stays silent |
 | **DMG / sparseimage exclusion** | Mounted images filtered via `hdiutil info -plist` (1s timeout) + `diskutil info` fallback. Unmounted candidates excluded by `BusProtocol == "Disk Image"` |
-| Eject path | Manual eject: `diskutil eject <volumePath>` → on failure, `diskutil unmount force <volumePath>` fallback. Sleep / display sleep / "Eject and Sleep": 5-stage **normal DA unmount (whole disk first, 2s)** → **DA force unmount (whole disk first, 3s)** → `diskutil unmountDisk force` (6s) → `diskutil eject force` (5s) → `diskutil eject` (3s). Normal unmount passing means no improper-eject notification. APFS multi-volume containers handled via whole-disk option. On final failure, manual path adds `lsof` diagnosis of holding process / open files to the notification |
+| Eject path | Manual eject uses `diskutil` with **Allow Force Unmount**. Automatic sleep/display sleep and “Eject and Sleep” start with whole-disk DA normal; one DA force is allowed only when both the trigger policy and setting permit it and the callback is busy. No force follows timeout, disconnect, or an unknown error |
 | Result notifications | **Silent** banner + menu bar icon ✓ / ! / ✗ (unified circle-family symbols). Only negative outcomes (failures, remount failures, sleep eject failures) or background events are kept in Notification Center; user-triggered successes show a brief banner only |
 | Parallel eject | `DispatchGroup` for N drives ejected concurrently |
-| **Launch at login** | Menu toggle. `SMAppService.mainApp`. `.requiresApproval` state is shown with a check + "Login item needs approval" label |
-| **Settings window** | <kbd>⌘</kbd><kbd>,</kbd> or menu "Settings…". System Settings-style **toolbar with 5 panes** — General (login · language) / Eject Behavior (sleep · display sleep · Music/Photos · force fallback · right-click) / Notifications / Hotkeys / About (version · update check · links). Per-pane height transition, every non-obvious option gets a description line |
+| **Launch at login** | Configure in Settings → General. Uses `SMAppService.mainApp`; `.requiresApproval` appears as a mixed state with a “needs approval” label and a link to System Settings |
+| **Settings window** | <kbd>⌘</kbd><kbd>,</kbd> or menu “Settings…”. System Settings-style **toolbar with 6 panes** — General (login · language · error reporting) / Eject Behavior (sleep · display sleep · Music/Photos · force unmount · right-click) / Notifications / Hotkeys / Premium (purchase · restore · status) / About (version · updates · links). Per-pane height transition, every non-obvious option gets a description line |
 | **Hotkey conflict auto-fix** | If eject / mount / eject-and-sleep would share the same preset, the conflict is detected + one is auto-moved + alerted |
 | **Missing-permission menu hint** | If Accessibility (for global hotkeys) or notification permission is missing, a ⚠ warning row appears at the top of the menu. Click to jump to the relevant System Settings page |
-| **Fine-grained notification toggles** | Separate toggles for all / success / failure notifications. All ON by default |
-| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 153 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
+| **Fine-grained notification toggles** | Separate toggles for all / success / failure notifications. All ON by default. If macOS blocks notifications, Settings shows the status and opens the relevant System Settings page |
+| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 156 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
 | **Auto-update (Sparkle 2)** | 24h background check. On new version, no modal — just a small systemRed `●` in the menu bar + an "Update to X.Y.Z…" menu item with the same red-dot prefix (gentle reminder). Click → standard Sparkle download/install dialog → auto-restart. EdDSA(Ed25519) + Apple Code Signing double verification. Appcast on GitHub Pages, DMG on GitHub Releases — free hosting |
 | **Per-disk auto-eject exclude** | Per-disk toggles in the bottom *"Auto-Eject Excluded Disks"* submenu. Volume UUID-based (survives cable/port changes). Affects auto path only — explicit eject still works |
 | **Time Machine auto-protect** | TM backup disks auto-detected (`Backups.backupdb` / `.com.apple.timemachine.donotpresent`) → excluded from auto-eject on first sighting + 1 notification. Menu shows clock icon + a Time Machine badge (macOS 14+; parenthetical on 13) |
-| **External library app handling** | Menu toggle (default OFF). When ON, Music / Photos are auto-quit before sleep (frees up external library locks for ejection), auto-relaunched in the background after wake |
+| **External library app handling** | Settings → Eject Behavior toggle (default OFF). When ON, Music / Photos quit gracefully before automatic sleep/display eject or **Eject and Sleep**, freeing external-library locks. Only apps that accepted quit are relaunched once in the background after wake; overlapping sleep events do not lose the relaunch record |
 
 </details>
 
@@ -249,7 +249,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
 | Build system | Xcodegen + xcodebuild |
 | Entry point | `main.swift` (explicit `NSApplication.shared.run()`) |
-| Disk ops | Manual eject uses `/usr/sbin/diskutil` directly. Sleep / display sleep / "Eject and Sleep" use the 5-stage normal unmount → force unmount → `diskutil` fallback path via `Disk Arbitration API` |
+| Disk ops | Manual eject uses `/usr/sbin/diskutil`. Automatic sleep/display sleep and "Eject and Sleep" use whole-disk Disk Arbitration normal first, with at most one policy-authorized busy force |
 
 ### Files
 
@@ -257,7 +257,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 diskOUT/
 ├── AppDelegate.swift            # Main logic (diskutil exec, menu cache, sleep/wake handling)
 ├── LanguageRuntime.swift        # language negotiation, stored-value validation, safe relaunch policy
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 153 keys)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 156 keys)
 ├── main.swift                   # Explicit entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen generated)
 ├── DiskOUT.entitlements         # empty plist. Prevents entitlements pitfalls in project.yml

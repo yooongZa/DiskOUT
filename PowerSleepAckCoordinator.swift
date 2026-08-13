@@ -2,15 +2,31 @@ import Foundation
 import IOKit
 import IOKit.pwr_mgt
 
+enum PowerSleepOrigin: Equatable, Sendable {
+    case idle
+    case forced
+}
+
 struct PowerSleepCycleDeduplicator: Sendable {
     private var handledWillSleepIDs = Set<Int>()
+    private var hasPendingIdleCandidate = false
 
-    mutating func beginWillSleep(notificationID: Int) -> Bool {
-        handledWillSleepIDs.insert(notificationID).inserted
+    mutating func recordCanSystemSleep() {
+        hasPendingIdleCandidate = true
+    }
+
+    /// The first unique will-sleep notification consumes the current idle candidate.
+    /// Duplicate notifications must not consume state or repeat the eject side effect.
+    mutating func beginWillSleep(notificationID: Int) -> PowerSleepOrigin? {
+        guard handledWillSleepIDs.insert(notificationID).inserted else { return nil }
+        let origin: PowerSleepOrigin = hasPendingIdleCandidate ? .idle : .forced
+        hasPendingIdleCandidate = false
+        return origin
     }
 
     mutating func advanceEpoch() {
         handledWillSleepIDs.removeAll(keepingCapacity: true)
+        hasPendingIdleCandidate = false
     }
 }
 

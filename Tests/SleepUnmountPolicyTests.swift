@@ -38,7 +38,10 @@ private enum SleepUnmountPolicyTests {
         testSameBSDWithNewGenerationDoesNotJoinOldMedia()
         testSameBSDAndGenerationWithDifferentMediaIDDoesNotJoin()
         testMissingBSDNameFallsBackToStablePathGrouping()
+        testDissenterStatusClassification()
         testPolicyPreservesNormalThenExplicitForceFallback()
+        testForceClaimLedgerIsEpisodeScopedAndPhysicalOnly()
+        testForceClaimLedgerAllowsOneConcurrentClaimPerPhysicalKey()
         testOnlyExplicitCallbackSuccessIsClean()
         testDisconnectThenLateSuccessRemainsFailure()
         testSuccessThenDisconnectRemainsClean()
@@ -49,6 +52,7 @@ private enum SleepUnmountPolicyTests {
         testMountApprovalBarrierOrdering()
         testPowerSleepMountBarrierCoversPostSnapshotApproval()
         testForceContinuationReservationsAreWaiterScoped()
+        testTimeoutAndCallbackHaveDistinctForceContinuationReleaseOwners()
         testUnresolvedProtectedSiblingFailsClosed()
         print("SleepUnmountPolicyTests: PASS")
     }
@@ -138,17 +142,25 @@ private enum SleepUnmountPolicyTests {
         expect(!normalRequests[0].allowsForceFallback, "normal policy must not enable a force retry")
         expect(forceRequests.count == 1, "force setting must still emit one initial request")
         expect(forceRequests[0].allowsForceFallback, "force setting must permit a later force retry")
-        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure, forceFallback: true) == .wholeForce,
-               "only an explicit normal callback failure may start the force retry")
+        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure(.busy), forceFallback: true) == .wholeForce,
+               "kDAReturnBusy may start the force retry")
+        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure(.exclusiveAccess), forceFallback: true) == .wholeForce,
+               "kDAReturnExclusiveAccess may start the force retry")
+        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure(.unixBusy), forceFallback: true) == .wholeForce,
+               "unix_err(EBUSY) may start the force retry")
+        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure(.other(0xF8DA0001)), forceFallback: true) == nil,
+               "a non-contention DA failure must not start a force retry")
+        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure(.other(0xC005)), forceFallback: true) == nil,
+               "a non-EBUSY Unix failure must not start a force retry")
         expect(SleepUnmountPolicy.nextOperation(after: .timeout, forceFallback: true) == nil,
                "timeout must never overlap the still-pending normal request")
         expect(SleepUnmountPolicy.nextOperation(after: .disconnect, forceFallback: true) == nil,
                "disconnect must never start a fallback")
         expect(SleepUnmountPolicy.nextOperation(after: .unavailable, forceFallback: true) == nil,
                "unavailable identity must fail closed")
-        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure, forceFallback: false) == nil,
+        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure(.busy), forceFallback: false) == nil,
                "disabled force fallback must remain disabled")
-        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure,
+        expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure(.busy),
                                                 requestWasForced: true,
                                                 forceFallback: true) == nil,
                "a joined force request failure must not be reinterpreted as a normal decline")
@@ -159,13 +171,96 @@ private enum SleepUnmountPolicyTests {
         expect(lateSuccess == .clean, "a later explicit callback may provide positive clean proof")
     }
 
+    private static func testDissenterStatusClassification() {
+        let busy = SleepUnmountDissenterStatus(rawValue: 0xF8DA0002)
+        let exclusive = SleepUnmountDissenterStatus(rawValue: 0xF8DA0004)
+        let unixBusy = SleepUnmountDissenterStatus(rawValue: 0xC010)
+        let unknown = SleepUnmountDissenterStatus(rawValue: 0xDEADBEEF)
+
+        expect(busy == .busy && busy.rawValue == 0xF8DA0002,
+               "kDAReturnBusy must round-trip through the typed status")
+        expect(exclusive == .exclusiveAccess && exclusive.rawValue == 0xF8DA0004,
+               "kDAReturnExclusiveAccess must round-trip through the typed status")
+        expect(unixBusy == .unixBusy && unixBusy.rawValue == 0xC010,
+               "unix_err(EBUSY) must round-trip through the typed status")
+        expect(unknown == .other(0xDEADBEEF) && unknown.rawValue == 0xDEADBEEF,
+               "unknown raw statuses must be preserved for diagnostics")
+        expect(busy.isForceEligible && exclusive.isForceEligible && unixBusy.isForceEligible,
+               "all three contention statuses must be force eligible")
+        expect(!unknown.isForceEligible,
+               "an unknown status must fail closed")
+    }
+
+    private static func testForceClaimLedgerIsEpisodeScopedAndPhysicalOnly() {
+        let key = SleepUnmountGroupKey.physicalDisk(
+            bsd: "disk12",
+            generation: 7,
+            mediaRegistryEntryID: 120
+        )
+        let replacement = SleepUnmountGroupKey.physicalDisk(
+            bsd: "disk12",
+            generation: 8,
+            mediaRegistryEntryID: 121
+        )
+        let firstEpisode = SleepEpisodeForceClaimLedger()
+
+        expect(firstEpisode.claimForce(for: key),
+               "the first force claimant for a physical request must win")
+        expect(!firstEpisode.claimForce(for: key),
+               "the same physical request must not claim force twice in one episode")
+        expect(firstEpisode.claimForce(for: replacement),
+               "a replacement physical generation must have an independent claim")
+        expect(!firstEpisode.claimForce(for: .unresolvedVolumePath("/Volumes/Unknown")),
+               "an unresolved path must never receive a physical force claim")
+
+        let nextEpisode = SleepEpisodeForceClaimLedger()
+        expect(nextEpisode.claimForce(for: key),
+               "a new sleep episode must receive a fresh claim ledger")
+    }
+
+    private static func testForceClaimLedgerAllowsOneConcurrentClaimPerPhysicalKey() {
+        let ledger = SleepEpisodeForceClaimLedger()
+        let firstKey = SleepUnmountGroupKey.physicalDisk(
+            bsd: "disk20",
+            generation: 1,
+            mediaRegistryEntryID: 200
+        )
+        let secondKey = SleepUnmountGroupKey.physicalDisk(
+            bsd: "disk21",
+            generation: 1,
+            mediaRegistryEntryID: 210
+        )
+        let winners = IntRecorder()
+        let contenders = DispatchGroup()
+        let queue = DispatchQueue(label: "SleepForceClaimLedgerTests", attributes: .concurrent)
+
+        for contender in 0..<512 {
+            contenders.enter()
+            queue.async {
+                let key = contender.isMultiple(of: 2) ? firstKey : secondKey
+                if ledger.claimForce(for: key) {
+                    winners.append(contender.isMultiple(of: 2) ? 1 : 2)
+                }
+                contenders.leave()
+            }
+        }
+
+        expect(contenders.wait(timeout: .now() + 2) == .success,
+               "all concurrent force claimants must finish")
+        let result = winners.snapshot
+        expect(result.count == 2,
+               "exactly one concurrent claimant per physical request key must win")
+        expect(result.filter { $0 == 1 }.count == 1 && result.filter { $0 == 2 }.count == 1,
+               "each physical request key must have one independent winner")
+    }
+
     private static func testOnlyExplicitCallbackSuccessIsClean() {
         expect(
             SleepUnmountEvidenceReducer.reduce(.pending, event: .callbackSuccess) == .clean,
             "an explicit callback success must be clean"
         )
         expect(
-            SleepUnmountEvidenceReducer.reduce(.pending, event: .callbackFailure) == .failure(.callbackFailure),
+            SleepUnmountEvidenceReducer.reduce(.pending, event: .callbackFailure(.busy)) == .failure(.callbackFailure(.busy)),
             "callback failure must remain failure"
         )
         expect(
@@ -402,6 +497,52 @@ private enum SleepUnmountPolicyTests {
         expect(
             !reservations.isReserved && reservations.count == 0,
             "the barrier may release only after every waiter reservation is consumed"
+        )
+    }
+
+    private static func testTimeoutAndCallbackHaveDistinctForceContinuationReleaseOwners() {
+        var reservations = SleepForceContinuationReservationCounter()
+        reservations.reserve()
+        reservations.reserve()
+
+        expect(
+            !SleepForceContinuationReleasePolicy.callerOwnsRelease(
+                forceContinuationReserved: true,
+                requestWasForced: false,
+                dissenterStatus: nil
+            ),
+            "a timeout waiter must not release again in its caller after DAInventory releases it"
+        )
+        reservations.release()
+        expect(reservations.count == 1,
+               "one callback waiter must retain its barrier reservation after its peer times out")
+
+        expect(
+            SleepForceContinuationReleasePolicy.callerOwnsRelease(
+                forceContinuationReserved: true,
+                requestWasForced: false,
+                dissenterStatus: .busy
+            ),
+            "an explicit dissenter callback caller must release its retained handoff reservation"
+        )
+        reservations.release()
+        expect(!reservations.isReserved,
+               "the callback caller release must balance the remaining reservation")
+        expect(
+            !SleepForceContinuationReleasePolicy.callerOwnsRelease(
+                forceContinuationReserved: false,
+                requestWasForced: false,
+                dissenterStatus: .busy
+            ),
+            "a normal-only trigger must never own a force continuation reservation"
+        )
+        expect(
+            !SleepForceContinuationReleasePolicy.callerOwnsRelease(
+                forceContinuationReserved: true,
+                requestWasForced: true,
+                dissenterStatus: .busy
+            ),
+            "a caller that joined an already-pending force request never reserved a continuation"
         )
     }
 

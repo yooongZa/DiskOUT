@@ -24,12 +24,14 @@
 		D661259592528392DE2ED874 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EDE56AD31EB4310C52F205F /* AppDelegate.swift */; };
 		DD2C307722C246EC48C6AFDF /* LanguageRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EB19C3D59C13AA999F0BF03 /* LanguageRuntime.swift */; };
 		F9773A4BACE2CC0964A1CE19 /* DiskClassification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA1C96727FF4307B242AB26 /* DiskClassification.swift */; };
+		FF37CF10ACC2DF5C4B7FFDBD /* SettingsBehaviorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3486D7618A8166DD700759D1 /* SettingsBehaviorPolicy.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0EDE56AD31EB4310C52F205F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		11BA76708DDF535A724FB1ED /* DiskActivityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskActivityPolicy.swift; sourceTree = "<group>"; };
 		1EB19C3D59C13AA999F0BF03 /* LanguageRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageRuntime.swift; sourceTree = "<group>"; };
+		3486D7618A8166DD700759D1 /* SettingsBehaviorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsBehaviorPolicy.swift; sourceTree = "<group>"; };
 		41E6237D05464B7B78D4D542 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		44CDE422E8407721E3B40C1C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		61E4AF25EAFBC50EE5F0265D /* PremiumAccessPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumAccessPolicy.swift; sourceTree = "<group>"; };
@@ -80,6 +82,7 @@
 				6EC0B7318D0615479CF2EFB9 /* PaddleBilling.swift */,
 				D90489C221196E31CB10F915 /* PowerSleepAckCoordinator.swift */,
 				61E4AF25EAFBC50EE5F0265D /* PremiumAccessPolicy.swift */,
+				3486D7618A8166DD700759D1 /* SettingsBehaviorPolicy.swift */,
 				C11BF93D3BDA0DEDCABF19B9 /* SleepEpisodeCoordinator.swift */,
 				7D544B97EEC4FF82E7DFC464 /* SleepUnmountPolicy.swift */,
 				F7A7EF53AE7C1F21EAA6538D /* StatusCharacterAnimator.swift */,
@@ -183,6 +186,7 @@
 				61FD966FCFA11BFD3B66FA13 /* PaddleBilling.swift in Sources */,
 				9B31B3BE9E40AC2A49EC4F1C /* PowerSleepAckCoordinator.swift in Sources */,
 				D0C0B4A17F330B090FB4D540 /* PremiumAccessPolicy.swift in Sources */,
+				FF37CF10ACC2DF5C4B7FFDBD /* SettingsBehaviorPolicy.swift in Sources */,
 				68338131FDE242192B11D010 /* SleepEpisodeCoordinator.swift in Sources */,
 				7BAFBE8B28951CD32B87BA5A /* SleepUnmountPolicy.swift in Sources */,
 				AE82DCA47B799CDB7613A861 /* StatusCharacterAnimator.swift in Sources */,
@@ -229,7 +233,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 17;
+				CURRENT_PROJECT_VERSION = 18;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -250,7 +254,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.5.3;
+				MARKETING_VERSION = 0.5.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -297,7 +301,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 17;
+				CURRENT_PROJECT_VERSION = 18;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -312,7 +316,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.5.3;
+				MARKETING_VERSION = 0.5.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -174,11 +174,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         group: DispatchGroup,
         outcome: SleepEjectOutcomeBox,
         started: Bool,
-        reason: String
+        reason: String,
+        trigger: SleepEjectTrigger,
+        forceClaims: SleepEpisodeForceClaimLedger
     )
     private var activeSleepEjectGroup: DispatchGroup?
     private var activeSleepEjectOperationID: String?
     private var activeSleepEjectReason: String?
+    private var activeSleepEjectTrigger: SleepEjectTrigger?
+    private var activeSleepEjectForceClaims: SleepEpisodeForceClaimLedger?
     private var activeSleepEjectOutcome: SleepEjectOutcomeBox?
     /// lid가 닫혀 있는 동안 해당 close episode의 completed group을 보관해, Amphetamine
     /// session 종료로 늦게 도착한 willSleep이 새 unmount cycle을 만들지 않게 한다.
@@ -186,6 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var lidEpisodeGroup: DispatchGroup?
     private var lidEpisodeOperationID: String?
     private var lidEpisodeOutcome: SleepEjectOutcomeBox?
+    private var lidEpisodeTrigger: SleepEjectTrigger?
+    private var lidEpisodeForceClaims: SleepEpisodeForceClaimLedger?
     /// 현재 close generation에 실제 fresh inventory worker가 끝났다는 positive proof.
     /// Power ACK는 이 값이 current closed generation과 같아질 때까지 refresh를 연쇄한다.
     private var lidEpisodeInventoryCompletedGeneration: UInt64?
@@ -232,6 +238,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        // Resolve the legacy lid-only preference before any sleep callback or Settings view can
+        // read either modern key. Doing both values in one pass removes getter-order dependence.
+        SleepEjectSettingsMigration.migrate(in: .standard)
+        ReportEndpoint.setReportingEnabled(SettingsStore.crashReportingEnabled)
 
         let center = UNUserNotificationCenter.current()
         center.delegate = self
@@ -326,6 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func applicationDidBecomeActive(_ notification: Notification) {
         guard !isTerminating else { return }
+        settingsWindowController?.refreshExternalState()
         billingController?.refreshAfterReturningFromCheckout()
     }
 
@@ -412,9 +424,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             guard let self else { return }
             log.info("Premium status presentation access → \(granted, privacy: .public)")
             self.applyCountTitle()
+            self.settingsWindowController?.refreshExternalState()
         }
         controller.onPurchasePollingChanged = { [weak self] polling in
             self?.isPurchaseInProgress = polling
+            self?.settingsWindowController?.refreshExternalState()
         }
         billingController = controller
         controller.start()
@@ -508,9 +522,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
               !isOpeningPurchaseDetails,
               let billingController else { return }
         isOpeningPurchaseDetails = true
+        settingsWindowController?.refreshExternalState()
         billingController.requestPurchaseDetailsURL { [weak self] portalURL in
             guard let self else { return }
             self.isOpeningPurchaseDetails = false
+            self.settingsWindowController?.refreshExternalState()
             guard self.canPresentBillingUI else { return }
             guard let portalURL, NSWorkspace.shared.open(portalURL) else {
                 self.showBillingBrowserError()
@@ -579,9 +595,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let recoveryCode = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !recoveryCode.isEmpty else { return }
         isRestoringPurchase = true
+        settingsWindowController?.refreshExternalState()
         billingController.restorePurchase(using: recoveryCode) { [weak self] success in
             guard let self else { return }
             self.isRestoringPurchase = false
+            self.settingsWindowController?.refreshExternalState()
             guard self.canPresentBillingUI else { return }
 
             let result = NSAlert()
@@ -609,9 +627,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
               let billingController,
               billingController.isConfigured else { return }
         isCheckingPurchaseStatus = true
+        settingsWindowController?.refreshExternalState()
         billingController.refresh { [weak self] success in
             guard let self else { return }
             self.isCheckingPurchaseStatus = false
+            self.settingsWindowController?.refreshExternalState()
             guard self.canPresentBillingUI else { return }
             let hasPremiumAccess = self.billingController?.hasPremiumAccess == true
 
@@ -1049,16 +1069,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         menu.addItem(NSMenuItem.separator())
 
-        // 메뉴에는 자주 토글하는 핵심 옵션만 둔다. display sleep / Music·Photos 자동 종료 /
-        // 로그인 자동 실행은 한 번 설정하고 끝나는 항목이라 환경설정 창 (Settings...) 으로 이동.
-        // 양쪽에 같은 토글이 있으면 어디서 켰는지 사용자가 헷갈림.
-        let toggle = NSMenuItem(title: String(localized: "Eject on Sleep"),
-                                action: #selector(toggleSleepEject),
-                                keyEquivalent: "")
-        toggle.target = self
-        toggle.state = SleepEject.enabled ? .on : .off
-        menu.addItem(toggle)
-
         // requiresApproval 인 경우만 메뉴에서 경고 표시 — 사용자가 모르는 사이 로그인 자동 실행이
         // 막혀 있는 상황을 알아챌 수 있도록.
         if LoginItem.status == .requiresApproval {
@@ -1076,7 +1086,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 토글 기능도 남기는 구조.
         let togglableDrives = drives.filter { $0.volumeUUID != nil }
         if !togglableDrives.isEmpty {
-            menu.addItem(NSMenuItem.separator())
             let parent = NSMenuItem(title: String(localized: "Auto-Eject Excluded Disks"),
                                     action: nil, keyEquivalent: "")
             let sub = NSMenu()
@@ -1094,7 +1103,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             menu.addItem(parent)
         }
 
-        menu.addItem(NSMenuItem.separator())
+        if menu.items.last?.isSeparatorItem != true {
+            menu.addItem(NSMenuItem.separator())
+        }
 
         // Sparkle 자동 업데이트 — gentle reminder.
         // pendingUpdate 가 있으면 (자동 체크에서 발견된 미설치 업데이트) 메뉴 안에서도 강조 표시.
@@ -1119,66 +1130,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             menu.addItem(pendingItem)
         }
 
-        // Paddle setup is deliberately fail-closed: until the public price ID, billing URL,
-        // and lease verification key are all configured, no nonfunctional purchase row appears.
-        if let billingController, billingController.isConfigured {
-            let billingItem: NSMenuItem
-            if billingController.hasPremiumAccess {
-                billingItem = NSMenuItem(title: String(localized: "View Purchase Details…"),
-                                         action: #selector(viewPremiumPurchaseDetails(_:)),
+        // Billing actions live in Settings so the menu stays focused on drive operations. Keep one
+        // entry only while a free/in-progress configured state needs a path to that pane.
+        if let billingController,
+           PremiumMenuPolicy.entry(isConfigured: billingController.isConfigured,
+                                   hasPremiumAccess: billingController.hasPremiumAccess,
+                                   hasInProgressAction: isPurchaseInProgress ||
+                                       isCheckingPurchaseStatus || isRestoringPurchase) == .openSettings {
+            let premiumItem = NSMenuItem(title: String(localized: "Premium…"),
+                                         action: #selector(showPremiumSettings(_:)),
                                          keyEquivalent: "")
-                billingItem.isEnabled = billingController.canOpenPurchaseDetails &&
-                    !isOpeningPurchaseDetails
-            } else {
-                billingItem = NSMenuItem(title: String(localized: "Unlock Animated Icons — USD 4.99 One-Time…"),
-                                         action: #selector(purchasePremiumStatusIcons(_:)),
-                                         keyEquivalent: "")
-                billingItem.isEnabled = !isPurchaseInProgress &&
-                    !isCheckingPurchaseStatus &&
-                    !isRestoringPurchase
-            }
-            billingItem.target = self
-            menu.addItem(billingItem)
-            if billingController.hasPremiumAccess {
-                let recoveryCodeItem = NSMenuItem(
-                    title: String(localized: "Copy Recovery Code…"),
-                    action: #selector(copyPremiumRecoveryCode(_:)),
-                    keyEquivalent: ""
-                )
-                recoveryCodeItem.target = self
-                recoveryCodeItem.isEnabled = billingController.recoveryCode != nil
-                menu.addItem(recoveryCodeItem)
-            } else if isPurchaseInProgress {
-                let stopPurchaseCheckItem = NSMenuItem(
-                    title: String(localized: "Stop Checking Purchase…"),
-                    action: #selector(stopPremiumPurchaseCheck(_:)),
-                    keyEquivalent: ""
-                )
-                stopPurchaseCheckItem.target = self
-                menu.addItem(stopPurchaseCheckItem)
-            } else {
-                let checkPurchaseItem = NSMenuItem(
-                    title: String(localized: "Check Purchase Status…"),
-                    action: #selector(checkPremiumPurchaseStatus(_:)),
-                    keyEquivalent: ""
-                )
-                checkPurchaseItem.target = self
-                checkPurchaseItem.isEnabled = !isPurchaseInProgress &&
-                    !isCheckingPurchaseStatus &&
-                    !isRestoringPurchase
-                menu.addItem(checkPurchaseItem)
-
-                let restorePurchaseItem = NSMenuItem(
-                    title: String(localized: "Restore Purchase…"),
-                    action: #selector(restorePremiumPurchase(_:)),
-                    keyEquivalent: ""
-                )
-                restorePurchaseItem.target = self
-                restorePurchaseItem.isEnabled = !isPurchaseInProgress &&
-                    !isCheckingPurchaseStatus &&
-                    !isRestoringPurchase
-                menu.addItem(restorePurchaseItem)
-            }
+            premiumItem.target = self
+            menu.addItem(premiumItem)
             menu.addItem(NSMenuItem.separator())
         }
 
@@ -1208,11 +1171,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("menuWillOpen: built in \(String(format: "%.3f", elapsed), privacy: .public)s drives=\(drives.count, privacy: .public) unmounted=\(unmounted.count, privacy: .public) refreshing=\(isRefreshing, privacy: .public)")
     }
 
-    @objc private func toggleSleepEject() {
-        SleepEject.enabled.toggle()
-        log.info("SleepEject toggled → \(SleepEject.enabled, privacy: .public)")
-    }
-
     /// 디스크별 *"자동 추출 제외"* 토글. representedObject = Volume UUID.
     @objc private func toggleExcludeVolume(_ sender: NSMenuItem) {
         guard let uuid = sender.representedObject as? String else { return }
@@ -1230,9 +1188,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }, onCheckForUpdates: { [weak self] in
                 // About 페인의 "업데이트 확인…" — 메뉴 항목과 같은 경로 (userInitiated).
                 self?.checkForUpdatesFromMenu(nil)
-            })
+            }, premiumState: { [weak self] in
+                guard let self, let billing = self.billingController else {
+                    return PremiumSettingsState(isConfigured: false,
+                                                hasAccess: false,
+                                                isPurchaseInProgress: false,
+                                                isOpeningDetails: false,
+                                                isCheckingStatus: false,
+                                                isRestoring: false,
+                                                canOpenDetails: false,
+                                                hasRecoveryCode: false)
+                }
+                return PremiumSettingsState(isConfigured: billing.isConfigured,
+                                            hasAccess: billing.hasPremiumAccess,
+                                            isPurchaseInProgress: self.isPurchaseInProgress,
+                                            isOpeningDetails: self.isOpeningPurchaseDetails,
+                                            isCheckingStatus: self.isCheckingPurchaseStatus,
+                                            isRestoring: self.isRestoringPurchase,
+                                            canOpenDetails: billing.canOpenPurchaseDetails,
+                                            hasRecoveryCode: billing.recoveryCode != nil)
+            }, premiumActions: PremiumSettingsActions(
+                purchase: { [weak self] in self?.purchasePremiumStatusIcons(nil) },
+                stopPurchaseCheck: { [weak self] in self?.stopPremiumPurchaseCheck(nil) },
+                viewDetails: { [weak self] in self?.viewPremiumPurchaseDetails(nil) },
+                copyRecoveryCode: { [weak self] in self?.copyPremiumRecoveryCode(nil) },
+                checkStatus: { [weak self] in self?.checkPremiumPurchaseStatus(nil) },
+                restore: { [weak self] in self?.restorePremiumPurchase(nil) }
+            ))
         }
         settingsWindowController?.show()
+    }
+
+    @objc private func showPremiumSettings(_ sender: Any?) {
+        showSettingsWindow(sender)
+        settingsWindowController?.showPremiumPane()
     }
 
     /// 환경설정의 언어 드롭다운에서 호출 — 새 언어는 다음 launch 의 main.swift 에서 적용된다.
@@ -1672,8 +1661,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 쓰는 중 디스크를 **수동** 추출할 때 확인 — force fallback(기본 ON)이 복사를 끊어 파일을
     /// 손상시키는 사고 방지. 사용자가 "그래도 추출"을 택하면 true. main thread 전용.
     ///
-    /// **수동 경로 전용**: sleep/lid-close/display-sleep 자동 경로는 사람이 없어 확인이 무의미하므로
-    /// 이 가드를 쓰지 않고 기존 force 동작을 유지한다 (전원 꺼지기 전 깔끔히 추출). 5.6.9 정책.
+    /// **사용자 명시 경로 전용**: 메뉴 추출과 "추출하고 잠자기"는 확인할 사람이 있으므로 사용한다.
+    /// 자동 lid/forced sleep은 확인 없이 정책상 busy force를 허용하고 idle/display는 force하지 않는다.
     private func confirmEjectWhileWriting(title: String) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -1794,17 +1783,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             flashIcon(symbol: "circle.dashed", duration: 0.3)
             return
         }
+        // This command is user-present and may force-unmount after a busy callback. Keep the
+        // existing write monitor guard and make Cancel the default before any operation starts.
+        if !writingPhysicalBSDs.isEmpty,
+           !confirmEjectWhileWriting(
+               title: String(localized: "An external disk is being written to")
+           ) {
+            log.notice("EJECT_AND_SLEEP(\(caller, privacy: .public)) cancelled by user — disk(s) busy (writing)")
+            return
+        }
         lastEjectAt = now
         log.info("EJECT_AND_SLEEP(\(caller, privacy: .public)) START")
         flashIcon(symbol: "moon.zzz.fill", duration: 1.0)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
+            if LibraryAppManagement.enabled {
+                LibraryAppHandler.quitLibraryApps()
+            }
             let operation = self.newOperationID(reason: "ejectAndSleep")
             self.beginAutomaticEject(operationID: operation, reason: "ejectAndSleep")
             let result = self.ejectAllForSleep(operationID: operation,
                                                applyExcludeFilter: false,
-                                               context: "ejectAndSleep")
+                                               context: "ejectAndSleep",
+                                               trigger: .ejectAndSleep,
+                                               forceClaims: SleepEpisodeForceClaimLedger())
             log.info("EJECT_AND_SLEEP(\(caller, privacy: .public)) eject done — attempted=\(result.attempted.count, privacy: .public) success=\(result.success.count, privacy: .public) failure=\(result.failure.count, privacy: .public)")
 
             DispatchQueue.main.async { [weak self] in
@@ -2025,6 +2028,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func ejectAllForSleep(operationID: String,
                                   applyExcludeFilter: Bool = true,
                                   context: String = "sleep",
+                                  trigger: SleepEjectTrigger,
+                                  forceClaims: SleepEpisodeForceClaimLedger,
                                   deadline: Date? = nil) -> (attempted: [String],
                                                                  success: [String],
                                                                  failure: [(String, String)],
@@ -2088,11 +2093,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                mountedVolumeBSDs: candidate.identity?.mountedVolumeBSDs,
                                enforceProtectionClosure: applyExcludeFilter)
         }
+        let effectiveForceFallback = trigger.effectiveForceFallback(
+            masterEnabled: SettingsStore.forceFallbackEnabled
+        )
         let requests = SleepUnmountPolicy.requests(
             for: targets,
-            forceFallback: SettingsStore.forceFallbackEnabled
+            forceFallback: effectiveForceFallback
         )
-        log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject targets count=\(targets.count, privacy: .public) physicalRequests=\(requests.count, privacy: .public) names=\(targets.map { $0.name }, privacy: .public) bsds=\(targets.compactMap { $0.wholeDiskBSD }.sorted(), privacy: .public)")
+        log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject targets count=\(targets.count, privacy: .public) physicalRequests=\(requests.count, privacy: .public) trigger=\(trigger.logLabel, privacy: .public) forceAllowed=\(effectiveForceFallback, privacy: .public) names=\(targets.map { $0.name }, privacy: .public) bsds=\(targets.compactMap { $0.wholeDiskBSD }.sorted(), privacy: .public)")
         guard !targets.isEmpty else {
             return (preflightFailures.map(\.0), [], preflightFailures, [])
         }
@@ -2114,12 +2122,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 let volumePath = request.representativeVolumePath ?? "-"
                 log.info("cycle \(operationID, privacy: .public) → \(context, privacy: .public) unmount start names=\(names, privacy: .public) at \(volumePath, privacy: .public) bsd=\(request.wholeDiskBSD ?? "-", privacy: .public) generation=\(request.physicalGeneration.map(String.init) ?? "-", privacy: .public) forceFallback=\(request.allowsForceFallback, privacy: .public)")
                 let result = self.unmountRequestForSleep(volumePath: volumePath,
+                                                         requestKey: request.key,
                                                          wholeDiskBSDName: request.wholeDiskBSD,
                                                          expectedGeneration: request.physicalGeneration,
                                                          expectedMediaRegistryEntryID: request.mediaRegistryEntryID,
                                                          expectedMountedVolumeBSDs: request.mountedVolumeBSDs,
                                                          enforceProtectionClosure: request.enforceProtectionClosure,
                                                          allowForceFallback: request.allowsForceFallback,
+                                                         forceClaims: forceClaims,
                                                          operationID: operationID,
                                                          context: context,
                                                          deadline: operationDeadline)
@@ -2224,12 +2234,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func unmountRequestForSleep(volumePath: String,
+                                        requestKey: SleepUnmountGroupKey,
                                         wholeDiskBSDName: String?,
                                         expectedGeneration: UInt64?,
                                         expectedMediaRegistryEntryID: UInt64?,
                                         expectedMountedVolumeBSDs: Set<String>?,
                                         enforceProtectionClosure: Bool,
                                         allowForceFallback: Bool,
+                                        forceClaims: SleepEpisodeForceClaimLedger,
                                         operationID: String? = nil,
                                         context: String = "sleep",
                                         deadline: Date) -> (success: Bool, errorMessage: String?) {
@@ -2257,23 +2269,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return (true, nil)
         }
 
-        let next = normal.explicitDecline
-            ? SleepUnmountPolicy.nextOperation(after: .callbackFailure,
-                                               forceFallback: allowForceFallback)
-            : nil
+        // Timeout already releases this waiter's reservation inside DAInventory. Only a real
+        // dissenter callback retains a continuation for the caller to release after its decision.
+        let shouldReleaseDeclineContinuation = SleepForceContinuationReleasePolicy
+            .callerOwnsRelease(forceContinuationReserved: allowForceFallback,
+                               requestWasForced: normal.requestWasForced,
+                               dissenterStatus: normal.dissenterStatus)
+        defer {
+            if shouldReleaseDeclineContinuation {
+                DAInventory.shared.releaseSleepUnmountForceContinuation(
+                    wholeDiskBSDName: wholeDiskBSDName,
+                    expectedGeneration: expectedGeneration,
+                    expectedMediaRegistryEntryID: expectedMediaRegistryEntryID
+                )
+            }
+        }
+
+        let next = normal.dissenterStatus.flatMap {
+            SleepUnmountPolicy.nextOperation(after: .callbackFailure($0),
+                                             requestWasForced: normal.requestWasForced,
+                                             forceFallback: allowForceFallback)
+        }
         guard next == .wholeForce else {
-            if normal.explicitDecline {
+            if normal.dissenterStatus != nil {
                 ErrorReporter.report(signature: "sleep_da_unmount_declined")
             }
             return (false, normal.errorMessage)
-        }
-
-        defer {
-            DAInventory.shared.releaseSleepUnmountForceContinuation(
-                wholeDiskBSDName: wholeDiskBSDName,
-                expectedGeneration: expectedGeneration,
-                expectedMediaRegistryEntryID: expectedMediaRegistryEntryID
-            )
         }
 
         let remaining = deadline.timeIntervalSinceNow
@@ -2281,7 +2302,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             ErrorReporter.report(signature: "sleep_da_unmount_declined_no_force_budget")
             return (false, normal.errorMessage)
         }
-        log.notice("cycle \(operationID ?? "-", privacy: .public) \(context, privacy: .public) DA normal unmount explicitly declined; starting sequential force fallback remaining=\(String(format: "%.2f", remaining), privacy: .public)s")
+        guard forceClaims.claimForce(for: requestKey) else {
+            ErrorReporter.report(signature: "sleep_da_force_unmount_already_claimed")
+            log.notice("cycle \(operationID ?? "-", privacy: .public) \(context, privacy: .public) DA force fallback suppressed because this physical request already used its one episode claim")
+            return (false, normal.errorMessage)
+        }
+        log.notice("cycle \(operationID ?? "-", privacy: .public) \(context, privacy: .public) DA normal unmount declined with force-eligible busy status; starting one sequential force fallback remaining=\(String(format: "%.2f", remaining), privacy: .public)s")
         let forced = diskArbitrationUnmountForSleep(
             volumePath: volumePath,
             wholeDiskBSDName: wholeDiskBSDName,
@@ -2333,22 +2359,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA explicit clean callback accepted target=\(wholeDiskBSDName ?? volumePath, privacy: .public) actualMode=\(requestWasForced ? "force" : "normal", privacy: .public) elapsed=\(elapsed, privacy: .public)s")
             return SleepUnmountAttemptResult(success: true,
                                              errorMessage: nil,
-                                             explicitDecline: false)
-        case let .completed(.callbackFailure(reason), requestWasForced):
-            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA unmount declined actualMode=\(requestWasForced ? "force" : "normal", privacy: .public) elapsed=\(elapsed, privacy: .public)s reason=\(reason, privacy: .public)")
+                                             dissenterStatus: nil,
+                                             requestWasForced: requestWasForced)
+        case let .completed(.callbackFailure(status, reason), requestWasForced):
+            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA unmount declined actualMode=\(requestWasForced ? "force" : "normal", privacy: .public) status=0x\(String(status.rawValue, radix: 16, uppercase: true), privacy: .public) forceEligible=\(status.isForceEligible, privacy: .public) elapsed=\(elapsed, privacy: .public)s reason=\(reason, privacy: .public)")
             return SleepUnmountAttemptResult(success: false,
                                              errorMessage: "DA unmount declined: \(reason)",
-                                             explicitDecline: SleepUnmountPolicy.nextOperation(
-                                                after: .callbackFailure,
-                                                requestWasForced: requestWasForced,
-                                                forceFallback: true
-                                             ) == .wholeForce)
-        case .completed(.disconnectedBeforeCallback, _):
+                                             dissenterStatus: status,
+                                             requestWasForced: requestWasForced)
+        case let .completed(.disconnectedBeforeCallback, requestWasForced):
             log.error("cycle \(operation, privacy: .public) \(context, privacy: .public) media disconnected before clean callback elapsed=\(elapsed, privacy: .public)s")
             ErrorReporter.report(signature: "sleep_media_removed_before_clean_callback")
             return SleepUnmountAttemptResult(success: false,
                                              errorMessage: "Media disconnected before clean unmount completed",
-                                             explicitDecline: false)
+                                             dissenterStatus: nil,
+                                             requestWasForced: requestWasForced)
         case let .timedOutPending(request):
             let lateTarget = SleepRemountTarget(
                 wholeDiskBSD: request.token.wholeDiskBSD,
@@ -2366,13 +2391,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             ErrorReporter.report(signature: "sleep_da_unmount_timed_out_pending")
             return SleepUnmountAttemptResult(success: false,
                                              errorMessage: "DA unmount timed out while the request remained pending",
-                                             explicitDecline: false)
+                                             dissenterStatus: nil,
+                                             requestWasForced: request.force)
         case let .unavailable(reason):
             log.error("cycle \(operation, privacy: .public) \(context, privacy: .public) DA unmount unavailable elapsed=\(elapsed, privacy: .public)s reason=\(reason, privacy: .public)")
             ErrorReporter.report(signature: "sleep_da_unmount_unavailable")
             return SleepUnmountAttemptResult(success: false,
                                              errorMessage: reason,
-                                             explicitDecline: false)
+                                             dissenterStatus: nil,
+                                             requestWasForced: force)
         }
     }
 
@@ -2671,6 +2698,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let notificationID = notificationID(from: messageArgument)
         switch messageType {
         case ioMessageCanSystemSleep:
+            powerSleepCycleLock.lock()
+            powerSleepCycleDeduplicator.recordCanSystemSleep()
+            powerSleepCycleLock.unlock()
             log.notice("IOKit canSystemSleep received notificationID=\(notificationID, privacy: .public); allowing idle sleep")
             powerSleepAckCoordinator?.acknowledgeImmediately(
                 messageType: messageType,
@@ -2726,6 +2756,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             lidEpisodeGroup = nil
             lidEpisodeOperationID = nil
             lidEpisodeOutcome = nil
+            lidEpisodeTrigger = nil
+            lidEpisodeForceClaims = nil
             lidEpisodeInventoryCompletedGeneration = nil
             lidEpisodePowerRetryStarted = false
             lidEpisodeNeedsInventoryRefresh = false
@@ -2753,18 +2785,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
 
         let task = startSleepEjectIfNeeded(reason: "clamshell",
+                                           trigger: .lidClose,
                                            lidGeneration: lidTransition.generation)
         log.notice("cycle \(task.operationID, privacy: .public) clamshell close pre-eject \((task.started ? "started" : "joined"), privacy: .public) generation=\(lidTransition.generation, privacy: .public) newEpisode=\(lidTransition.isNewEpisode, privacy: .public)")
     }
 
     private func handlePowerSystemWillSleep(notificationID: Int) {
         powerSleepCycleLock.lock()
-        let shouldStartEjectChain = powerSleepCycleDeduplicator.beginWillSleep(
+        let origin = powerSleepCycleDeduplicator.beginWillSleep(
             notificationID: notificationID
         )
         powerSleepCycleLock.unlock()
 
-        guard shouldStartEjectChain else {
+        guard let origin else {
             // IOKit이 같은 token을 재전달해도 ACK coordinator와 eject side effect 모두 1회다.
             // 최초 callback의 registration은 main run-loop 순서상 이 registration보다 먼저
             // ACK queue에 들어가므로, coordinator가 같은 key를 안전하게 dedupe한다.
@@ -2781,10 +2814,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         beginPowerSleepMountBarrierIfNeeded()
         let lidGeneration = currentClosedLidGeneration()
+        let trigger = attributedSystemSleepTrigger(isIdle: origin == .idle,
+                                                   lidGeneration: lidGeneration)
+        let boundaryForceClaims = lidGeneration.flatMap {
+            currentLidEpisodeForceClaims(generation: $0)
+        } ?? SleepEpisodeForceClaimLedger()
         // ACK는 25초에 hard-stop하고, eject/retry는 callback 시점 기준 24초 안에서 끝낸다.
         let operationDeadline = Date().addingTimeInterval(24)
         let task = startSleepEjectIfNeeded(reason: "powerSleep",
+                                           trigger: trigger,
                                            lidGeneration: lidGeneration,
+                                           forceClaims: boundaryForceClaims,
                                            deadline: operationDeadline)
         let acknowledgmentGroup = DispatchGroup()
         acknowledgmentGroup.enter()
@@ -2793,8 +2833,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                         hasRunFreshBoundaryInventory: isPowerBoundaryReason(task.reason),
                                         retryAlreadyStarted: false,
                                         completion: acknowledgmentGroup,
+                                        boundaryTrigger: trigger,
+                                        boundaryForceClaims: boundaryForceClaims,
                                         powerNotificationID: notificationID)
-        log.notice("cycle \(task.operationID, privacy: .public) IOKit systemWillSleep received; async defer notificationID=\(notificationID, privacy: .public) ejectStarted=\(task.started, privacy: .public)")
+        log.notice("cycle \(task.operationID, privacy: .public) IOKit systemWillSleep received; async defer notificationID=\(notificationID, privacy: .public) origin=\(origin == .idle ? "idle" : "forced", privacy: .public) trigger=\(trigger.logLabel, privacy: .public) ejectStarted=\(task.started, privacy: .public)")
         powerSleepAckCoordinator?.deferAcknowledgment(
             messageType: ioMessageSystemWillSleep,
             notificationID: notificationID,
@@ -2809,6 +2851,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                   hasRunFreshBoundaryInventory: Bool,
                                                   retryAlreadyStarted: Bool,
                                                   completion: DispatchGroup,
+                                                  boundaryTrigger: SleepEjectTrigger,
+                                                  boundaryForceClaims: SleepEpisodeForceClaimLedger,
                                                   powerNotificationID: Int? = nil) {
         // Policy decision을 main queue에 직렬화해 IOKit clamshell callback과 ordering을 공유한다.
         // 이미 전달된 새 close edge가 final ACK 검사 사이에 끼어드는 race를 막는다.
@@ -2873,6 +2917,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                         || self.isPowerBoundaryReason(differentActive.reason),
                     retryAlreadyStarted: retryAlreadyStarted,
                     completion: completion,
+                    boundaryTrigger: boundaryTrigger,
+                    boundaryForceClaims: boundaryForceClaims,
                     powerNotificationID: powerNotificationID
                 )
 
@@ -2883,11 +2929,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     generation: currentLidGeneration,
                     forceRefresh: true,
                     reason: "powerSleepRefresh",
+                    forceClaims: boundaryForceClaims,
                     deadline: deadline
                    ) {
                     next = lidTask
                 } else {
                     next = self.startSleepEjectIfNeeded(reason: "powerSleepRefresh",
+                                                        trigger: boundaryTrigger,
+                                                        forceClaims: boundaryForceClaims,
                                                         deadline: deadline)
                 }
                 guard next.operationID != task.operationID else {
@@ -2906,6 +2955,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     retryAlreadyStarted: retryAlreadyStarted
                         || (!succeeded && !hasRunFreshBoundaryInventory),
                     completion: completion,
+                    boundaryTrigger: boundaryTrigger,
+                    boundaryForceClaims: boundaryForceClaims,
                     powerNotificationID: powerNotificationID
                 )
 
@@ -2915,10 +2966,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     next = self.startSleepEjectIfCurrentLidMatches(
                         reason: "powerSleepRetry",
                         generation: currentLidGeneration,
+                        trigger: boundaryTrigger,
+                        forceClaims: boundaryForceClaims,
                         deadline: deadline
                     )
                 } else {
                     next = self.startSleepEjectIfNeeded(reason: "powerSleepRetry",
+                                                        trigger: boundaryTrigger,
+                                                        forceClaims: boundaryForceClaims,
                                                         deadline: deadline)
                 }
                 guard let next, next.operationID != task.operationID else {
@@ -2935,6 +2990,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     hasRunFreshBoundaryInventory: true,
                     retryAlreadyStarted: true,
                     completion: completion,
+                    boundaryTrigger: boundaryTrigger,
+                    boundaryForceClaims: boundaryForceClaims,
                     powerNotificationID: powerNotificationID
                 )
 
@@ -2987,12 +3044,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private func startSleepEjectIfCurrentLidMatches(reason: String,
                                                     generation: UInt64,
+                                                    trigger: SleepEjectTrigger,
+                                                    forceClaims: SleepEpisodeForceClaimLedger,
                                                     deadline: Date) -> SleepEjectTask? {
         lidTransitionGate.lock()
         defer { lidTransitionGate.unlock() }
         guard currentClosedLidGeneration() == generation else { return nil }
         return startSleepEjectIfNeeded(reason: reason,
+                                       trigger: trigger,
                                        lidGeneration: generation,
+                                       forceClaims: forceClaims,
                                        deadline: deadline)
     }
 
@@ -3001,13 +3062,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         defer { sleepEjectStateLock.unlock() }
         guard let operationID = activeSleepEjectOperationID,
               let group = activeSleepEjectGroup,
-              let outcome = activeSleepEjectOutcome
+              let outcome = activeSleepEjectOutcome,
+              let trigger = activeSleepEjectTrigger,
+              let forceClaims = activeSleepEjectForceClaims
         else { return nil }
         return (operationID,
                 group,
                 outcome,
                 false,
-                activeSleepEjectReason ?? "-")
+                activeSleepEjectReason ?? "-",
+                trigger,
+                forceClaims)
     }
 
     private func currentClosedLidGeneration() -> UInt64? {
@@ -3015,6 +3080,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         defer { autoEjectStateLock.unlock() }
         guard sleepEpisodeCoordinator.isLidClosed else { return nil }
         return sleepEpisodeCoordinator.lidGeneration
+    }
+
+    private func currentLidEpisodeForceClaims(
+        generation: UInt64
+    ) -> SleepEpisodeForceClaimLedger? {
+        sleepEjectStateLock.lock()
+        defer { sleepEjectStateLock.unlock() }
+        guard lidEpisodeGeneration == generation else { return nil }
+        return lidEpisodeForceClaims
+    }
+
+    /// Power and clamshell notifications can cross on the main run loop. Preserve the existing
+    /// short attribution window so a real lid-close episode keeps the lid setting and force policy.
+    private func attributedSystemSleepTrigger(isIdle: Bool?,
+                                              lidGeneration: UInt64?) -> SleepEjectTrigger {
+        let recentlyClosed = lastClamshellCloseAt.map {
+            Date().timeIntervalSince($0) < clamshellSleepAttributionWindow
+        } ?? false
+        let lidAttributed = lidGeneration != nil
+            || currentClosedLidGeneration() != nil
+            || recentlyClosed
+        return SleepEjectTrigger.systemSleep(isIdle: isIdle,
+                                             lidAttributed: lidAttributed)
     }
 
     /// Amphetamine CDM처럼 lid가 닫힌 채 awake인 동안 새 external volume이 mount되면 기존
@@ -3057,6 +3145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func startLidInventoryRefreshIfNeeded(generation: UInt64,
                                                   forceRefresh: Bool = false,
                                                   reason: String = "clamshellMediaMounted",
+                                                  forceClaims: SleepEpisodeForceClaimLedger? = nil,
                                                   deadline: Date? = nil) -> SleepEjectTask? {
         lidTransitionGate.lock()
         defer { lidTransitionGate.unlock() }
@@ -3072,20 +3161,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         if let operationID = activeSleepEjectOperationID,
            let activeGroup = activeSleepEjectGroup,
-           let outcome = activeSleepEjectOutcome {
+           let outcome = activeSleepEjectOutcome,
+           let activeTrigger = activeSleepEjectTrigger,
+           let activeForceClaims = activeSleepEjectForceClaims {
             let activeReason = activeSleepEjectReason ?? "-"
             sleepEjectStateLock.unlock()
-            return (operationID, activeGroup, outcome, false, activeReason)
+            return (operationID,
+                    activeGroup,
+                    outcome,
+                    false,
+                    activeReason,
+                    activeTrigger,
+                    activeForceClaims)
+        }
+        let episodeForceClaims: SleepEpisodeForceClaimLedger
+        if SleepLidInventoryPolicy.shouldPreferExistingForceClaimLedger(
+            episodeGeneration: lidEpisodeGeneration,
+            requestedGeneration: generation,
+            hasExistingLedger: lidEpisodeForceClaims != nil
+        ), let existing = lidEpisodeForceClaims {
+            episodeForceClaims = existing
+        } else {
+            episodeForceClaims = forceClaims ?? SleepEpisodeForceClaimLedger()
         }
         lidEpisodeNeedsInventoryRefresh = false
         lidEpisodeGeneration = generation
         lidEpisodeGroup = nil
         lidEpisodeOperationID = nil
         lidEpisodeOutcome = nil
+        lidEpisodeTrigger = nil
+        lidEpisodeForceClaims = episodeForceClaims
         sleepEjectStateLock.unlock()
 
         let task = startSleepEjectWithStartGateHeld(reason: reason,
+                                                    trigger: .lidClose,
                                                     lidGeneration: generation,
+                                                    forceClaims: episodeForceClaims,
                                                     deadline: deadline)
         log.notice("cycle \(task.operationID, privacy: .public) lid-closed mounted media refresh \((task.started ? "started" : "joined"), privacy: .public) generation=\(generation, privacy: .public)")
         return task
@@ -3118,18 +3229,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func startSleepEjectIfNeeded(reason: String,
+                                         trigger: SleepEjectTrigger,
                                          lidGeneration: UInt64? = nil,
+                                         forceClaims: SleepEpisodeForceClaimLedger? = nil,
                                          deadline: Date? = nil) -> SleepEjectTask {
         sleepEjectStartGate.lock()
         defer { sleepEjectStartGate.unlock() }
         return startSleepEjectWithStartGateHeld(reason: reason,
+                                                trigger: trigger,
                                                 lidGeneration: lidGeneration,
+                                                forceClaims: forceClaims,
                                                 deadline: deadline)
     }
 
     /// Caller owns `sleepEjectStartGate`.
     private func startSleepEjectWithStartGateHeld(reason: String,
+                                                  trigger: SleepEjectTrigger,
                                                   lidGeneration: UInt64? = nil,
+                                                  forceClaims: SleepEpisodeForceClaimLedger? = nil,
                                                   deadline: Date? = nil) -> SleepEjectTask {
         let requestedAt = Date()
         let operationDeadline = deadline ?? requestedAt.addingTimeInterval(24)
@@ -3139,14 +3256,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         sleepEjectStateLock.lock()
         if let operationID = activeSleepEjectOperationID,
            let group = activeSleepEjectGroup,
-           let outcome = activeSleepEjectOutcome {
+           let outcome = activeSleepEjectOutcome,
+           let activeTrigger = activeSleepEjectTrigger,
+           let activeForceClaims = activeSleepEjectForceClaims {
             let activeReason = activeSleepEjectReason ?? "-"
             var refreshGeneration: UInt64?
             if let lidGeneration {
-                if SleepLidInventoryPolicy.needsRefreshAfterJoiningActive(
-                    previousGeneration: self.lidEpisodeGeneration,
+                let previousEpisodeGeneration = self.lidEpisodeGeneration
+                let existingEpisodeForceClaims = previousEpisodeGeneration == lidGeneration
+                    ? lidEpisodeForceClaims
+                    : nil
+                let needsNewGenerationRefresh = SleepLidInventoryPolicy.needsRefreshAfterJoiningActive(
+                    previousGeneration: previousEpisodeGeneration,
                     requestedGeneration: lidGeneration
-                ) {
+                )
+                if needsNewGenerationRefresh {
                     lidEpisodePowerRetryStarted = false
                     // A new physical close edge must not be fully consumed by an older worker
                     // that may already have taken its inventory snapshot. Join it for ordering,
@@ -3158,6 +3282,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 lidEpisodeOperationID = operationID
                 lidEpisodeGroup = group
                 lidEpisodeOutcome = outcome
+                // A new close edge is a new destructive-I/O episode even when it must first wait
+                // for an older active task. Give its later fresh inventory an independent claim.
+                lidEpisodeTrigger = .lidClose
+                lidEpisodeForceClaims = SleepLidInventoryPolicy.shouldReplaceForceClaimLedger(
+                    previousGeneration: previousEpisodeGeneration,
+                    requestedGeneration: lidGeneration,
+                    hasExistingLedger: existingEpisodeForceClaims != nil
+                )
+                    ? (forceClaims ?? SleepEpisodeForceClaimLedger())
+                    : existingEpisodeForceClaims
             }
             sleepEjectStateLock.unlock()
             if let refreshGeneration {
@@ -3166,14 +3300,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 }
             }
             log.notice("cycle \(operationID, privacy: .public) sleep eject already active; join reason=\(reason, privacy: .public) activeReason=\(activeReason, privacy: .public)")
-            return (operationID, group, outcome, false, activeReason)
+            return (operationID,
+                    group,
+                    outcome,
+                    false,
+                    activeReason,
+                    activeTrigger,
+                    activeForceClaims)
         }
 
         if let lidGeneration,
            self.lidEpisodeGeneration == lidGeneration,
            let operationID = lidEpisodeOperationID,
            let group = lidEpisodeGroup,
-           let outcome = lidEpisodeOutcome {
+           let outcome = lidEpisodeOutcome,
+           let episodeTrigger = lidEpisodeTrigger,
+           let episodeForceClaims = lidEpisodeForceClaims {
             let canStartPowerRetry = SleepLidRetryPolicy.shouldStartPowerRetry(
                 priorSucceeded: outcome.succeeded,
                 isSleepBoundaryTrigger: isPowerRetryTrigger,
@@ -3186,10 +3328,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             } else {
                 sleepEjectStateLock.unlock()
                 log.notice("cycle \(operationID, privacy: .public) lid episode eject already started/completed; join reason=\(reason, privacy: .public) generation=\(lidGeneration, privacy: .public)")
-                return (operationID, group, outcome, false, "lidEpisode")
+                return (operationID,
+                        group,
+                        outcome,
+                        false,
+                        "lidEpisode",
+                        episodeTrigger,
+                        episodeForceClaims)
             }
         }
 
+        let selectedForceClaims: SleepEpisodeForceClaimLedger = {
+            if let lidGeneration,
+               self.lidEpisodeGeneration == lidGeneration,
+               let episodeForceClaims = self.lidEpisodeForceClaims {
+                return episodeForceClaims
+            }
+            return forceClaims ?? SleepEpisodeForceClaimLedger()
+        }()
         let operation = newOperationID(reason: "sleep")
         let group = DispatchGroup()
         let outcome = SleepEjectOutcomeBox()
@@ -3197,16 +3353,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         activeSleepEjectGroup = group
         activeSleepEjectOperationID = operation
         activeSleepEjectReason = reason
+        activeSleepEjectTrigger = trigger
+        activeSleepEjectForceClaims = selectedForceClaims
         activeSleepEjectOutcome = outcome
         if let lidGeneration {
             if self.lidEpisodeGeneration != lidGeneration {
                 lidEpisodePowerRetryStarted = false
                 lidEpisodeInventoryCompletedGeneration = nil
+                lidEpisodeForceClaims = nil
             }
             self.lidEpisodeGeneration = lidGeneration
             lidEpisodeOperationID = operation
             lidEpisodeGroup = group
             lidEpisodeOutcome = outcome
+            lidEpisodeTrigger = trigger
+            lidEpisodeForceClaims = selectedForceClaims
         }
         sleepEjectStateLock.unlock()
 
@@ -3218,16 +3379,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 group.leave()
                 return
             }
-            log.info("cycle \(operation, privacy: .public) automatic eject worker started trigger=\(reason, privacy: .public) dispatchLatency=\(self.elapsedText(since: requestedAt), privacy: .public)s")
+            log.info("cycle \(operation, privacy: .public) automatic eject worker started reason=\(reason, privacy: .public) trigger=\(trigger.logLabel, privacy: .public) forceAllowed=\(trigger.effectiveForceFallback(masterEnabled: SettingsStore.forceFallbackEnabled), privacy: .public) dispatchLatency=\(self.elapsedText(since: requestedAt), privacy: .public)s")
             let attemptSucceeded: Bool
-            if reason == "displaySleep" {
+            if trigger.isDisplaySleep {
                 attemptSucceeded = self.performDisplaySleepEject(operation: operation,
                                                                  totalStarted: requestedAt,
+                                                                 forceClaims: selectedForceClaims,
                                                                  deadline: operationDeadline)
             } else {
                 attemptSucceeded = self.performSystemSleepEject(operation: operation,
                                                                 totalStarted: requestedAt,
                                                                 reason: reason,
+                                                                trigger: trigger,
+                                                                forceClaims: selectedForceClaims,
                                                                 deadline: operationDeadline)
             }
             self.sleepEjectStateLock.lock()
@@ -3240,13 +3404,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 self.activeSleepEjectGroup = nil
                 self.activeSleepEjectOperationID = nil
                 self.activeSleepEjectReason = nil
+                self.activeSleepEjectTrigger = nil
+                self.activeSleepEjectForceClaims = nil
                 self.activeSleepEjectOutcome = nil
             }
             self.sleepEjectStateLock.unlock()
             group.leave()
         }
 
-        return (operation, group, outcome, true, reason)
+        return (operation,
+                group,
+                outcome,
+                true,
+                reason,
+                trigger,
+                selectedForceClaims)
     }
 
     private func currentClamshellState(rootDomain: io_registry_entry_t) -> (closed: Bool?, causesSleep: Bool?) {
@@ -3315,9 +3487,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 기다리게 하면 DA approver callback 과 자기 교착하므로 작업만 시작하고 즉시 반환한다.
         beginPowerSleepMountBarrierIfNeeded()
         let lidGeneration = currentClosedLidGeneration()
+        let trigger = attributedSystemSleepTrigger(isIdle: nil,
+                                                   lidGeneration: lidGeneration)
+        let boundaryForceClaims = lidGeneration.flatMap {
+            currentLidEpisodeForceClaims(generation: $0)
+        } ?? SleepEpisodeForceClaimLedger()
         let operationDeadline = Date().addingTimeInterval(24)
         let task = startSleepEjectIfNeeded(reason: "workspaceSleep",
+                                           trigger: trigger,
                                            lidGeneration: lidGeneration,
+                                           forceClaims: boundaryForceClaims,
                                            deadline: operationDeadline)
         let completion = DispatchGroup()
         completion.enter()
@@ -3326,16 +3505,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             deadline: operationDeadline,
             hasRunFreshBoundaryInventory: isPowerBoundaryReason(task.reason),
             retryAlreadyStarted: false,
-            completion: completion
+            completion: completion,
+            boundaryTrigger: trigger,
+            boundaryForceClaims: boundaryForceClaims
         )
-        log.notice("cycle \(task.operationID, privacy: .public) NSWorkspace willSleep fallback received; async eject \((task.started ? "started" : "joined"), privacy: .public)")
+        log.notice("cycle \(task.operationID, privacy: .public) NSWorkspace willSleep fallback received; trigger=\(trigger.logLabel, privacy: .public) async eject \((task.started ? "started" : "joined"), privacy: .public)")
     }
 
     private func performSystemSleepEject(operation: String,
                                          totalStarted: Date,
                                          reason: String,
+                                         trigger: SleepEjectTrigger,
+                                         forceClaims: SleepEpisodeForceClaimLedger,
                                          deadline: Date) -> Bool {
-        log.notice("cycle \(operation, privacy: .public) willSleep handler settings source=\(reason, privacy: .public) sleepEject=\(SleepEject.enabled, privacy: .public) displaySleepEject=\(DisplaySleepEject.enabled, privacy: .public) forceFallback=\(SettingsStore.forceFallbackEnabled, privacy: .public) libraryMgmt=\(LibraryAppManagement.enabled, privacy: .public)")
+        log.notice("cycle \(operation, privacy: .public) willSleep handler settings source=\(reason, privacy: .public) trigger=\(trigger.logLabel, privacy: .public) sleepEject=\(SleepEject.enabled, privacy: .public) displaySleepEject=\(DisplaySleepEject.enabled, privacy: .public) forceFallback=\(SettingsStore.forceFallbackEnabled, privacy: .public) effectiveForce=\(trigger.effectiveForceFallback(masterEnabled: SettingsStore.forceFallbackEnabled), privacy: .public) libraryMgmt=\(LibraryAppManagement.enabled, privacy: .public)")
         if let until = skipSleepAutoEjectUntil, Date() < until {
             skipSleepAutoEjectUntil = nil
             log.info("cycle \(operation, privacy: .public) EJECT(sleep) SKIPPED — already handled by Eject and Sleep")
@@ -3343,14 +3526,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         skipSleepAutoEjectUntil = nil
 
-        // 원인별 분리: 직전 뚜껑 닫힘이 시간 창 안에 있으면 이 잠자기는 뚜껑 때문(lid-caused) →
-        // LidCloseEject 토글이 게이트. 그 외(자동 idle / 메뉴 잠자기)는 SleepEject 토글이 게이트.
-        let lidCaused: Bool = {
-            if reason == "clamshell" { return true }
-            if currentClosedLidGeneration() != nil { return true }
-            guard let closedAt = lastClamshellCloseAt else { return false }
-            return Date().timeIntervalSince(closedAt) < clamshellSleepAttributionWindow
-        }()
+        // Lid close keeps its dedicated opt-in. Idle and forced non-lid sleep share the existing
+        // SleepEject switch; only their force-fallback authorization differs.
+        let lidCaused = trigger == .lidClose
         guard (lidCaused ? LidCloseEject.enabled : SleepEject.enabled) else {
             log.info("cycle \(operation, privacy: .public) EJECT(sleep) SKIPPED — \(lidCaused ? "LidCloseEject" : "SleepEject", privacy: .public) disabled lidCaused=\(lidCaused, privacy: .public)")
             return true
@@ -3366,6 +3544,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         let ejectStarted = Date()
         let r = ejectAllForSleep(operationID: operation,
+                                 trigger: trigger,
+                                 forceClaims: forceClaims,
                                  deadline: deadline)
         recordAutomaticUnmountTargets(r.remountTargets,
                                       operationID: operation,
@@ -3483,12 +3663,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.info("EJECT(displaysleep) SKIPPED — DisplaySleepEject disabled")
             return
         }
-        let task = startSleepEjectIfNeeded(reason: "displaySleep")
+        let task = startSleepEjectIfNeeded(reason: "displaySleep",
+                                           trigger: .displaySleep)
         log.notice("cycle \(task.operationID, privacy: .public) screensDidSleep async eject \((task.started ? "started" : "joined"), privacy: .public)")
     }
 
     private func performDisplaySleepEject(operation: String,
                                           totalStarted: Date,
+                                          forceClaims: SleepEpisodeForceClaimLedger,
                                           deadline: Date) -> Bool {
         guard DisplaySleepEject.enabled else {
             log.info("cycle \(operation, privacy: .public) EJECT(displaysleep) SKIPPED — DisplaySleepEject disabled before execution")
@@ -3511,6 +3693,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let r = ejectAllForSleep(operationID: operation,
                                  applyExcludeFilter: true,
                                  context: "displaySleep",
+                                 trigger: .displaySleep,
+                                 forceClaims: forceClaims,
                                  deadline: deadline)
         recordAutomaticUnmountTargets(r.remountTargets,
                                       operationID: operation,
@@ -3562,9 +3746,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             log.info("cycle \(operation, privacy: .public) \(trigger, privacy: .public) → no remount target")
-            if LibraryAppManagement.enabled {
-                LibraryAppHandler.relaunchQuitApps()
-            }
+            LibraryAppHandler.relaunchQuitApps()
         } else {
             log.info("cycle \(operation, privacy: .public) \(trigger, privacy: .public) remount already scheduled/active targets=\(targets.sorted(), privacy: .public)")
         }
@@ -3602,7 +3784,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             )
             self.autoEjectStateLock.unlock()
 
-            if mayRelaunchLibraryApps, LibraryAppManagement.enabled {
+            if mayRelaunchLibraryApps {
                 LibraryAppHandler.relaunchQuitApps()
             }
             if let nextSchedule {
@@ -3791,7 +3973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func ensureNotificationAuthorizationRequested() {
         guard !didRequestNotificationAuthorization else { return }
         didRequestNotificationAuthorization = true
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { granted, error in
             log.notice("contextual notification auth: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
         }
     }
@@ -3938,13 +4120,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         ] as CFDictionary)
         log.notice("Accessibility trusted = \(trusted, privacy: .public)")
 
-        // 저장된 설정이 어떤 경위로 같은 preset 두 개를 갖게 되었으면 시작 시 자동 정정.
-        // (구버전 → 신버전 마이그레이션, defaults 직접 편집 등)
-        if SettingsStore.ejectHotkey == SettingsStore.mountHotkey {
-            let original = SettingsStore.mountHotkey
-            let replacement = SettingsHotkeyPreset.allCases.first(where: { $0 != original }) ?? original
-            SettingsStore.mountHotkey = replacement
-            log.notice("hotkey conflict detected at startup: mount moved \(original.title, privacy: .public) → \(replacement.title, privacy: .public)")
+        // Repair all three assignments together. Eject keeps startup priority, then Mount, then
+        // the optional Eject and Sleep shortcut; no action can become unreachable.
+        let normalized = SettingsShortcutConflictPolicy.normalized(
+            SettingsStore.shortcutAssignments,
+            available: SettingsHotkeyPreset.allCases
+        )
+        if !normalized.displacedRoles.isEmpty {
+            SettingsStore.shortcutAssignments = normalized.assignments
+            log.notice("hotkey conflicts repaired at startup: displaced=\(String(describing: normalized.displacedRoles), privacy: .public)")
         }
 
         let ejectHotkey = SettingsStore.ejectHotkey
@@ -4046,8 +4230,11 @@ private struct SleepAutomaticVolumeSnapshot {
 private struct SleepUnmountAttemptResult {
     let success: Bool
     let errorMessage: String?
-    /// normal DADiskUnmount가 callback으로 명시적으로 거절된 경우에만 true.
-    let explicitDecline: Bool
+    /// Present only when Disk Arbitration supplied an explicit dissenter callback.
+    let dissenterStatus: SleepUnmountDissenterStatus?
+    /// A normal caller can join an already-pending force request. Preserve the actual mode so its
+    /// failure can never be interpreted as permission to submit another force operation.
+    let requestWasForced: Bool
 }
 
 private final class SleepEjectOutcomeBox: @unchecked Sendable {
@@ -4069,7 +4256,7 @@ private final class SleepEjectOutcomeBox: @unchecked Sendable {
 
 private enum SleepDAUnmountEvidence {
     case callbackSuccess
-    case callbackFailure(String)
+    case callbackFailure(SleepUnmountDissenterStatus, String)
     case disconnectedBeforeCallback
 }
 
@@ -4348,12 +4535,47 @@ private enum SettingsStore {
             }
         }
     }
+
+    static var shortcutAssignments: SettingsShortcutAssignments<SettingsHotkeyPreset> {
+        get {
+            SettingsShortcutAssignments(eject: ejectHotkey,
+                                        mount: mountHotkey,
+                                        ejectAndSleep: ejectAndSleepHotkey)
+        }
+        set {
+            ejectHotkey = newValue.eject
+            mountHotkey = newValue.mount
+            ejectAndSleepHotkey = newValue.ejectAndSleep
+        }
+    }
+}
+
+private struct PremiumSettingsState {
+    let isConfigured: Bool
+    let hasAccess: Bool
+    let isPurchaseInProgress: Bool
+    let isOpeningDetails: Bool
+    let isCheckingStatus: Bool
+    let isRestoring: Bool
+    let canOpenDetails: Bool
+    let hasRecoveryCode: Bool
+}
+
+private struct PremiumSettingsActions {
+    let purchase: () -> Void
+    let stopPurchaseCheck: () -> Void
+    let viewDetails: () -> Void
+    let copyRecoveryCode: () -> Void
+    let checkStatus: () -> Void
+    let restore: () -> Void
 }
 
 private final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     private let onHotkeyChanged: () -> Void
     private let onClosed: () -> Void
     private let onCheckForUpdates: () -> Void
+    private let premiumState: () -> PremiumSettingsState
+    private let premiumActions: PremiumSettingsActions
 
     private var loginToggle: NSButton!
     private var sleepToggle: NSButton!
@@ -4363,6 +4585,8 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private var notificationsToggle: NSButton!
     private var successNotificationsToggle: NSButton!
     private var failureNotificationsToggle: NSButton!
+    private var notificationPermissionHint: NSTextField!
+    private var notificationSettingsButton: NSButton!
     private var forceFallbackToggle: NSButton!
     private var rightClickEjectToggle: NSButton!
     private var crashReportingToggle: NSButton!
@@ -4370,10 +4594,17 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private var mountHotkeyPopup: NSPopUpButton!
     private var ejectAndSleepHotkeyPopup: NSPopUpButton!
     private var languagePopup: NSPopUpButton!
+    private var premiumStatusLabel: NSTextField!
+    private var premiumPurchaseButton: NSButton!
+    private var premiumStopButton: NSButton!
+    private var premiumDetailsButton: NSButton!
+    private var premiumRecoveryButton: NSButton!
+    private var premiumCheckButton: NSButton!
+    private var premiumRestoreButton: NSButton!
 
     /// 설정 페인 — 시스템 설정과 같은 툴바 스타일 (아이콘+라벨 탭, 페인별 높이, 창 제목 = 페인 이름).
     private enum Pane: String, CaseIterable {
-        case general, eject, notifications, hotkeys, about
+        case general, eject, notifications, hotkeys, premium, about
 
         var identifier: NSToolbarItem.Identifier { NSToolbarItem.Identifier(rawValue) }
 
@@ -4383,6 +4614,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             case .eject: return String(localized: "Eject Behavior")
             case .notifications: return String(localized: "Notifications")
             case .hotkeys: return String(localized: "Hotkeys")
+            case .premium: return String(localized: "Premium")
             case .about: return String(localized: "About")
             }
         }
@@ -4393,6 +4625,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             case .eject: return "eject"
             case .notifications: return "bell"
             case .hotkeys: return "keyboard"
+            case .premium: return "star.circle"
             case .about: return "info.circle"
             }
         }
@@ -4407,10 +4640,14 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     init(onHotkeyChanged: @escaping () -> Void,
          onClosed: @escaping () -> Void,
-         onCheckForUpdates: @escaping () -> Void) {
+         onCheckForUpdates: @escaping () -> Void,
+         premiumState: @escaping () -> PremiumSettingsState,
+         premiumActions: PremiumSettingsActions) {
         self.onHotkeyChanged = onHotkeyChanged
         self.onClosed = onClosed
         self.onCheckForUpdates = onCheckForUpdates
+        self.premiumState = premiumState
+        self.premiumActions = premiumActions
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.paneWidth, height: 320),
                               styleMask: [.titled, .closable],
                               backing: .buffered,
@@ -4431,6 +4668,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             .eject: makeEjectPane(),
             .notifications: makeNotificationsPane(),
             .hotkeys: makeHotkeysPane(),
+            .premium: makePremiumPane(),
             .about: makeAboutPane(),
         ]
         showPane(.general, animated: false)
@@ -4451,6 +4689,16 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func refreshExternalState() {
+        guard isWindowLoaded else { return }
+        refreshControls()
+    }
+
+    func showPremiumPane() {
+        refreshControls()
+        showPane(.premium, animated: window?.isVisible == true)
     }
 
     // MARK: Toolbar (페인 전환)
@@ -4550,7 +4798,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         lidCloseToggle = checkbox(title: String(localized: "Eject on lid close"), action: #selector(toggleLidCloseEject(_:)))
         displaySleepToggle = checkbox(title: String(localized: "Eject on display sleep (experimental)"), action: #selector(toggleDisplaySleepEject(_:)))
         libraryAppToggle = checkbox(title: String(localized: "Quit Music/Photos before sleep"), action: #selector(toggleLibraryAppManagement(_:)))
-        forceFallbackToggle = checkbox(title: String(localized: "Force fallback"), action: #selector(toggleForceFallback(_:)))
+        forceFallbackToggle = checkbox(title: String(localized: "Allow Force Unmount"), action: #selector(toggleForceFallback(_:)))
         rightClickEjectToggle = checkbox(title: String(localized: "Right-click menu bar icon to eject all"),
                                          action: #selector(toggleRightClickEject(_:)))
 
@@ -4559,7 +4807,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             settingRow(lidCloseToggle, description: String(localized: "Eject all external drives the moment you close the lid.")),
             settingRow(displaySleepToggle, description: String(localized: "Also eject when only the display goes to sleep — for Macs set to never sleep.")),
             settingRow(libraryAppToggle, description: String(localized: "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives.")),
-            settingRow(forceFallbackToggle, description: String(localized: "Retry with a force unmount when a normal eject fails.")),
+            settingRow(forceFallbackToggle, description: String(localized: "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep, lid close, and immediate system sleep (Apple menu, power key, or similar causes) try it once only when the disk is busy. Idle and display sleep never use it.")),
             settingRow(rightClickEjectToggle, description: String(localized: "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives.")),
         ])
     }
@@ -4568,6 +4816,16 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         notificationsToggle = checkbox(title: String(localized: "Notifications"), action: #selector(toggleNotifications(_:)))
         successNotificationsToggle = checkbox(title: String(localized: "Success notifications"), action: #selector(toggleSuccessNotifications(_:)))
         failureNotificationsToggle = checkbox(title: String(localized: "Failure notifications"), action: #selector(toggleFailureNotifications(_:)))
+
+        notificationPermissionHint = NSTextField(wrappingLabelWithString:
+            String(localized: "Notifications are blocked in System Settings."))
+        notificationPermissionHint.font = .systemFont(ofSize: UI.captionSize)
+        notificationPermissionHint.textColor = .systemOrange
+        notificationPermissionHint.preferredMaxLayoutWidth = Self.paneWidth - UI.windowPadding * 2
+        notificationSettingsButton = NSButton(title: String(localized: "Open Notification Settings…"),
+                                              target: self,
+                                              action: #selector(openNotificationSettings))
+        notificationSettingsButton.bezelStyle = .rounded
 
         // 무음 설계 안내 — 알림 동작에 대한 설명이므로 이 페인에 (이전엔 About 에 잘못 배치).
         let hint = NSTextField(wrappingLabelWithString:
@@ -4580,6 +4838,8 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             notificationsToggle,
             indented(successNotificationsToggle),
             indented(failureNotificationsToggle),
+            notificationPermissionHint,
+            notificationSettingsButton,
             hint,
         ])
     }
@@ -4594,6 +4854,32 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
                 (String(localized: "Mount all"), mountHotkeyPopup),
                 (String(localized: "Eject and Sleep"), ejectAndSleepHotkeyPopup),
             ]),
+        ])
+    }
+
+    private func makePremiumPane() -> NSView {
+        premiumStatusLabel = NSTextField(wrappingLabelWithString: "")
+        premiumStatusLabel.font = .systemFont(ofSize: UI.bodySize, weight: .medium)
+        premiumPurchaseButton = actionButton(String(localized: "Unlock Animated Icons — USD 4.99 One-Time…"),
+                                             #selector(premiumPurchaseClicked))
+        premiumStopButton = actionButton(String(localized: "Stop Checking Purchase…"),
+                                         #selector(premiumStopClicked))
+        premiumDetailsButton = actionButton(String(localized: "View Purchase Details…"),
+                                            #selector(premiumDetailsClicked))
+        premiumRecoveryButton = actionButton(String(localized: "Copy Recovery Code…"),
+                                             #selector(premiumRecoveryClicked))
+        premiumCheckButton = actionButton(String(localized: "Check Purchase Status…"),
+                                          #selector(premiumCheckClicked))
+        premiumRestoreButton = actionButton(String(localized: "Restore Purchase…"),
+                                            #selector(premiumRestoreClicked))
+        return pane([
+            premiumStatusLabel,
+            premiumPurchaseButton,
+            premiumStopButton,
+            premiumDetailsButton,
+            premiumRecoveryButton,
+            premiumCheckButton,
+            premiumRestoreButton,
         ])
     }
 
@@ -4748,6 +5034,12 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         NSButton(checkboxWithTitle: title, target: self, action: action)
     }
 
+    private func actionButton(_ title: String, _ action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.bezelStyle = .rounded
+        return button
+    }
+
     private func hotkeyPopup(action: Selector) -> NSPopUpButton {
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
         for preset in SettingsHotkeyPreset.allCases {
@@ -4778,7 +5070,10 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         loginToggle.title = loginStatus == .requiresApproval
             ? String(localized: "Launch at login (needs approval)")
             : String(localized: "Launch at login")
-        loginToggle.state = (loginStatus == .enabled || loginStatus == .requiresApproval) ? .on : .off
+        loginToggle.allowsMixedState = loginStatus == .requiresApproval
+        loginToggle.state = loginStatus == .requiresApproval
+            ? .mixed
+            : (loginStatus == .enabled ? .on : .off)
         sleepToggle.state = SleepEject.enabled ? .on : .off
         lidCloseToggle.state = LidCloseEject.enabled ? .on : .off
         displaySleepToggle.state = DisplaySleepEject.enabled ? .on : .off
@@ -4794,7 +5089,37 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         selectOptionalHotkey(SettingsStore.ejectAndSleepHotkey, in: ejectAndSleepHotkeyPopup)
         selectLanguage(SettingsStore.appLanguage, in: languagePopup)
         refreshNotificationControlState()
+        refreshNotificationPermissionState()
+        refreshPremiumControls()
     }
+
+    private func refreshPremiumControls() {
+        let state = premiumState()
+        premiumStatusLabel.stringValue = !state.isConfigured
+            ? String(localized: "Premium is unavailable in this build")
+            : (state.hasAccess
+                ? String(localized: "Premium is active")
+                : String(localized: "No active purchase was found"))
+        let busy = state.isPurchaseInProgress || state.isCheckingStatus || state.isRestoring
+        premiumPurchaseButton.isHidden = !state.isConfigured || state.hasAccess || state.isPurchaseInProgress
+        premiumPurchaseButton.isEnabled = !busy
+        premiumStopButton.isHidden = !state.isPurchaseInProgress
+        premiumDetailsButton.isHidden = !state.hasAccess
+        premiumDetailsButton.isEnabled = state.canOpenDetails && !state.isOpeningDetails
+        premiumRecoveryButton.isHidden = !state.hasAccess
+        premiumRecoveryButton.isEnabled = state.hasRecoveryCode
+        premiumCheckButton.isHidden = !state.isConfigured || state.hasAccess || state.isPurchaseInProgress
+        premiumCheckButton.isEnabled = !busy
+        premiumRestoreButton.isHidden = !state.isConfigured || state.hasAccess || state.isPurchaseInProgress
+        premiumRestoreButton.isEnabled = !busy
+    }
+
+    @objc private func premiumPurchaseClicked() { premiumActions.purchase(); refreshPremiumControls() }
+    @objc private func premiumStopClicked() { premiumActions.stopPurchaseCheck(); refreshPremiumControls() }
+    @objc private func premiumDetailsClicked() { premiumActions.viewDetails(); refreshPremiumControls() }
+    @objc private func premiumRecoveryClicked() { premiumActions.copyRecoveryCode(); refreshPremiumControls() }
+    @objc private func premiumCheckClicked() { premiumActions.checkStatus(); refreshPremiumControls() }
+    @objc private func premiumRestoreClicked() { premiumActions.restore(); refreshPremiumControls() }
 
     /// representedObject 가 lang 코드 ("system" / "en" / "ko" / "ja" / "zh-Hans") 인 항목을 popup 에서 선택.
     private func selectLanguage(_ lang: String, in popup: NSPopUpButton) {
@@ -4812,6 +5137,17 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         let enabled = SettingsStore.notificationsEnabled
         successNotificationsToggle.isEnabled = enabled
         failureNotificationsToggle.isEnabled = enabled
+    }
+
+    private func refreshNotificationPermissionState() {
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let denied = settings.authorizationStatus == .denied
+                self.notificationPermissionHint.isHidden = !denied
+                self.notificationSettingsButton.isHidden = !denied
+            }
+        }
     }
 
     private func selectHotkey(_ preset: SettingsHotkeyPreset, in popup: NSPopUpButton) {
@@ -4874,6 +5210,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             requestNotificationAuthorization()
         }
         refreshNotificationControlState()
+        refreshNotificationPermissionState()
     }
 
     @objc private func toggleSuccessNotifications(_ sender: NSButton) {
@@ -4894,6 +5231,10 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     @objc private func toggleCrashReporting(_ sender: NSButton) {
         SettingsStore.crashReportingEnabled = sender.state == .on
+        ReportEndpoint.setReportingEnabled(SettingsStore.crashReportingEnabled)
+        if SettingsStore.crashReportingEnabled {
+            CrashReporter.harvestIfEnabled()
+        }
     }
 
     /// 환경설정의 언어 popup 변경. 새 값이 기존과 다르면 SettingsStore 갱신 + 재시작 다이얼로그.
@@ -4919,31 +5260,12 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     @objc private func ejectHotkeyChanged(_ sender: NSPopUpButton) {
         let chosen = SettingsHotkeyPreset.allCases[sender.indexOfSelectedItem]
-        // 추출/마운트 단축키가 같은 preset 이면 충돌 — handleHotkey 가 추출만 매칭하고 마운트는 영원히 안 발화.
-        // 사용자에게 알리고 mount 를 자동으로 다른 preset 으로 옮긴다.
-        if chosen == SettingsStore.mountHotkey {
-            SettingsStore.mountHotkey = nextDistinctPreset(from: chosen)
-            selectHotkey(SettingsStore.mountHotkey, in: mountHotkeyPopup)
-            showHotkeyConflictAlert(displacedKind: .mount)
-        }
-        SettingsStore.ejectHotkey = chosen
-        onHotkeyChanged()
+        applyHotkeyChoice(chosen, to: .eject)
     }
 
     @objc private func mountHotkeyChanged(_ sender: NSPopUpButton) {
         let chosen = SettingsHotkeyPreset.allCases[sender.indexOfSelectedItem]
-        if chosen == SettingsStore.ejectHotkey {
-            SettingsStore.ejectHotkey = nextDistinctPreset(from: chosen)
-            selectHotkey(SettingsStore.ejectHotkey, in: ejectHotkeyPopup)
-            showHotkeyConflictAlert(displacedKind: .eject)
-        }
-        SettingsStore.mountHotkey = chosen
-        onHotkeyChanged()
-    }
-
-    /// 주어진 preset 과 다른 첫 번째 preset (allCases 순서). 충돌 회피용.
-    private func nextDistinctPreset(from preset: SettingsHotkeyPreset) -> SettingsHotkeyPreset {
-        SettingsHotkeyPreset.allCases.first(where: { $0 != preset }) ?? preset
+        applyHotkeyChoice(chosen, to: .mount)
     }
 
     @objc private func ejectAndSleepHotkeyChanged(_ sender: NSPopUpButton) {
@@ -4954,37 +5276,39 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             return
         }
         let chosen = SettingsHotkeyPreset.allCases[index - 1]
-        // eject / mount 와 같은 preset 이면 handleHotkey 가 이쪽까지 도달 안 함 — 자동으로 다른 값으로.
-        if chosen == SettingsStore.ejectHotkey || chosen == SettingsStore.mountHotkey {
-            let alert = NSAlert()
-            alert.messageText = String(localized: "Hotkey conflict")
-            alert.informativeText = String(localized: "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one.")
-            alert.alertStyle = .informational
-            alert.runModal()
-            selectOptionalHotkey(SettingsStore.ejectAndSleepHotkey, in: sender)
-            return
-        }
-        SettingsStore.ejectAndSleepHotkey = chosen
-        onHotkeyChanged()
+        applyHotkeyChoice(chosen, to: .ejectAndSleep)
     }
 
-    private enum HotkeyKind { case eject, mount }
-
-    private func showHotkeyConflictAlert(displacedKind: HotkeyKind) {
+    private func applyHotkeyChoice(_ chosen: SettingsHotkeyPreset, to role: SettingsShortcutRole) {
+        let resolution = SettingsShortcutConflictPolicy.assigning(
+            chosen,
+            to: role,
+            current: SettingsStore.shortcutAssignments,
+            available: SettingsHotkeyPreset.allCases
+        )
+        SettingsStore.shortcutAssignments = resolution.assignments
+        selectHotkey(resolution.assignments.eject, in: ejectHotkeyPopup)
+        selectHotkey(resolution.assignments.mount, in: mountHotkeyPopup)
+        selectOptionalHotkey(resolution.assignments.ejectAndSleep, in: ejectAndSleepHotkeyPopup)
+        onHotkeyChanged()
+        guard !resolution.displacedRoles.isEmpty else { return }
         let alert = NSAlert()
         alert.messageText = String(localized: "Hotkey conflict")
-        let kindLabel = displacedKind == .eject
-            ? String(localized: "Eject all")
-            : String(localized: "Mount all")
-        alert.informativeText = String(localized: "Eject and Mount can't share the same shortcut. \(kindLabel) was moved to a different preset.")
+        alert.informativeText = String(localized: "The shortcut you chose is now assigned to this action. Conflicting actions were moved to unused shortcuts.")
         alert.alertStyle = .informational
         alert.runModal()
     }
 
     private func requestNotificationAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { [weak self] granted, error in
             log.notice("settings requestAuthorization: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
+            DispatchQueue.main.async { self?.refreshNotificationPermissionState() }
         }
+    }
+
+    @objc private func openNotificationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func showError(_ message: String) {
@@ -5285,7 +5609,7 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
             openSystemSettings("x-apple.systempreferences:com.apple.preference.notifications")
         } else {
             SettingsStore.notificationsEnabled = true
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { granted, error in
                 log.notice("onboarding notification auth: granted=\(granted, privacy: .public) error=\(error?.localizedDescription ?? "nil", privacy: .public)")
             }
         }
@@ -6919,7 +7243,8 @@ private final class DAInventory {
                     .fromOpaque(contextPointer)
                     .takeRetainedValue()
                 guard let inventory = pending.inventory else {
-                    _ = pending.finishOnce(.callbackFailure("DA inventory unavailable"))
+                    _ = pending.finishOnce(.callbackFailure(.other(0),
+                                                             "DA inventory unavailable"))
                     return
                 }
                 inventory.finishSleepUnmountOnQueue(pending, dissenter: dissenter)
@@ -6953,9 +7278,12 @@ private final class DAInventory {
         let evidence: SleepDAUnmountEvidence
         if let dissenter {
             let status = DADissenterGetStatus(dissenter)
+            let typedStatus = SleepUnmountDissenterStatus(
+                rawValue: UInt32(bitPattern: status)
+            )
             let reason = (DADissenterGetStatusString(dissenter) as String?)
                 ?? daDissenterStatusText(status)
-            evidence = .callbackFailure(reason)
+            evidence = .callbackFailure(typedStatus, reason)
         } else if physicalGenerations[request.token.wholeDiskBSD] == request.token.generation,
                   currentIOMediaRegistryEntryID(bsd: request.token.wholeDiskBSD)
                     == request.token.mediaRegistryEntryID {
@@ -7640,22 +7968,12 @@ private final class DAInventory {
 /// 잠자기 진입 시 자동 추출 여부.
 /// 노트북 / 데스크탑 / sleep 종류 무관 — 모든 sleep 에서 추출. wake 시 자동 재마운트로 짝.
 ///
-/// **마이그레이션**: v0.1.0 의 `ejectOnLidClose` key 가 있으면 그 값 승계, 없으면 default true.
+/// Legacy preference migration runs once at launch before either modern value is read.
 enum SleepEject {
     private static let key = "ejectOnSleep"
-    private static let legacyKey = "ejectOnLidClose"
 
     static var enabled: Bool {
-        get {
-            let d = UserDefaults.standard
-            if let v = d.object(forKey: key) as? Bool { return v }
-            if let legacy = d.object(forKey: legacyKey) as? Bool {
-                d.set(legacy, forKey: key)
-                d.removeObject(forKey: legacyKey)
-                return legacy
-            }
-            return true
-        }
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
@@ -7663,21 +7981,12 @@ enum SleepEject {
 /// 노트북 뚜껑(클램쉘)을 닫을 때 자동 추출 여부. `SleepEject`(잠자기 시) 와 별개 토글.
 /// 담당 경로: ① 뚜껑 닫힘 선(先)추출(clamshell pre-eject), ② '뚜껑 닫음이 일으킨 잠자기' 경로.
 /// **default = true** — 노트북 사용자의 가장 흔한 시나리오(자리 뜰 때 뚜껑 닫음).
-/// 마이그레이션: 기존엔 `ejectOnSleep` 하나가 뚜껑+잠자기를 모두 담당했으므로,
-/// 키가 없으면 현재 `ejectOnSleep` 값을 1회 상속해 업데이트 후 동작이 바뀌지 않게 한다.
+/// Legacy values are resolved centrally at launch so the result cannot depend on getter order.
 enum LidCloseEject {
     private static let key = "ejectOnClamshell"
 
     static var enabled: Bool {
-        get {
-            let d = UserDefaults.standard
-            if let v = d.object(forKey: key) as? Bool { return v }
-            if let inherited = d.object(forKey: "ejectOnSleep") as? Bool {
-                d.set(inherited, forKey: key)
-                return inherited
-            }
-            return true
-        }
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
@@ -7763,12 +8072,11 @@ enum LibraryAppManagement {
 /// 만약 macOS 정책 변경으로 막히면 AppleScript fallback (`scripting-targets` entitlement) 검토.
 enum LibraryAppHandler {
     private static let bundleIDs = ["com.apple.Music", "com.apple.Photos"]
+    /// Overlapping display/system sleep requests can finish in either order. Union every accepted
+    /// graceful quit until one valid wake/cancel path atomically drains the relaunch ledger.
+    private static let relaunchLedger = LibraryAppRelaunchLedger()
 
-    /// wake 시 relaunch 대상 — sleep 직전에 종료한 앱들의 bundle ID.
-    /// process 상에 보관 — 앱 자체 재시작에는 살아남지 않지만 sleep/wake 사이엔 유효.
-    private static var quitBundles: [String] = []
-
-    /// 실행 중인 Music / Photos 종료. 종료된 bundle 들은 quitBundles 에 기록.
+    /// 실행 중인 Music / Photos 종료. 받아들여진 bundle 들은 relaunch ledger에 합쳐 기록.
     /// background thread 또는 main thread 어디서든 호출 가능 (NSWorkspace 는 thread-safe).
     /// terminate() 는 비동기라, 라이브러리 lock 이 풀릴 때까지 짧은 polling 으로 기다린다 —
     /// 그렇지 않으면 직후 추출이 lock 에 걸려 실패할 수 있다.
@@ -7778,9 +8086,10 @@ enum LibraryAppHandler {
             guard let bid = $0.bundleIdentifier else { return false }
             return bundleIDs.contains(bid)
         }
-        // wake 시 relaunch 하려고 종료한 bundle 기록 — 이 경로(sleep) 전용 상태.
-        quitBundles = terminate(apps: targets, timeout: 3.0)
-        log.info("LibraryAppHandler: quit \(quitBundles.count, privacy: .public) apps = \(quitBundles, privacy: .public)")
+        // wake 시 relaunch 하려고 종료한 bundle 기록 — overlapping calls must not overwrite it.
+        let accepted = terminate(apps: targets, timeout: 3.0)
+        relaunchLedger.record(accepted)
+        log.info("LibraryAppHandler: quit \(accepted.count, privacy: .public) apps = \(accepted, privacy: .public)")
     }
 
     /// graceful terminate + 종료 완료 polling. 재사용 코어 — sleep 라이브러리 종료와 능동 복구
@@ -7821,8 +8130,7 @@ enum LibraryAppHandler {
     /// 앞서 종료한 앱들 재실행. 없으면 no-op.
     /// 사용자가 wake 후 즉시 화면 보지 못해도 백그라운드로 라이브러리 다시 마운트되어 있도록.
     static func relaunchQuitApps() {
-        let toLaunch = quitBundles
-        quitBundles = []   // 즉시 clear (멀티 wake / 재진입 보호)
+        let toLaunch = relaunchLedger.drain()
         guard !toLaunch.isEmpty else { return }
         let workspace = NSWorkspace.shared
         for bid in toLaunch {
@@ -8157,6 +8465,12 @@ fileprivate enum ReportEndpoint {
     static let expectedBundleID = "com.yongza.ejectdrives"
     static let signatureLimit = 256
     static let detailLimit = 4096   // ~4KB cap
+    private static let operations = CancelableOperationRegistry(enabled: false)
+
+    /// Turning diagnostics off is a hard boundary: reject queued work and cancel active requests.
+    static func setReportingEnabled(_ enabled: Bool) {
+        operations.setEnabled(enabled)
+    }
 
     /// CFBundleShortVersionString — 못 읽으면 "?".
     static var appVersion: String {
@@ -8174,6 +8488,10 @@ fileprivate enum ReportEndpoint {
     /// `completion(success)` 는 실제 2xx 응답일 때만 true (오프라인·타임아웃·non-2xx → false).
     /// 호출부가 결과에 따라 dedup 기록 여부를 정할 수 있게 (예: 크래시 at-least-once).
     static func post(_ payload: [String: String], completion: ((Bool) -> Void)? = nil) {
+        guard SettingsStore.crashReportingEnabled else {
+            completion?(false)
+            return
+        }
         guard let body = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
             completion?(false)
             return
@@ -8187,12 +8505,23 @@ fileprivate enum ReportEndpoint {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
+        let completionGate = OneShotBooleanCallback(completion)
         // 응답·에러는 best-effort. success = (에러 없음 && HTTP 2xx). completion 절대 throw/crash 안 함.
+        let operationID = UUID()
         let task = session.dataTask(with: request) { _, response, error in
             let success = error == nil
                 && ((response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false)
-            completion?(success)
+            operations.finish(id: operationID)
+            completionGate.call(success)
             session.finishTasksAndInvalidate()
+        }
+        guard operations.register(id: operationID, cancel: {
+            task.cancel()
+            session.invalidateAndCancel()
+        }) else {
+            session.invalidateAndCancel()
+            completionGate.call(false)
+            return
         }
         task.resume()
     }
@@ -8288,6 +8617,7 @@ fileprivate enum ErrorReporter {
         lock.unlock()
 
         DispatchQueue.global(qos: .utility).async {
+            guard SettingsStore.crashReportingEnabled else { return }
             ReportEndpoint.post([
                 "kind": "error",
                 "signature": signature,
@@ -8345,6 +8675,7 @@ fileprivate enum CrashReporter {
         let cutoff = Date().addingTimeInterval(-maxAgeSeconds)
 
         for url in candidates {
+            guard SettingsStore.crashReportingEnabled else { return }
             // 나이 사전필터: ~30일보다 오래된 .ips 는 스캔 비용 절감 위해 무시 (식별 아님).
             let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             guard mtime >= cutoff else { continue }

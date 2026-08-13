@@ -1,5 +1,61 @@
 import Foundation
 
+/// Typed provenance for an automatic or explicit sleep-eject request.
+///
+/// Force fallback is authorized only by a trigger whose intent is known. Unknown system sleep
+/// remains normal-only so a missing classification cannot silently become destructive.
+enum SleepEjectTrigger: Equatable, Sendable {
+    case lidClose
+    case systemForced
+    case systemIdle
+    case displaySleep
+    case ejectAndSleep
+    case unknownSystemSleep
+
+    static func systemSleep(isIdle: Bool?, lidAttributed: Bool) -> SleepEjectTrigger {
+        if lidAttributed { return .lidClose }
+        guard let isIdle else { return .unknownSystemSleep }
+        return isIdle ? .systemIdle : .systemForced
+    }
+
+    var allowsForceFallback: Bool {
+        switch self {
+        case .lidClose, .systemForced, .ejectAndSleep:
+            return true
+        case .systemIdle, .displaySleep, .unknownSystemSleep:
+            return false
+        }
+    }
+
+    func effectiveForceFallback(masterEnabled: Bool) -> Bool {
+        masterEnabled && allowsForceFallback
+    }
+
+    var logLabel: String {
+        switch self {
+        case .lidClose: return "lidClose"
+        case .systemForced: return "systemForced"
+        case .systemIdle: return "systemIdle"
+        case .displaySleep: return "displaySleep"
+        case .ejectAndSleep: return "ejectAndSleep"
+        case .unknownSystemSleep: return "unknownSystemSleep"
+        }
+    }
+
+    var isDisplaySleep: Bool {
+        self == .displaySleep
+    }
+
+    var isSystemSleep: Bool {
+        switch self {
+        case .lidClose, .systemForced, .systemIdle, .unknownSystemSleep:
+            return true
+        case .displaySleep, .ejectAndSleep:
+            return false
+        }
+    }
+}
+
 struct SleepRemountTarget: Hashable, Sendable, Comparable {
     let wholeDiskBSD: String
     let physicalGeneration: UInt64
@@ -36,6 +92,22 @@ enum SleepLidInventoryPolicy {
     static func needsRefreshAfterJoiningActive(previousGeneration: UInt64?,
                                                requestedGeneration: UInt64) -> Bool {
         previousGeneration != requestedGeneration
+    }
+
+    /// Repeated joins for the same close generation must preserve the episode-local force ledger.
+    /// A new generation or a missing ledger receives a fresh/requested instance instead.
+    static func shouldReplaceForceClaimLedger(previousGeneration: UInt64?,
+                                              requestedGeneration: UInt64,
+                                              hasExistingLedger: Bool) -> Bool {
+        previousGeneration != requestedGeneration || !hasExistingLedger
+    }
+
+    /// A fresh inventory for the current lid episode keeps that episode's ledger even when an
+    /// older power-boundary chain offers its own ledger as a fallback.
+    static func shouldPreferExistingForceClaimLedger(episodeGeneration: UInt64?,
+                                                     requestedGeneration: UInt64,
+                                                     hasExistingLedger: Bool) -> Bool {
+        episodeGeneration == requestedGeneration && hasExistingLedger
     }
 
     /// Power ACK may finish only after the current closed-lid generation has completed a fresh

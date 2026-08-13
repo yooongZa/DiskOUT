@@ -18,6 +18,8 @@ private func disk(_ bsd: String,
 @main
 private enum SleepEpisodeCoordinatorTests {
     static func main() {
+        testSleepEjectTriggerPolicyForEveryCase()
+        testSystemSleepTriggerClassification()
         testRepeatedCloseAndRealRecloseEpisodes()
         testAmphetamineLidOpenWithoutWakeSchedulesRemount()
         testWakeWhileClosedDoesNotRemount()
@@ -33,8 +35,58 @@ private enum SleepEpisodeCoordinatorTests {
         testNewEjectDoesNotRescheduleCanceledRemountBeforeWake()
         testAmphetamineLateSleepGetsOnlyOneFailedEpisodeRetry()
         testNewCloseGenerationJoinedToActiveWorkRequiresFreshInventory()
+        testRepeatedLidJoinPreservesEpisodeForceLedger()
+        testCurrentLidRefreshPrefersItsEpisodeForceLedger()
         testPowerBoundaryWaitsForRefreshAndRetriesAtMostOnce()
         print("SleepEpisodeCoordinatorTests: PASS")
+    }
+
+    private static func testSleepEjectTriggerPolicyForEveryCase() {
+        let cases: [(trigger: SleepEjectTrigger,
+                     force: Bool,
+                     label: String,
+                     display: Bool,
+                     system: Bool)] = [
+            (.lidClose, true, "lidClose", false, true),
+            (.systemForced, true, "systemForced", false, true),
+            (.systemIdle, false, "systemIdle", false, true),
+            (.displaySleep, false, "displaySleep", true, false),
+            (.ejectAndSleep, true, "ejectAndSleep", false, false),
+            (.unknownSystemSleep, false, "unknownSystemSleep", false, true),
+        ]
+
+        for item in cases {
+            expect(item.trigger.allowsForceFallback == item.force,
+                   "\(item.label) force fallback policy must match its explicit trigger intent")
+            expect(item.trigger.effectiveForceFallback(masterEnabled: true) == item.force,
+                   "\(item.label) must honor its trigger policy while the master switch is on")
+            expect(!item.trigger.effectiveForceFallback(masterEnabled: false),
+                   "the master force switch must remain an opt-out for \(item.label)")
+            expect(item.trigger.logLabel == item.label,
+                   "\(item.label) must have a stable log label")
+            expect(item.trigger.isDisplaySleep == item.display,
+                   "\(item.label) display-sleep classification must be exact")
+            expect(item.trigger.isSystemSleep == item.system,
+                   "\(item.label) system-sleep classification must be exact")
+        }
+
+        expect(Set(cases.map { $0.trigger.logLabel }).count == cases.count,
+               "every trigger must have a unique log label")
+    }
+
+    private static func testSystemSleepTriggerClassification() {
+        expect(SleepEjectTrigger.systemSleep(isIdle: true, lidAttributed: false) == .systemIdle,
+               "CanSystemSleep-origin sleep must remain idle and normal-only")
+        expect(SleepEjectTrigger.systemSleep(isIdle: false, lidAttributed: false) == .systemForced,
+               "WillSleep without an idle candidate must remain forced")
+        expect(SleepEjectTrigger.systemSleep(isIdle: nil, lidAttributed: false) == .unknownSystemSleep,
+               "an unclassified fallback must fail closed")
+        expect(SleepEjectTrigger.systemSleep(isIdle: true, lidAttributed: true) == .lidClose,
+               "a lid-attributed boundary must override an idle candidate")
+        expect(SleepEjectTrigger.systemSleep(isIdle: false, lidAttributed: true) == .lidClose,
+               "a lid-attributed forced boundary must use the lid policy")
+        expect(SleepEjectTrigger.systemSleep(isIdle: nil, lidAttributed: true) == .lidClose,
+               "a fallback boundary with positive lid attribution must use the lid policy")
     }
 
     private static func testRepeatedCloseAndRealRecloseEpisodes() {
@@ -269,6 +321,60 @@ private enum SleepEpisodeCoordinatorTests {
                 explicitRefreshPending: true
             ),
             "a mounted-media event must override a completed generation"
+        )
+    }
+
+    private static func testRepeatedLidJoinPreservesEpisodeForceLedger() {
+        expect(
+            !SleepLidInventoryPolicy.shouldReplaceForceClaimLedger(
+                previousGeneration: 9,
+                requestedGeneration: 9,
+                hasExistingLedger: true
+            ),
+            "a repeated WillSleep join must not overwrite the current lid episode force ledger"
+        )
+        expect(
+            SleepLidInventoryPolicy.shouldReplaceForceClaimLedger(
+                previousGeneration: 8,
+                requestedGeneration: 9,
+                hasExistingLedger: true
+            ),
+            "a new physical close generation must receive a new force ledger"
+        )
+        expect(
+            SleepLidInventoryPolicy.shouldReplaceForceClaimLedger(
+                previousGeneration: 9,
+                requestedGeneration: 9,
+                hasExistingLedger: false
+            ),
+            "a missing current-generation ledger must be initialized"
+        )
+    }
+
+    private static func testCurrentLidRefreshPrefersItsEpisodeForceLedger() {
+        expect(
+            SleepLidInventoryPolicy.shouldPreferExistingForceClaimLedger(
+                episodeGeneration: 12,
+                requestedGeneration: 12,
+                hasExistingLedger: true
+            ),
+            "a boundary refresh must not overwrite the current close episode ledger"
+        )
+        expect(
+            !SleepLidInventoryPolicy.shouldPreferExistingForceClaimLedger(
+                episodeGeneration: 11,
+                requestedGeneration: 12,
+                hasExistingLedger: true
+            ),
+            "a stale generation ledger must not bleed into a new close episode"
+        )
+        expect(
+            !SleepLidInventoryPolicy.shouldPreferExistingForceClaimLedger(
+                episodeGeneration: 12,
+                requestedGeneration: 12,
+                hasExistingLedger: false
+            ),
+            "a missing current-generation ledger must use the supplied or fresh fallback"
         )
     }
 

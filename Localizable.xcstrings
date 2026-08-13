@@ -378,6 +378,93 @@
         }
       }
     },
+    "Premium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium"
+          }
+        }
+      }
+    },
+    "Premium…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium…"
+          }
+        }
+      }
+    },
+    "Premium is unavailable in this build": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium is unavailable in this build"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드에서는 Premium을 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドでは Premium を利用できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此构建版本不支持 Premium"
+          }
+        }
+      }
+    },
     "Premium is active": {
       "extractionState": "manual",
       "localizations": {
@@ -3020,31 +3107,31 @@
         }
       }
     },
-    "Force fallback": {
+    "Allow Force Unmount": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Force fallback"
+            "value": "Allow Force Unmount"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "강제 마운트 해제 재시도"
+            "value": "강제 마운트 해제 허용"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "強制フォールバック"
+            "value": "強制アンマウントを許可"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "强制回退"
+            "value": "允许强制卸载"
           }
         }
       }
@@ -3194,64 +3281,6 @@
         }
       }
     },
-    "Eject and Mount can't share the same shortcut. %@ was moved to a different preset.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eject and Mount can't share the same shortcut. %@ was moved to a different preset."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "추출과 마운트는 같은 단축키를 사용할 수 없습니다. %@ 단축키를 다른 프리셋으로 이동했습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「取り出し」と「マウント」は同じショートカットを共有できません。%@ を別のプリセットに移動しました。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“推出”和“挂载”不能共用同一快捷键。%@ 已移至其他预设。"
-          }
-        }
-      }
-    },
-    "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eject and Sleep can't share its shortcut with Eject all or Mount all. Pick a different one."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "'추출하고 잠자기'는 '모두 추출' 또는 '모두 마운트'와 같은 단축키를 사용할 수 없습니다. 다른 프리셋을 선택하십시오."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「取り出してスリープ」は「全て取り出し」や「全てマウント」とショートカットを共有できません。別のものを選択してください。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“推出并睡眠”不能与“推出全部”或“挂载全部”共用快捷键。请选择其他快捷键。"
-          }
-        }
-      }
-    },
     "Hotkey conflict": {
       "extractionState": "manual",
       "localizations": {
@@ -3277,6 +3306,93 @@
           "stringUnit": {
             "state": "translated",
             "value": "热键冲突"
+          }
+        }
+      }
+    },
+    "The shortcut you chose is now assigned to this action. Conflicting actions were moved to unused shortcuts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shortcut you chose is now assigned to this action. Conflicting actions were moved to unused shortcuts."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 단축키를 이 동작에 배정했습니다. 충돌한 다른 동작은 사용하지 않는 단축키로 옮겼습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したショートカットをこの操作に割り当てました。競合する他の操作は、未使用のショートカットに移動しました。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将所选快捷键分配给此操作。发生冲突的其他操作已移至未使用的快捷键。"
+          }
+        }
+      }
+    },
+    "Notifications are blocked in System Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are blocked in System Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 알림이 차단되어 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定で通知が許可されていません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知已在“系统设置”中关闭。"
+          }
+        }
+      }
+    },
+    "Open Notification Settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Notification Settings…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 설정 열기…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知設定を開く…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开通知设置…"
           }
         }
       }
@@ -3554,7 +3670,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 언어를 적용하려면 DiskOUT 을 재시작해야 합니다."
+            "value": "새 언어를 적용하려면 DiskOUT을 재시작해야 합니다."
           }
         },
         "ja": {
@@ -3654,35 +3770,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "挂载全部"
-          }
-        }
-      }
-    },
-    "Eject on Sleep": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eject on Sleep"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "잠자기 시 자동 추출"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スリープ時に取り出し"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠时推出"
           }
         }
       }
@@ -3989,7 +4076,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac 이 잠자기에 들어가기 직전에 모든 외장 드라이브를 추출합니다."
+            "value": "Mac이 잠자기에 들어가기 직전에 모든 외장 드라이브를 추출합니다."
           }
         },
         "ja": {
@@ -4018,7 +4105,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "화면만 꺼질 때도 추출합니다 — 본체가 잠자지 않게 설정된 Mac 용."
+            "value": "화면만 꺼질 때도 추출합니다 — 본체가 잠자지 않게 설정된 Mac용."
           }
         },
         "ja": {
@@ -4035,31 +4122,31 @@
         }
       }
     },
-    "Retry with a force unmount when a normal eject fails.": {
+    "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep, lid close, and immediate system sleep (Apple menu, power key, or similar causes) try it once only when the disk is busy. Idle and display sleep never use it.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retry with a force unmount when a normal eject fails."
+            "value": "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep, lid close, and immediate system sleep (Apple menu, power key, or similar causes) try it once only when the disk is busy. Idle and display sleep never use it."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일반 추출이 실패하면 강제 마운트 해제로 재시도합니다."
+            "value": "일반 추출이 실패하면 수동 추출에서 강제 마운트 해제를 사용할 수 있습니다. ‘추출하고 잠자기’, 뚜껑 닫기, Apple 메뉴·전원 키 등으로 바로 시작되는 잠자기에서는 디스크가 사용 중일 때만 한 번 시도합니다. 유휴 잠자기와 화면 꺼짐에서는 시도하지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通常の取り出しに失敗した場合、強制アンマウントで再試行します。"
+            "value": "通常の取り出しに失敗した場合、手動取り出しでは強制アンマウントを使用できます。「取り出してスリープ」、蓋を閉じたとき、Appleメニューや電源キーなどですぐに始まるスリープでは、ディスクが使用中の場合に限り1回だけ試行します。アイドルスリープとディスプレイスリープでは試行しません。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "普通推出失败时，使用强制卸载重试。"
+            "value": "正常推出失败时，手动推出可改用强制卸载。“推出并睡眠”、合盖，以及通过 Apple 菜单或电源键等立即触发的睡眠，仅在磁盘忙时尝试一次。空闲睡眠和仅显示器睡眠不会尝试强制卸载。"
           }
         }
       }
