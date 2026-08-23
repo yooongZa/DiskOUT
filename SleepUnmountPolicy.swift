@@ -206,12 +206,17 @@ enum SleepMountApprovalPolicy {
     static func decision(hasActiveUnmountBarrier: Bool,
                          hasPowerSleepBarrier: Bool = false,
                          isExternalCandidate: Bool = true,
+                         mediaContent: String? = nil,
                          volumeAlreadyMounted: Bool) -> SleepMountApprovalDecision {
         if hasActiveUnmountBarrier
             || (hasPowerSleepBarrier && isExternalCandidate) {
             return .rejectBusy
         }
-        return volumeAlreadyMounted ? .approve : .approveAndTrackPending
+        if volumeAlreadyMounted
+            || (isExternalCandidate && mediaContent == "EFI") {
+            return .approve
+        }
+        return .approveAndTrackPending
     }
 
     static func canBeginAutomaticUnmount(hasPendingApprovedMount: Bool) -> Bool {

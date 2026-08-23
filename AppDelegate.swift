@@ -6937,6 +6937,7 @@ private final class DAInventory {
             hasActiveUnmountBarrier: blocked != nil,
             hasPowerSleepBarrier: powerBlocked,
             isExternalCandidate: isExternalCandidate,
+            mediaContent: info?.mediaContent,
             volumeAlreadyMounted: info?.mountPath != nil
         ) {
         case .rejectBusy:
@@ -6966,7 +6967,13 @@ private final class DAInventory {
             log.debug("DAInventory: mount approval pending bsd=\(bsd, privacy: .public) whole=\(wholeBSD, privacy: .public)")
             return nil
         case .approve:
-            // A redundant request for an already-mounted volume cannot add an unseen sibling.
+            if info?.mountPath == nil,
+               isExternalCandidate,
+               info?.mediaContent == "EFI" {
+                log.info("DAInventory: mount approval approved without pending bsd=\(bsd, privacy: .public) whole=\(wholeBSD, privacy: .public) reason=external-efi")
+            }
+            // A mounted volume cannot add an unseen sibling. External EFI is already excluded from
+            // eject targets and may receive approval without a later mounted callback.
             return nil
         }
     }

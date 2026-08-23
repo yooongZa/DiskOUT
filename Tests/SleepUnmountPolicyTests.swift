@@ -50,6 +50,7 @@ private enum SleepUnmountPolicyTests {
         testHiddenProtectedSiblingBlocksVisibleWholeDiskTarget()
         testRequestTimeSiblingSetRevalidationFailsClosed()
         testMountApprovalBarrierOrdering()
+        testEFIMountApprovalTracking()
         testPowerSleepMountBarrierCoversPostSnapshotApproval()
         testForceContinuationReservationsAreWaiterScoped()
         testTimeoutAndCallbackHaveDistinctForceContinuationReleaseOwners()
@@ -480,6 +481,64 @@ private enum SleepUnmountPolicyTests {
                 forceContinuationReserved: false
             ),
             "a late decline after waiter timeout must not retain an abandoned force barrier"
+        )
+    }
+
+    private static func testEFIMountApprovalTracking() {
+        expect(
+            SleepMountApprovalPolicy.decision(
+                hasActiveUnmountBarrier: false,
+                isExternalCandidate: true,
+                mediaContent: "EFI",
+                volumeAlreadyMounted: false
+            ) == .approve,
+            "an unmounted external EFI helper may be approved without a pending topology marker"
+        )
+        expect(
+            SleepMountApprovalPolicy.decision(
+                hasActiveUnmountBarrier: true,
+                isExternalCandidate: true,
+                mediaContent: "EFI",
+                volumeAlreadyMounted: false
+            ) == .rejectBusy,
+            "the active unmount barrier must reject external EFI before its tracking exemption"
+        )
+        expect(
+            SleepMountApprovalPolicy.decision(
+                hasActiveUnmountBarrier: false,
+                hasPowerSleepBarrier: true,
+                isExternalCandidate: true,
+                mediaContent: "EFI",
+                volumeAlreadyMounted: false
+            ) == .rejectBusy,
+            "the power-sleep barrier must reject external EFI before its tracking exemption"
+        )
+        expect(
+            SleepMountApprovalPolicy.decision(
+                hasActiveUnmountBarrier: false,
+                isExternalCandidate: false,
+                mediaContent: "EFI",
+                volumeAlreadyMounted: false
+            ) == .approveAndTrackPending,
+            "internal EFI approvals must preserve the existing pending behavior"
+        )
+        expect(
+            SleepMountApprovalPolicy.decision(
+                hasActiveUnmountBarrier: false,
+                isExternalCandidate: true,
+                mediaContent: "Recovery",
+                volumeAlreadyMounted: false
+            ) == .approveAndTrackPending,
+            "unobserved helper categories must preserve the existing fail-closed pending behavior"
+        )
+        expect(
+            SleepMountApprovalPolicy.decision(
+                hasActiveUnmountBarrier: false,
+                isExternalCandidate: true,
+                mediaContent: nil,
+                volumeAlreadyMounted: false
+            ) == .approveAndTrackPending,
+            "an unresolved volume must retain the fail-closed pending marker"
         )
     }
 
