@@ -16,6 +16,8 @@ private enum DiskActivityPolicyTests {
         testDirectionsAndDisksRemainIndependent()
         testMultipleDisksRemainIndependent()
         testRemovedDiskClearsImmediately()
+        testMountedReconciliationClearsOnlyUnmountedDisk()
+        testMountedPhysicalDiskAggregation()
         testResetClearsAllState()
         testActivityMediaClassification()
         print("DiskActivityPolicyTests: PASS")
@@ -226,6 +228,70 @@ private enum DiskActivityPolicyTests {
         )
 
         expect(snapshot == .inactive, "removed disk bypasses inactivity grace")
+    }
+
+    private static func testMountedReconciliationClearsOnlyUnmountedDisk() {
+        var state = DiskActivityState(inactivePollLimit: 3)
+        _ = state.update(
+            detectedWriting: ["disk6"],
+            detectedReading: ["disk8"],
+            observedWriting: ["disk6"],
+            observedReading: ["disk8"],
+            presentDisks: ["disk6", "disk8"]
+        )
+        _ = state.update(
+            detectedWriting: ["disk6"], detectedReading: [],
+            observedWriting: ["disk6"], observedReading: [],
+            presentDisks: ["disk6", "disk8"]
+        )
+
+        var snapshot = state.reconcilePresentDisks(["disk8"])
+        expect(snapshot.writing.isEmpty, "unmounted writing disk clears immediately")
+        expect(snapshot.reading == ["disk8"], "mounted disk activity remains intact")
+
+        snapshot = state.update(
+            detectedWriting: [], detectedReading: [],
+            observedWriting: [], observedReading: [],
+            presentDisks: ["disk8"]
+        )
+        expect(snapshot.reading == ["disk8"], "reconciliation preserves remaining disk grace")
+
+        snapshot = state.update(
+            detectedWriting: [], detectedReading: [],
+            observedWriting: [], observedReading: [],
+            presentDisks: ["disk8"]
+        )
+        expect(snapshot == .inactive, "reconciliation does not reset the remaining grace counter")
+
+        _ = state.update(
+            detectedWriting: ["disk8"], detectedReading: [],
+            observedWriting: ["disk8"], observedReading: [],
+            presentDisks: ["disk8"]
+        )
+        snapshot = state.reconcilePresentDisks([])
+        expect(snapshot == .inactive, "empty mounted inventory clears all activity immediately")
+    }
+
+    private static func testMountedPhysicalDiskAggregation() {
+        let none: [Set<String>?] = []
+        expect(MountedPhysicalDiskFilterPolicy.aggregate(none) == Set<String>(),
+               "zero mounted volumes resolves to an empty filter")
+
+        let siblings: [Set<String>?] = [["disk6"], ["disk6"]]
+        expect(MountedPhysicalDiskFilterPolicy.aggregate(siblings) == ["disk6"],
+               "sibling volumes on one physical disk collapse to one filter entry")
+
+        let separate: [Set<String>?] = [["disk6"], ["disk8"]]
+        expect(MountedPhysicalDiskFilterPolicy.aggregate(separate) == ["disk6", "disk8"],
+               "separate physical disks remain independent")
+
+        let unresolved: [Set<String>?] = [["disk6"], nil]
+        expect(MountedPhysicalDiskFilterPolicy.aggregate(unresolved) == nil,
+               "one unresolved volume makes the whole filter unresolved")
+
+        let partialEmpty: [Set<String>?] = [["disk6"], []]
+        expect(MountedPhysicalDiskFilterPolicy.aggregate(partialEmpty) == nil,
+               "an empty partial mapping cannot become a restrictive filter")
     }
 
     private static func testResetClearsAllState() {

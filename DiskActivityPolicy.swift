@@ -11,6 +11,19 @@ struct DiskActivitySnapshot: Equatable {
     static let inactive = DiskActivitySnapshot(writing: [], reading: [])
 }
 
+/// 볼륨별 physical BSD 해석 결과를 activity filter 하나로 합친다.
+/// 빈 입력은 마운트된 디스크 0개, nil/빈 원소는 부분 매핑이므로 전체 unresolved로 처리한다.
+enum MountedPhysicalDiskFilterPolicy {
+    static func aggregate(_ resolutions: [Set<String>?]) -> Set<String>? {
+        var disks = Set<String>()
+        for resolution in resolutions {
+            guard let resolution, !resolution.isEmpty else { return nil }
+            disks.formUnion(resolution)
+        }
+        return disks
+    }
+}
+
 struct DiskActivityState {
     static let defaultInactivePollLimit = 3
 
@@ -51,6 +64,14 @@ struct DiskActivityState {
         writingIdlePolls = [:]
         readingIdlePolls = [:]
         return .inactive
+    }
+
+    /// 마운트된 물리 디스크 집합이 바뀌었을 때, 더 이상 마운트되지 않은 디스크의 활동만
+    /// 즉시 제거한다. 남아 있는 디스크의 inactivity grace 카운터는 그대로 보존한다.
+    mutating func reconcilePresentDisks(_ presentDisks: Set<String>) -> DiskActivitySnapshot {
+        writingIdlePolls = writingIdlePolls.filter { presentDisks.contains($0.key) }
+        readingIdlePolls = readingIdlePolls.filter { presentDisks.contains($0.key) }
+        return snapshot
     }
 
     private var snapshot: DiskActivitySnapshot {

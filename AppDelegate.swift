@@ -58,6 +58,13 @@ private let clamshellSleepBit = 1 << 1
 /// 이 monotonic window 안의 실제 close edge만 lid-caused로 본다.
 private let clamshellSleepAttributionWindowNanoseconds: UInt64 = 15_000_000_000
 
+private enum UserInitiatedUpdateCheckState: Equatable {
+    case idle
+    case waitingForMenuClose
+    case queuedForPresentation
+    case presenting
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
 
     private var statusItem: NSStatusItem!
@@ -85,6 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     //   pendingUpdate           : 자동 체크에서 발견된 미설치 업데이트.
     //                             nil ↔ 값 변화 시 메뉴바 아이콘(applyCountTitle) 즉시 갱신.
     private var updaterController: SPUStandardUpdaterController!
+    private var userInitiatedUpdateCheckState: UserInitiatedUpdateCheckState = .idle
+    private var userInitiatedUpdateCheckGeneration: UInt = 0
     private var pendingUpdate: SUAppcastItem? {
         didSet {
             // 메뉴바 빨간 점 표시/제거 — 반드시 main thread.
@@ -360,6 +369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        userInitiatedUpdateCheckState = .idle
+        userInitiatedUpdateCheckGeneration &+= 1
         isPurchaseInProgress = false
         isOpeningPurchaseDetails = false
         isCheckingPurchaseStatus = false
@@ -495,14 +506,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// userInitiated 라서 SPUStandardUserDriverDelegate 가 다이얼로그 가로채지 않음.
     @objc func checkForUpdatesFromMenu(_ sender: Any?) {
         log.notice("Sparkle: user-initiated check")
-        updaterController.checkForUpdates(sender)
+        requestUserInitiatedUpdateCheck(afterMenuCloses: sender is NSMenuItem)
     }
 
     /// 자동 체크에서 발견되어 보류 중인 업데이트 다이얼로그 표시.
     /// checkForUpdates 를 다시 호출하면 Sparkle 이 캐시된 업데이트를 즉시 표시함.
     @objc func showPendingUpdate(_ sender: Any?) {
         log.notice("Sparkle: user clicked pending-update menu item")
-        updaterController.checkForUpdates(sender)
+        requestUserInitiatedUpdateCheck(afterMenuCloses: sender is NSMenuItem)
+    }
+
+    /// 사용자 클릭으로 띄우는 Sparkle 창만 foreground 로 가져온다.
+    /// LSUIElement 앱은 창이 없을 때 activate 호출만으로 active 앱이 되지 않을 수 있으므로,
+    /// Sparkle이 각 단계의 창을 만든 뒤 공개 showUpdateInFocus 경로를 제한적으로 재호출한다.
+    private func requestUserInitiatedUpdateCheck(afterMenuCloses: Bool) {
+        guard !isTerminating, userInitiatedUpdateCheckState == .idle else { return }
+        userInitiatedUpdateCheckGeneration &+= 1
+
+        if afterMenuCloses {
+            userInitiatedUpdateCheckState = .waitingForMenuClose
+            return
+        }
+
+        userInitiatedUpdateCheckState = .queuedForPresentation
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.userInitiatedUpdateCheckState == .queuedForPresentation else { return }
+            self.beginUserInitiatedUpdatePresentation()
+        }
+    }
+
+    private func beginUserInitiatedUpdatePresentation() {
+        guard !isTerminating,
+              userInitiatedUpdateCheckState == .waitingForMenuClose ||
+                  userInitiatedUpdateCheckState == .queuedForPresentation else { return }
+
+        guard updaterController.updater.canCheckForUpdates else {
+            userInitiatedUpdateCheckState = .idle
+            cancelUserInitiatedUpdateFocusRetries()
+            log.notice("Sparkle: user-initiated check skipped while another check is active")
+            return
+        }
+
+        userInitiatedUpdateCheckState = .presenting
+        updaterController.checkForUpdates(nil)
+        scheduleUserInitiatedUpdateFocus(includeModalWindow: false)
+    }
+
+    /// Sparkle 2의 checking/result/status 창 전환은 비동기다. 네 번의 고정된 main-turn 재시도만
+    /// 허용하고 generation이 바뀌면 오래된 retry는 즉시 무효화한다.
+    private func scheduleUserInitiatedUpdateFocus(includeModalWindow: Bool) {
+        guard !isTerminating, userInitiatedUpdateCheckState == .presenting else { return }
+        userInitiatedUpdateCheckGeneration &+= 1
+        let generation = userInitiatedUpdateCheckGeneration
+
+        if includeModalWindow {
+            RunLoop.main.perform(inModes: [.modalPanel]) { [weak self] in
+                guard let self,
+                      !self.isTerminating,
+                      self.userInitiatedUpdateCheckState == .presenting,
+                      self.userInitiatedUpdateCheckGeneration == generation,
+                      let modalWindow = NSApp.modalWindow else { return }
+
+                modalWindow.makeKeyAndOrderFront(nil)
+                modalWindow.orderFrontRegardless()
+                self.activateForUserInitiatedUpdate()
+                self.updaterController.userDriver.showUpdateInFocus()
+            }
+            return
+        }
+
+        for delay in [0.0, 0.1, 0.3, 0.7] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self,
+                      !self.isTerminating,
+                      self.userInitiatedUpdateCheckState == .presenting,
+                      self.userInitiatedUpdateCheckGeneration == generation else { return }
+
+                self.updaterController.userDriver.showUpdateInFocus()
+                self.activateForUserInitiatedUpdate()
+            }
+        }
+    }
+
+    private func activateForUserInitiatedUpdate() {
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func cancelUserInitiatedUpdateFocusRetries() {
+        userInitiatedUpdateCheckGeneration &+= 1
+    }
+
+    private func finishUserInitiatedUpdatePresentation() {
+        userInitiatedUpdateCheckState = .idle
+        cancelUserInitiatedUpdateFocusRetries()
     }
 
     @objc private func purchasePremiumStatusIcons(_ sender: Any?) {
@@ -729,7 +829,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         DispatchQueue.main.async { [weak self] in
-            self?.statusItem.menu = nil
+            guard let self else { return }
+            self.statusItem.menu = nil
+
+            // performClick has returned and the temporary menu has been detached. Only now may
+            // Sparkle create its checking window without competing with menu tracking.
+            guard self.userInitiatedUpdateCheckState == .waitingForMenuClose else { return }
+            self.userInitiatedUpdateCheckState = .queuedForPresentation
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      self.userInitiatedUpdateCheckState == .queuedForPresentation else { return }
+                self.beginUserInitiatedUpdatePresentation()
+            }
         }
     }
 
@@ -853,62 +964,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return attr
     }
 
+    private struct PhysicalWholeDiskResolution {
+        let disks: Set<String>
+        let isComplete: Bool
+
+        static let unresolved = PhysicalWholeDiskResolution(disks: [], isComplete: false)
+    }
+
     /// 볼륨의 backing 물리 whole-disk BSD 집합. IOService plane 에서 볼륨 IOMedia 의 부모 방향으로
     /// 거슬러 올라가 `IOBlockStorageDriver` 를 가진 whole `IOMedia` 들을 수집.
     ///
     /// direct(NTFS disk6 → {disk6}) · APFS synthesized(disk5s1 → 물리 store) · RAID(여러 멤버 →
     /// {disk7,disk8}) 를 모두 균일하게 처리. `DiskIOMonitor` 가 보고하는 물리 BSD 집합과 교집합으로
-    /// "이 볼륨이 쓰는 중" 을 판정한다. 메뉴 열 때만 호출 (드라이브당 1회, 바운드된 IORegistry 순회).
+    /// "이 볼륨이 쓰는 중" 을 판정한다. 메뉴/인벤토리 갱신 시 드라이브당 1회 호출한다.
     private func physicalWholeDisks(forVolumeURL url: URL) -> Set<String> {
+        physicalWholeDiskResolution(forVolumeURL: url).disks
+    }
+
+    /// activity filter용 해석. parent traversal이 일부라도 실패하면 nonempty partial 결과도
+    /// complete로 사용하지 않는다. 기존 메뉴 항목 표시는 위 wrapper의 best-effort Set을 유지한다.
+    private func physicalWholeDiskResolution(forVolumeURL url: URL) -> PhysicalWholeDiskResolution {
         guard let session = DASessionCreate(kCFAllocatorDefault),
               let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL),
-              let bsdC = DADiskGetBSDName(disk) else { return [] }
+              let bsdC = DADiskGetBSDName(disk) else { return .unresolved }
         let startBSD = String(cString: bsdC)
-        guard let match = IOBSDNameMatching(kIOMainPortDefault, 0, startBSD) else { return [] }
+        guard let match = IOBSDNameMatching(kIOMainPortDefault, 0, startBSD) else { return .unresolved }
         let start = IOServiceGetMatchingService(kIOMainPortDefault, match)
-        guard start != IO_OBJECT_NULL else { return [] }
+        guard start != IO_OBJECT_NULL else { return .unresolved }
 
         var result = Set<String>()
         var visited = Set<UInt64>()
+        var isComplete = true
         var queue = [start]   // 각 dequeue 시 1회 release. IOIteratorNext 가 준 retain 을 소비.
         while !queue.isEmpty {
             let e = queue.removeFirst()
             defer { IOObjectRelease(e) }
             var id: UInt64 = 0
-            IORegistryEntryGetRegistryEntryID(e, &id)
-            guard visited.insert(id).inserted else { continue }
-            if IOObjectConformsTo(e, "IOMedia") != 0,
-               (IORegistryEntryCreateCFProperty(e, "Whole" as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? Bool) == true,
-               Self.hasBlockStorageDriverParent(e),
-               let bsd = IORegistryEntryCreateCFProperty(e, "BSD Name" as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? String {
-                result.insert(bsd)
+            if IORegistryEntryGetRegistryEntryID(e, &id) != KERN_SUCCESS {
+                // Registry ID 실패도 탐색 자체는 계속하되, filter에는 partial 결과를 사용하지 않는다.
+                isComplete = false
+                id = UInt64(e) | (UInt64(1) << 63)
             }
+            guard visited.insert(id).inserted else { continue }
+            var isWholeMedia = false
+            if IOObjectConformsTo(e, "IOMedia") != 0 {
+                if let isWhole = IORegistryEntryCreateCFProperty(
+                    e, "Whole" as CFString, kCFAllocatorDefault, 0
+                )?.takeRetainedValue() as? Bool {
+                    isWholeMedia = isWhole
+                } else {
+                    isComplete = false
+                }
+            }
+
+            var parents: [io_registry_entry_t] = []
             var pit: io_iterator_t = 0
             if IORegistryEntryGetParentIterator(e, kIOServicePlane, &pit) == KERN_SUCCESS {
                 var p = IOIteratorNext(pit)
-                while p != IO_OBJECT_NULL { queue.append(p); p = IOIteratorNext(pit) }
+                while p != IO_OBJECT_NULL { parents.append(p); p = IOIteratorNext(pit) }
                 IOObjectRelease(pit)
+            } else {
+                isComplete = false
             }
+            if isWholeMedia,
+               parents.contains(where: { IOObjectConformsTo($0, "IOBlockStorageDriver") != 0 }) {
+                if let bsd = IORegistryEntryCreateCFProperty(
+                    e, "BSD Name" as CFString, kCFAllocatorDefault, 0
+                )?.takeRetainedValue() as? String {
+                    result.insert(bsd)
+                } else {
+                    isComplete = false
+                }
+            }
+            queue.append(contentsOf: parents)
         }
-        return result
-    }
-
-    /// `entry` 의 직속 부모(provider) 중 `IOBlockStorageDriver` 가 있는지 — whole `IOMedia` 가
-    /// 물리 디스크인지(= I/O 카운터 존재) 판별용.
-    private static func hasBlockStorageDriverParent(_ entry: io_registry_entry_t) -> Bool {
-        var pit: io_iterator_t = 0
-        guard IORegistryEntryGetParentIterator(entry, kIOServicePlane, &pit) == KERN_SUCCESS else { return false }
-        defer { IOObjectRelease(pit) }
-        var found = false
-        var p = IOIteratorNext(pit)
-        while p != IO_OBJECT_NULL {
-            if IOObjectConformsTo(p, "IOBlockStorageDriver") != 0 { found = true }
-            IOObjectRelease(p)
-            p = IOIteratorNext(pit)
-        }
-        return found
+        return PhysicalWholeDiskResolution(
+            disks: result,
+            isComplete: isComplete && !result.isEmpty
+        )
     }
 
     /// 주어진 볼륨의 읽기/쓰기 활동 — backing 물리 디스크와 모니터 보고 집합의 교집합.
@@ -1632,21 +1765,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 백그라운드에서 마운트 개수를 다시 계산해 메뉴바 숫자에 반영.
     /// 데이터 소스: DA 인벤토리(in-process, 항상 최신) 우선 — DA 콜백 직후 호출되므로
     /// 변경분이 이미 반영돼 있다. DA 미준비(cold start)면 캐시(diskutil 폴백)로.
-    private func refreshMountedDriveCountIcon() {
+    private func refreshMountedDriveCountIcon(expectedToken: Int) {
         DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
             let drives: [ExternalDrive]
+            let inventoryRevision: UInt64?
             if let snap = DAInventory.shared.snapshot() {
                 drives = snap.drives
+                inventoryRevision = snap.revision
             } else {
                 drives = DiskMenuSnapshotCache.current().drives
+                inventoryRevision = nil
             }
             let count = AppDelegate.mountedExternalDeviceCount(drives: drives)
+
+            // 블루닷은 현재 마운트된 볼륨을 backing 하는 물리 디스크에만 적용한다.
+            // APFS synthesized volume과 RAID도 기존 parent-walk 매핑을 재사용한다.
+            // 하나라도 매핑이 불확실하면 nil로 전달해 기존 IORegistry 감지 동작을 보존한다.
+            let resolutions: [Set<String>?] = drives.map { drive in
+                let resolution = self.physicalWholeDiskResolution(forVolumeURL: drive.url)
+                return resolution.isComplete ? resolution.disks : nil
+            }
+            // DA가 아직 ready가 아닌 fallback snapshot은 revision 검증이 불가능하므로
+            // restrictive filter를 적용하지 않는다. count 표시는 기존 fallback 결과를 유지한다.
+            let mountedPhysicalBSDs = inventoryRevision == nil
+                ? nil
+                : MountedPhysicalDiskFilterPolicy.aggregate(resolutions)
+
             DispatchQueue.main.async {
+                guard self.countIconRefreshToken == expectedToken else { return }
+                if let inventoryRevision,
+                   !DAInventory.shared.isCurrentSnapshotRevision(inventoryRevision) {
+                    self.scheduleMountedDriveCountRefresh(after: 0)
+                    return
+                }
+                DiskIOMonitor.shared.updateMountedPhysicalDisks(mountedPhysicalBSDs)
                 // Time Machine 디스크 자동 제외를 '메뉴 열기' 와 분리해 DA 인벤토리 변경(mount /
                 // unmount / launch / wake)마다 선제 등록한다. 메뉴를 한 번도 안 열고 슬립해도 TM
                 // 보호가 동작 (idempotent — TimeMachineNotified 가 중복 알림/재등록 차단).
-                self?.autoExcludeNewTimeMachineDisks(drives)
-                self?.updateMountedDriveCount(count)
+                self.autoExcludeNewTimeMachineDisks(drives)
+                self.updateMountedDriveCount(count)
             }
         }
     }
@@ -1659,7 +1817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let myToken = countIconRefreshToken
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self = self, self.countIconRefreshToken == myToken else { return }
-            self.refreshMountedDriveCountIcon()
+            self.refreshMountedDriveCountIcon(expectedToken: myToken)
         }
     }
 
@@ -8049,6 +8207,9 @@ private final class DAInventory {
     private let lock = NSLock()
     private var disks: [String: DiskInfo] = [:]
     private var ready = false
+    /// mount/disappear callback 경계의 세대. snapshot 계산 중 새 이벤트가 들어오면 오래된
+    /// mounted activity filter/count 결과를 main에 적용하지 않도록 기존 lock으로 보호한다.
+    private var inventoryRevision: UInt64 = 0
     private var session: DASession?
     private let queue = DispatchQueue(label: "com.yongza.ejectdrives.da-inventory", qos: .utility)
     /// DA queue 전용 상태. BSD 이름은 재연결 시 재사용될 수 있으므로 appearance generation 과
@@ -8073,10 +8234,32 @@ private final class DAInventory {
     /// 추월하지 못하게 한다. DA serial queue에서만 변경한다.
     private var powerSleepMountBarrier = SleepPowerMountBarrier()
 
-    /// 인벤토리의 마운트 상태가 바뀔 때마다 호출 (디스크 appeared/disappeared/mount 경로 변경).
+    /// mounted activity/count에 영향을 주는 인벤토리가 바뀔 때마다 호출.
     /// **DA 큐에서 호출됨** — consumer 가 main hop + debounce 처리할 것.
-    /// count 와 무관한 description 변경에는 호출 안 함 (mount 경로 변화만 트리거).
+    /// unmounted entry의 count와 무관한 description 변경에는 호출하지 않는다.
     var onInventoryChanged: ((DAInventoryChange) -> Void)?
+
+    /// mounted activity/count에 영향을 주는 cache 변경을 revision과 같은 lock 경계에서 기록한다.
+    /// unmounted entry의 단순 description 변경은 UI filter와 무관하므로 revision을 소비하지 않는다.
+    private func cacheDiskInfo(_ info: DiskInfo) -> (previous: DiskInfo?, changed: Bool) {
+        lock.lock()
+        let previous = disks[info.bsd]
+        let changed = previous?.mountPath != info.mountPath
+            || (info.mountPath != nil && (
+                previous?.wholeDiskBSD != info.wholeDiskBSD
+                    || previous?.mediaRegistryEntryID != info.mediaRegistryEntryID
+                    || previous?.isInternal != info.isInternal
+                    || previous?.isRemovable != info.isRemovable
+                    || previous?.isEjectable != info.isEjectable
+                    || previous?.busProtocol != info.busProtocol
+            ))
+        disks[info.bsd] = info
+        if changed {
+            inventoryRevision &+= 1
+        }
+        lock.unlock()
+        return (previous, changed)
+    }
 
     func start() {
         queue.async { [weak self] in self?.startOnQueue() }
@@ -8166,10 +8349,8 @@ private final class DAInventory {
                 signalPendingApprovedMountChange()
             }
         }
-        lock.lock()
-        let prevMount = disks[info.bsd]?.mountPath
-        disks[info.bsd] = info
-        lock.unlock()
+        let cached = cacheDiskInfo(info)
+        let prevMount = cached.previous?.mountPath
         _ = bindCurrentPhysicalIdentityOnQueue(info.wholeDiskBSD)
         if prevMount != info.mountPath {
             log.info("DAInventory: \(kind, privacy: .public) bsd=\(info.bsd, privacy: .public) name=\(info.volumeName ?? "-", privacy: .public) mount=\(info.mountPath ?? "-", privacy: .public) was=\(prevMount ?? "-", privacy: .public) protocol=\(info.busProtocol ?? "-", privacy: .public) internal=\(info.isInternal, privacy: .public)")
@@ -8184,6 +8365,8 @@ private final class DAInventory {
                 && info.busProtocol != "Disk Image"
                 && info.busProtocol != "Virtual Interface"
             onInventoryChanged?(mountedExternal ? .mountedExternal : .other)
+        } else if cached.changed {
+            onInventoryChanged?(.other)
         } else {
             log.debug("DAInventory: \(kind, privacy: .public) bsd=\(info.bsd, privacy: .public) name=\(info.volumeName ?? "-", privacy: .public) mount=\(info.mountPath ?? "-", privacy: .public)")
         }
@@ -8290,6 +8473,9 @@ private final class DAInventory {
         let disappearedVolumeEntryID = mediaRegistryEntryID(for: disk)
         lock.lock()
         let removed = disks.removeValue(forKey: bsd)
+        if removed != nil {
+            inventoryRevision &+= 1
+        }
         let wholeBSD = removed?.wholeDiskBSD ?? BSDName.wholeDisk(from: bsd) ?? bsd
         let physicalStillPresent = disks.values.contains { $0.wholeDiskBSD == wholeBSD }
         lock.unlock()
@@ -8915,12 +9101,18 @@ private final class DAInventory {
             }
         }
 
-        lock.lock()
+        var activityInventoryChanged = false
         for info in mounted.values {
-            disks[info.bsd] = info
+            if cacheDiskInfo(info).changed {
+                activityInventoryChanged = true
+            }
         }
+        lock.lock()
         ready = true
         lock.unlock()
+        if activityInventoryChanged {
+            onInventoryChanged?(.other)
+        }
         var resolvedPendingApproval = false
         for info in mounted.values {
             guard let pending = pendingApprovedMounts[info.bsd],
@@ -9014,9 +9206,9 @@ private final class DAInventory {
                   let info = parseDescription(disk: disk),
                   info.mountPath == volumePath else { return }
 
-            lock.lock()
-            disks[info.bsd] = info
-            lock.unlock()
+            if cacheDiskInfo(info).changed {
+                onInventoryChanged?(.other)
+            }
             if physicalGenerations[info.wholeDiskBSD] == nil {
                 nextPhysicalGeneration &+= 1
                 if nextPhysicalGeneration == 0 { nextPhysicalGeneration = 1 }
@@ -9178,10 +9370,11 @@ private final class DAInventory {
     }
 
     /// nil 반환 = 인벤토리 아직 ready 아님 → 호출자가 diskutil fallback 으로.
-    func snapshot() -> (drives: [ExternalDrive], unmounted: [UnmountedExternal])? {
+    func snapshot() -> (drives: [ExternalDrive], unmounted: [UnmountedExternal], revision: UInt64)? {
         lock.lock()
         guard ready else { lock.unlock(); return nil }
         let snap = disks
+        let revision = inventoryRevision
         lock.unlock()
 
         // wholeDisk BSD 별 그룹핑
@@ -9250,7 +9443,12 @@ private final class DAInventory {
             ))
         }
 
-        return (drives, unmounted)
+        return (drives, unmounted, revision)
+    }
+
+    func isCurrentSnapshotRevision(_ revision: UInt64) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return ready && inventoryRevision == revision
     }
 
     /// mountedVolumeURLs fallback 에서 internal media(내장 매체)를 판정할 때 쓰는 read-only 조회.
@@ -9517,6 +9715,9 @@ final class DiskIOMonitor {
     /// 물리 whole-disk BSD → 직전 폴의 누적 (read, write) 바이트.
     private var lastIOByDisk: [String: (read: UInt64, write: UInt64)] = [:]
     private var hasBaseline = false
+    /// 현재 마운트된 볼륨을 backing 하는 물리 디스크. nil이면 매핑이 불확실하므로
+    /// 기존 IORegistry 전체 감지를 보존하고, 빈 집합이면 마운트된 대상이 없다는 뜻이다.
+    private var mountedPhysicalBSDs: Set<String>?
     /// macOS buffering 으로 polling 한두 구간의 물리 I/O 가 비어도 활동 표시를 유지한다.
     private var activityState = DiskActivityState()
     /// 직전에 보고한 "쓰는 중"/"읽는 중" 물리 BSD 집합 — 변화 감지용.
@@ -9526,6 +9727,23 @@ final class DiskIOMonitor {
     /// 쓰는 중/읽는 중 물리 whole-disk BSD 집합이 변할 때 main thread 에서 호출.
     /// (writing, reading) 둘 다 빈 집합이면 비활성. 닷은 둘 중 하나라도 있으면 표시.
     var onActivityChanged: ((_ writing: Set<String>, _ reading: Set<String>) -> Void)?
+
+    /// 최신 mount inventory를 활동 표시에 반영한다. 내부 상태와 timer가 같은 serial queue를
+    /// 사용하므로 poll과 겹쳐도, 추출된 디스크만 제거하고 다른 디스크의 grace는 보존한다.
+    func updateMountedPhysicalDisks(_ disks: Set<String>?) {
+        queue.async { [weak self] in
+            guard let self, self.mountedPhysicalBSDs != disks else { return }
+            self.mountedPhysicalBSDs = disks
+            guard let disks else {
+                log.debug("DiskIOMonitor: mounted physical mapping unresolved; preserving IORegistry activity")
+                return
+            }
+
+            self.lastIOByDisk = self.lastIOByDisk.filter { disks.contains($0.key) }
+            let reconciled = self.activityState.reconcilePresentDisks(disks)
+            self.setActive(writing: reconciled.writing, reading: reconciled.reading)
+        }
+    }
 
     /// 대상 매체가 마운트됐을 때 호출. idempotent.
     func start() {
@@ -9558,9 +9776,15 @@ final class DiskIOMonitor {
     }
 
     private func poll() {
-        let (io, hasEligibleMedia) = Self.externalIOByDisk()
+        let (rawIO, hasEligibleMedia) = Self.externalIOByDisk()
+        let io: [String: (read: UInt64, write: UInt64)]
+        if let mountedPhysicalBSDs {
+            io = rawIO.filter { mountedPhysicalBSDs.contains($0.key) }
+        } else {
+            io = rawIO
+        }
         // 대상 매체가 없으면 baseline + grace 상태를 즉시 리셋한다.
-        guard hasEligibleMedia else {
+        guard hasEligibleMedia, mountedPhysicalBSDs?.isEmpty != true else {
             hasBaseline = false
             lastIOByDisk = [:]
             let cleared = activityState.reset()
@@ -9754,6 +9978,13 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
         forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState
     ) {
+        if state.userInitiated {
+            if handleShowingUpdate, userInitiatedUpdateCheckState == .presenting {
+                scheduleUserInitiatedUpdateFocus(includeModalWindow: false)
+            }
+            return
+        }
+
         if !handleShowingUpdate {
             log.notice("Sparkle: gentle reminder — pending update \(update.displayVersionString, privacy: .public)")
             DispatchQueue.main.async { [weak self] in
@@ -9765,9 +9996,28 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
     /// 사용자가 업데이트 다이얼로그 봤음 → 빨간 점 제거.
     func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
         log.notice("Sparkle: user saw update dialog for \(update.displayVersionString, privacy: .public)")
+        cancelUserInitiatedUpdateFocusRetries()
         DispatchQueue.main.async { [weak self] in
             self?.pendingUpdate = nil
         }
+    }
+
+    /// No-update/error는 Sparkle이 checking 창을 닫은 뒤 NSAlert.runModal로 새 창을 만든다.
+    /// callback 반환 뒤 modal loop에서만 modalWindow가 생기므로 별도 retry generation을 건다.
+    func standardUserDriverWillShowModalAlert() {
+        guard userInitiatedUpdateCheckState == .presenting else { return }
+        activateForUserInitiatedUpdate()
+        scheduleUserInitiatedUpdateFocus(includeModalWindow: true)
+    }
+
+    func standardUserDriverDidShowModalAlert() {
+        guard userInitiatedUpdateCheckState == .presenting else { return }
+        finishUserInitiatedUpdatePresentation()
+    }
+
+    func standardUserDriverWillFinishUpdateSession() {
+        guard userInitiatedUpdateCheckState == .presenting else { return }
+        finishUserInitiatedUpdatePresentation()
     }
 }
 
