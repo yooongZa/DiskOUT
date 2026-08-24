@@ -1,5 +1,13 @@
 import Foundation
 
+enum SystemWakeBoundarySourcePolicy {
+    /// IOKit and NSWorkspace can deliver the same wake in different orders. Once IOKit is active,
+    /// only its ordered HasPoweredOn stream may consume wake-owned transaction state.
+    static func workspaceOwnsBoundary(powerObserverIsActive: Bool) -> Bool {
+        !powerObserverIsActive
+    }
+}
+
 /// Typed provenance for an automatic or explicit sleep-eject request.
 ///
 /// Force fallback is authorized only by a trigger whose intent is known. Unknown system sleep
@@ -18,11 +26,25 @@ enum SleepEjectTrigger: Equatable, Sendable {
         return isIdle ? .systemIdle : .systemForced
     }
 
+    /// Whether DiskOUT owns the eject decision for this trigger.
+    ///
+    /// A system sleep explicitly requested outside DiskOUT, or one whose cause cannot be
+    /// classified, passes through without DiskOUT inventory, unmount, or force work. Lid close,
+    /// idle sleep, the opt-in display flow, and DiskOUT's own Eject and Sleep remain eligible.
+    var participatesInEjectFlow: Bool {
+        switch self {
+        case .lidClose, .systemIdle, .displaySleep, .ejectAndSleep:
+            return true
+        case .systemForced, .unknownSystemSleep:
+            return false
+        }
+    }
+
     var allowsForceFallback: Bool {
         switch self {
-        case .lidClose, .systemForced, .ejectAndSleep:
+        case .lidClose, .ejectAndSleep:
             return true
-        case .systemIdle, .displaySleep, .unknownSystemSleep:
+        case .systemForced, .systemIdle, .displaySleep, .unknownSystemSleep:
             return false
         }
     }
@@ -56,6 +78,25 @@ enum SleepEjectTrigger: Equatable, Sendable {
     }
 }
 
+/// IOKit reports lid-close and external active sleep through the same forced-sleep boundary.
+/// Only a recent physical close edge is safe to attribute to DiskOUT's lid workflow; merely being
+/// closed is not evidence because clamshell mode may stay awake for hours.
+enum SleepLidAttributionPolicy {
+    static func updatedCloseTimestamp(previousNanoseconds: UInt64?,
+                                      observedAtNanoseconds: UInt64,
+                                      isNewPhysicalClose: Bool) -> UInt64? {
+        isNewPhysicalClose ? observedAtNanoseconds : previousNanoseconds
+    }
+
+    static func isRecentClose(closedAtNanoseconds: UInt64?,
+                              nowNanoseconds: UInt64,
+                              windowNanoseconds: UInt64) -> Bool {
+        guard let closedAtNanoseconds,
+              nowNanoseconds >= closedAtNanoseconds else { return false }
+        return nowNanoseconds - closedAtNanoseconds < windowNanoseconds
+    }
+}
+
 struct SleepRemountTarget: Hashable, Sendable, Comparable {
     let wholeDiskBSD: String
     let physicalGeneration: UInt64
@@ -72,8 +113,7 @@ struct SleepRemountTarget: Hashable, Sendable, Comparable {
     }
 }
 
-/// A failed close-time eject may be retried once when the real sleep boundary arrives later.
-/// This is the Amphetamine closed-display case: the lid event can happen long before willSleep.
+/// A failed close-time eject may be retried once when its matching recent lid sleep boundary arrives.
 enum SleepLidRetryPolicy {
     static func shouldStartPowerRetry(priorSucceeded: Bool?,
                                       isSleepBoundaryTrigger: Bool,
@@ -187,6 +227,10 @@ struct SleepEpisodeCoordinator: Sendable {
     private(set) var pendingTargets = Set<SleepRemountTarget>()
     private(set) var operationID: String?
     private(set) var operationReason: String?
+    /// A lid/display automatic eject episode owns the shared Music/Photos relaunch ledger until
+    /// its matching open/wake edge. A failed manual Eject and Sleep must not drain that ledger.
+    private(set) var lidEjectEpisodeActive = false
+    private(set) var displayEjectEpisodeActive = false
 
     private var remountRequested = false
     private var nextRemountNonce: UInt64 = 0
@@ -221,8 +265,32 @@ struct SleepEpisodeCoordinator: Sendable {
 
     mutating func lidDidOpen() -> RemountSchedule? {
         isLidClosed = false
+        lidEjectEpisodeActive = false
         remountRequested = true
         return makeScheduleIfNeeded()
+    }
+
+    mutating func lidEjectDidStart() {
+        guard isLidClosed else { return }
+        lidEjectEpisodeActive = true
+    }
+
+    mutating func displayEjectDidStart() {
+        displayEjectEpisodeActive = true
+    }
+
+    mutating func displayDidWake() {
+        displayEjectEpisodeActive = false
+    }
+
+    /// Whether an automatic episode still owns the shared library-app relaunch boundary. Pending
+    /// or in-flight remount work remains an owner after the physical wake/open edge.
+    var hasAutomaticLibraryAppRelaunchOwner: Bool {
+        lidEjectEpisodeActive
+            || displayEjectEpisodeActive
+            || !pendingTargets.isEmpty
+            || scheduledRemount != nil
+            || activeRemount != nil
     }
 
     /// 새 automatic eject가 시작되면 이전 wake 요청/timer를 무효화한다. 이미 clean-unmounted인

@@ -38,6 +38,7 @@ private enum SleepUnmountPolicyTests {
         testSameBSDWithNewGenerationDoesNotJoinOldMedia()
         testSameBSDAndGenerationWithDifferentMediaIDDoesNotJoin()
         testMissingBSDNameFallsBackToStablePathGrouping()
+        testDuplicateDisplayNamesUsePhysicalRequestIdentity()
         testDissenterStatusClassification()
         testPolicyPreservesNormalThenExplicitForceFallback()
         testForceClaimLedgerIsEpisodeScopedAndPhysicalOnly()
@@ -47,6 +48,7 @@ private enum SleepUnmountPolicyTests {
         testSuccessThenDisconnectRemainsClean()
         testStickyEvidenceReleasesAllJoinersOnce()
         testTimeoutThenLateEvidenceRemainsObservableAndSticky()
+        testAutomaticActivityWaitsForEveryWorkerAndLateTerminal()
         testHiddenProtectedSiblingBlocksVisibleWholeDiskTarget()
         testRequestTimeSiblingSetRevalidationFailsClosed()
         testMountApprovalBarrierOrdering()
@@ -132,6 +134,38 @@ private enum SleepUnmountPolicyTests {
         )
         expect(requests[0].targets.count == 2, "identical fallback paths must share one request")
         expect(requests.allSatisfy { $0.wholeDiskBSD == nil }, "path-keyed requests must not invent a BSD name")
+    }
+
+    private static func testDuplicateDisplayNamesUsePhysicalRequestIdentity() {
+        let requests = SleepUnmountPolicy.requests(
+            for: [
+                SleepUnmountTarget(name: "Untitled",
+                                   volumePath: "/Volumes/Untitled",
+                                   wholeDiskBSD: "disk4",
+                                   physicalGeneration: 1,
+                                   mediaRegistryEntryID: 40),
+                SleepUnmountTarget(name: "Untitled",
+                                   volumePath: "/Volumes/Untitled 1",
+                                   wholeDiskBSD: "disk9",
+                                   physicalGeneration: 2,
+                                   mediaRegistryEntryID: 90)
+            ],
+            forceFallback: false
+        )
+        let labels = SleepUnmountBatchPresentationPolicy.labelsByRequest(requests)
+        let completed: Set<SleepUnmountGroupKey> = [requests[0].key]
+        let unfinished = SleepUnmountBatchPresentationPolicy.unfinishedLabels(
+            requests: requests,
+            completedRequestKeys: completed,
+            labelsByRequest: labels
+        )
+
+        expect(labels[requests[0].key] == ["Untitled (disk4)"],
+               "the completed duplicate name must include its physical BSD identity")
+        expect(labels[requests[1].key] == ["Untitled (disk9)"],
+               "the pending duplicate name must include its distinct physical BSD identity")
+        expect(unfinished == ["Untitled (disk9)"],
+               "a completed same-name request must not hide a different pending physical disk")
     }
 
     private static func testPolicyPreservesNormalThenExplicitForceFallback() {
@@ -328,6 +362,28 @@ private enum SleepUnmountPolicyTests {
         expect(latch.finishOnce(9), "late callback evidence must still complete the request")
         expect(observed.snapshot == [9], "a timeout observer must receive the later terminal evidence once")
         expect(!latch.finishOnce(10), "a later callback must not overturn terminal evidence")
+    }
+
+    private static func testAutomaticActivityWaitsForEveryWorkerAndLateTerminal() {
+        let tracker = SleepUnmountActivityTracker()
+        let recorder = IntRecorder()
+        tracker.begin()
+        tracker.begin()
+        tracker.whenIdle { recorder.append(1) }
+
+        tracker.finish()
+        expect(tracker.activeCount == 1 && recorder.snapshot.isEmpty,
+               "one terminal worker must not release a sibling pending DA request")
+        tracker.finish()
+        expect(tracker.activeCount == 0 && recorder.snapshot == [1],
+               "the final terminal result must release idle observers exactly once")
+        tracker.finish()
+        expect(recorder.snapshot == [1],
+               "a duplicate terminal callback must not underflow or notify twice")
+
+        tracker.whenIdle { recorder.append(2) }
+        expect(recorder.snapshot == [1, 2],
+               "an already-idle tracker must continue synchronously")
     }
 
     private static func testHiddenProtectedSiblingBlocksVisibleWholeDiskTarget() {

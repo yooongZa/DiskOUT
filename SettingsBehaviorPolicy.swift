@@ -117,11 +117,22 @@ enum SleepEjectSettingsMigration {
     }
 }
 
-/// Music/Photos may be asked to quit by overlapping display and system sleep paths. A set union
-/// preserves every accepted quit until one wake/cancel path atomically drains it.
+struct LibraryAppRelaunchOwner: Hashable, Sendable {
+    let rawValue: String
+}
+
+/// Music/Photos may be asked to quit by overlapping manual, display, lid, and system paths.
+/// Accepted quits remain a union, and only the last exact owner to finish may atomically drain it.
 final class LibraryAppRelaunchLedger: @unchecked Sendable {
     private let lock = NSLock()
     private var bundleIDs = Set<String>()
+    private var owners = Set<LibraryAppRelaunchOwner>()
+
+    func retain(_ owner: LibraryAppRelaunchOwner) {
+        lock.lock()
+        owners.insert(owner)
+        lock.unlock()
+    }
 
     func record(_ newBundleIDs: [String]) {
         lock.lock()
@@ -129,12 +140,24 @@ final class LibraryAppRelaunchLedger: @unchecked Sendable {
         lock.unlock()
     }
 
-    func drain() -> [String] {
+    /// Finishing an unknown/duplicate owner is a no-op. A known last owner receives the exact
+    /// bundle union to relaunch; every overlapping owner keeps the ledger closed.
+    func finish(_ owner: LibraryAppRelaunchOwner) -> [String] {
         lock.lock()
+        guard owners.remove(owner) != nil, owners.isEmpty else {
+            lock.unlock()
+            return []
+        }
         let result = bundleIDs.sorted()
         bundleIDs.removeAll()
         lock.unlock()
         return result
+    }
+
+    var activeOwnerCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return owners.count
     }
 
     var isEmpty: Bool {

@@ -27,7 +27,8 @@ private enum SettingsBehaviorPolicyTests {
         testShortcutUserChoiceWins()
         testShortcutStartupNormalization()
         testLegacyMigrationIsOrderIndependent()
-        testLibraryLedgerUnionAndDrain()
+        testLibraryLedgerWaitsForEveryExactOwner()
+        testLibraryLedgerConcurrentLastOwnerDrainsOnce()
         testCancelableRegistryBoundaries()
         testOneShotCallbackUnderConcurrency()
         testPremiumMenuPolicy()
@@ -91,13 +92,51 @@ private enum SettingsBehaviorPolicyTests {
                "modern lid value is preserved")
     }
 
-    private static func testLibraryLedgerUnionAndDrain() {
+    private static func testLibraryLedgerWaitsForEveryExactOwner() {
         let ledger = LibraryAppRelaunchLedger()
+        let manual = LibraryAppRelaunchOwner(rawValue: "manual-1")
+        let automatic = LibraryAppRelaunchOwner(rawValue: "automatic-1")
+        ledger.retain(manual)
+        ledger.retain(automatic)
         ledger.record(["Music", "Photos"])
         ledger.record([])
         ledger.record(["Music"])
-        expect(ledger.drain() == ["Music", "Photos"], "overlapping quit results form a union")
-        expect(ledger.drain().isEmpty, "drain is exactly once")
+        expect(ledger.finish(manual).isEmpty,
+               "finishing manual work must not drain an overlapping automatic owner")
+        expect(ledger.activeOwnerCount == 1 && !ledger.isEmpty,
+               "the remaining owner must retain the complete bundle union")
+        expect(ledger.finish(automatic) == ["Music", "Photos"],
+               "the exact last owner receives the union once")
+        expect(ledger.finish(automatic).isEmpty,
+               "a duplicate owner completion must never drain a later ledger")
+    }
+
+    private static func testLibraryLedgerConcurrentLastOwnerDrainsOnce() {
+        let ledger = LibraryAppRelaunchLedger()
+        let owners = (0..<128).map {
+            LibraryAppRelaunchOwner(rawValue: "owner-\($0)")
+        }
+        owners.forEach(ledger.retain)
+        ledger.record(["Music", "Photos"])
+
+        let winners = CancellationRecorder()
+        let group = DispatchGroup()
+        for owner in owners {
+            group.enter()
+            DispatchQueue.global().async {
+                let bundleIDs = ledger.finish(owner)
+                if !bundleIDs.isEmpty {
+                    winners.append(bundleIDs.joined(separator: ","))
+                }
+                group.leave()
+            }
+        }
+        expect(group.wait(timeout: .now() + 2) == .success,
+               "every concurrent owner completion must finish")
+        expect(winners.snapshot == ["Music,Photos"],
+               "exactly one concurrent last owner may drain the bundle union")
+        expect(ledger.activeOwnerCount == 0 && ledger.isEmpty,
+               "concurrent completion must leave no owner or duplicate relaunch work")
     }
 
     private static func testCancelableRegistryBoundaries() {

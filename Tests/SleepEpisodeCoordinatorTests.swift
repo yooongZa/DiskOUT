@@ -18,9 +18,12 @@ private func disk(_ bsd: String,
 @main
 private enum SleepEpisodeCoordinatorTests {
     static func main() {
+        testWorkspaceWakeCannotConsumeIOKitOwnedBoundary()
         testSleepEjectTriggerPolicyForEveryCase()
         testSystemSleepTriggerClassification()
+        testLidAttributionRequiresARecentPhysicalClose()
         testRepeatedCloseAndRealRecloseEpisodes()
+        testAutomaticLibraryAppRelaunchOwnership()
         testAmphetamineLidOpenWithoutWakeSchedulesRemount()
         testWakeWhileClosedDoesNotRemount()
         testOpenBeforeCleanCallbackSchedulesWhenTargetArrives()
@@ -33,7 +36,7 @@ private enum SleepEpisodeCoordinatorTests {
         testUnknownStaleCompletionCannotInjectTargets()
         testNewEjectInvalidatesStaleWakeRequest()
         testNewEjectDoesNotRescheduleCanceledRemountBeforeWake()
-        testAmphetamineLateSleepGetsOnlyOneFailedEpisodeRetry()
+        testMatchingLidSleepGetsOnlyOneFailedEpisodeRetry()
         testNewCloseGenerationJoinedToActiveWorkRequiresFreshInventory()
         testRepeatedLidJoinPreservesEpisodeForceLedger()
         testCurrentLidRefreshPrefersItsEpisodeForceLedger()
@@ -41,21 +44,33 @@ private enum SleepEpisodeCoordinatorTests {
         print("SleepEpisodeCoordinatorTests: PASS")
     }
 
+    private static func testWorkspaceWakeCannotConsumeIOKitOwnedBoundary() {
+        expect(!SystemWakeBoundarySourcePolicy.workspaceOwnsBoundary(
+            powerObserverIsActive: true
+        ), "a late NSWorkspace wake must not consume a newer IOKit-owned sleep cycle")
+        expect(SystemWakeBoundarySourcePolicy.workspaceOwnsBoundary(
+            powerObserverIsActive: false
+        ), "NSWorkspace must retain wake ownership when IOKit registration is unavailable")
+    }
+
     private static func testSleepEjectTriggerPolicyForEveryCase() {
         let cases: [(trigger: SleepEjectTrigger,
+                     participatesInEjectFlow: Bool,
                      force: Bool,
                      label: String,
                      display: Bool,
                      system: Bool)] = [
-            (.lidClose, true, "lidClose", false, true),
-            (.systemForced, true, "systemForced", false, true),
-            (.systemIdle, false, "systemIdle", false, true),
-            (.displaySleep, false, "displaySleep", true, false),
-            (.ejectAndSleep, true, "ejectAndSleep", false, false),
-            (.unknownSystemSleep, false, "unknownSystemSleep", false, true),
+            (.lidClose, true, true, "lidClose", false, true),
+            (.systemForced, false, false, "systemForced", false, true),
+            (.systemIdle, true, false, "systemIdle", false, true),
+            (.displaySleep, true, false, "displaySleep", true, false),
+            (.ejectAndSleep, true, true, "ejectAndSleep", false, false),
+            (.unknownSystemSleep, false, false, "unknownSystemSleep", false, true),
         ]
 
         for item in cases {
+            expect(item.trigger.participatesInEjectFlow == item.participatesInEjectFlow,
+                   "\(item.label) eject participation must match the product sleep policy")
             expect(item.trigger.allowsForceFallback == item.force,
                    "\(item.label) force fallback policy must match its explicit trigger intent")
             expect(item.trigger.effectiveForceFallback(masterEnabled: true) == item.force,
@@ -89,6 +104,59 @@ private enum SleepEpisodeCoordinatorTests {
                "a fallback boundary with positive lid attribution must use the lid policy")
     }
 
+    private static func testLidAttributionRequiresARecentPhysicalClose() {
+        let close: UInt64 = 1_000
+        let window: UInt64 = 15_000
+        let first = SleepLidAttributionPolicy.updatedCloseTimestamp(
+            previousNanoseconds: nil,
+            observedAtNanoseconds: close,
+            isNewPhysicalClose: true
+        )
+        let duplicate = SleepLidAttributionPolicy.updatedCloseTimestamp(
+            previousNanoseconds: first,
+            observedAtNanoseconds: close + 10_000,
+            isNewPhysicalClose: false
+        )
+
+        expect(first == close,
+               "a new physical close must establish the attribution timestamp")
+        expect(duplicate == close,
+               "a repeated closed notification must not make an old lid edge recent again")
+
+        expect(
+            SleepLidAttributionPolicy.isRecentClose(
+                closedAtNanoseconds: close,
+                nowNanoseconds: close + window - 1,
+                windowNanoseconds: window
+            ),
+            "a WillSleep inside the close window must retain lid ownership"
+        )
+        expect(
+            !SleepLidAttributionPolicy.isRecentClose(
+                closedAtNanoseconds: close,
+                nowNanoseconds: close + window,
+                windowNanoseconds: window
+            ),
+            "a lid that merely remains closed must not capture an outside active sleep"
+        )
+        expect(
+            !SleepLidAttributionPolicy.isRecentClose(
+                closedAtNanoseconds: nil,
+                nowNanoseconds: close,
+                windowNanoseconds: window
+            ),
+            "missing physical close evidence must pass through as non-lid"
+        )
+        expect(
+            !SleepLidAttributionPolicy.isRecentClose(
+                closedAtNanoseconds: close + 1,
+                nowNanoseconds: close,
+                windowNanoseconds: window
+            ),
+            "a synthetic backward monotonic clock must not create lid ownership"
+        )
+    }
+
     private static func testRepeatedCloseAndRealRecloseEpisodes() {
         var state = SleepEpisodeCoordinator()
         let first = state.lidDidClose()
@@ -101,6 +169,39 @@ private enum SleepEpisodeCoordinatorTests {
                "repeated closed notification must join the same episode")
         expect(second.isNewEpisode && second.generation != first.generation,
                "open then close must create a new episode even within ten seconds")
+    }
+
+    private static func testAutomaticLibraryAppRelaunchOwnership() {
+        var state = SleepEpisodeCoordinator()
+        expect(!state.hasAutomaticLibraryAppRelaunchOwner,
+               "an idle coordinator must not retain the shared library-app ledger")
+
+        _ = state.lidDidClose()
+        expect(!state.hasAutomaticLibraryAppRelaunchOwner,
+               "a closed lid alone must not claim ownership when auto eject did not start")
+        state.lidEjectDidStart()
+        expect(state.hasAutomaticLibraryAppRelaunchOwner,
+               "a started lid eject must retain relaunch ownership until lid open")
+
+        state.displayEjectDidStart()
+        _ = state.lidDidOpen()
+        expect(state.hasAutomaticLibraryAppRelaunchOwner,
+               "opening the lid must not drain an overlapping display-sleep owner")
+        state.displayDidWake()
+        expect(!state.hasAutomaticLibraryAppRelaunchOwner,
+               "the final matching wake must release an empty automatic episode")
+
+        let schedule = state.recordCleanUnmountTargets([disk("disk-owner")],
+                                                        operationID: "owner",
+                                                        reason: "displaySleep")!
+        expect(state.hasAutomaticLibraryAppRelaunchOwner,
+               "a pending clean target must retain ownership after the wake edge")
+        let work = state.claimRemount(schedule.token)!
+        expect(state.hasAutomaticLibraryAppRelaunchOwner,
+               "an active remount must retain ownership after targets are claimed")
+        _ = state.finishRemount(work.token, canceledDisks: [])
+        expect(!state.hasAutomaticLibraryAppRelaunchOwner,
+               "completed remount work must release automatic ownership")
     }
 
     private static func testAmphetamineLidOpenWithoutWakeSchedulesRemount() {
@@ -235,7 +336,7 @@ private enum SleepEpisodeCoordinatorTests {
         expect(state.wakeDidOccur() != nil, "the next real wake must schedule the preserved target")
     }
 
-    private static func testAmphetamineLateSleepGetsOnlyOneFailedEpisodeRetry() {
+    private static func testMatchingLidSleepGetsOnlyOneFailedEpisodeRetry() {
         expect(
             SleepLidRetryPolicy.shouldStartPowerRetry(
                 priorSucceeded: false,
@@ -243,7 +344,7 @@ private enum SleepEpisodeCoordinatorTests {
                 retryAlreadyStarted: false,
                 hasActiveOperation: false
             ),
-            "a failed lid eject must get one retry when Amphetamine later permits sleep"
+            "a failed lid eject must get one retry at its matching recent sleep boundary"
         )
         expect(
             !SleepLidRetryPolicy.shouldStartPowerRetry(

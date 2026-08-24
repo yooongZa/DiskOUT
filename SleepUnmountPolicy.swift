@@ -54,6 +54,56 @@ final class StickyAsyncEvidence<Value>: @unchecked Sendable {
     }
 }
 
+/// Tracks sleep-unmount batch workers through scheduler stalls and uncancelable DA waiter timeouts.
+/// Automatic wake handling waits for true terminal evidence (including a superseded manual request)
+/// instead of treating the bounded caller return as completion. A new racing worker is caught by
+/// the idle callback's next state check and its independent relaunch owner.
+final class SleepUnmountActivityTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private var idleObservers: [() -> Void] = []
+
+    func begin() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    func finish() {
+        lock.lock()
+        guard count > 0 else {
+            lock.unlock()
+            return
+        }
+        count -= 1
+        guard count == 0 else {
+            lock.unlock()
+            return
+        }
+        let callbacks = idleObservers
+        idleObservers.removeAll()
+        lock.unlock()
+        callbacks.forEach { $0() }
+    }
+
+    func whenIdle(_ callback: @escaping () -> Void) {
+        lock.lock()
+        guard count > 0 else {
+            lock.unlock()
+            callback()
+            return
+        }
+        idleObservers.append(callback)
+        lock.unlock()
+    }
+
+    var activeCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
 struct SleepUnmountTarget: Equatable, Sendable {
     let name: String
     let volumePath: String
@@ -348,6 +398,46 @@ enum SleepUnmountPolicy {
                                  mediaRegistryEntryID: entryID)
         }
         return .unresolvedVolumePath(target.volumePath)
+    }
+}
+
+/// User-facing labels and timeout accounting are derived from the same physical request keys.
+/// Display names are not identities: two separate disks may both be named "Untitled".
+enum SleepUnmountBatchPresentationPolicy {
+    static func labelsByRequest(
+        _ requests: [SleepUnmountRequest]
+    ) -> [SleepUnmountGroupKey: [String]] {
+        let nameCounts = Dictionary(
+            grouping: requests.flatMap(\.targets),
+            by: \.name
+        ).mapValues(\.count)
+
+        return Dictionary(uniqueKeysWithValues: requests.map { request in
+            let labels = request.targets.map { target in
+                guard nameCounts[target.name, default: 0] > 1 else {
+                    return target.name
+                }
+                let discriminator: String
+                switch request.key {
+                case let .physicalDisk(bsd, _, _):
+                    discriminator = bsd
+                case let .unresolvedVolumePath(path):
+                    discriminator = URL(fileURLWithPath: path).lastPathComponent
+                }
+                return "\(target.name) (\(discriminator))"
+            }
+            return (request.key, labels)
+        })
+    }
+
+    static func unfinishedLabels(
+        requests: [SleepUnmountRequest],
+        completedRequestKeys: Set<SleepUnmountGroupKey>,
+        labelsByRequest: [SleepUnmountGroupKey: [String]]
+    ) -> [String] {
+        requests
+            .filter { !completedRequestKeys.contains($0.key) }
+            .flatMap { labelsByRequest[$0.key] ?? $0.targets.map(\.name) }
     }
 }
 

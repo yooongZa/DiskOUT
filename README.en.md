@@ -32,7 +32,7 @@
 <!-- Demo GIF slot: add demo.gif to the repo root, then delete this line and the closing comment to activate.
 <div align="center">
 
-<img src="demo.gif" width="700" alt="DiskOUT auto-ejects every external drive on sleep and remounts on wake — no 'Disk Not Ejected Properly' warning">
+<img src="demo.gif" width="700" alt="DiskOUT safely ejects external drives when the lid closes and remounts them when it opens">
 
 </div>
 -->
@@ -52,7 +52,7 @@ Apple's SSD prices are insane. And they're not even upgradeable. You get by with
 ### 1️⃣ The moment your lid closes, every external safely ejects.
 
 Close → eject. Open → remount.
-Sleep → eject. Wake → remount.
+Configured idle sleep → eject. Wake → remount.
 
 ### 2️⃣ Eject 10 externals at once.
 
@@ -132,7 +132,7 @@ Mount/eject operations are heavily restricted in the sandbox environment. Stabil
 <details>
 <summary><b>Is it safe? Any risk of data loss?</b></summary>
 
-Manual eject uses the standard `diskutil eject` path (the same as Finder's "Eject"). Auto (sleep) eject tries a normal unmount first and only falls back to force unmount if needed. For busy drives, the holding process is diagnosed via `lsof` and shown in the notification.
+Manual eject uses the standard `diskutil eject` path (the same as Finder's "Eject"). DiskOUT-managed eject paths always try a normal unmount first. Eject and Sleep and lid close allow one force attempt only after an explicit busy response and only when the setting permits it; idle/display sleep never forces. System sleep classified as active or unknown passes through untouched.
 
 If even force unmount fails, the disk is left alone — we won't risk data corruption with a hard eject.
 
@@ -171,7 +171,7 @@ Current builds are Apple Silicon only. No Intel builds planned.
 
 DiskOUT's sleep eject tries a normal unmount first, so this notification usually doesn't appear. When it does, common causes:
 
-- **An app is holding the disk → normal unmount fails**: one force attempt is allowed only when **Allow Force Unmount** is on, the callback reports busy, and the path is manual eject, Eject and Sleep, lid close, or forced sleep. Idle/display sleep never forces
+- **An app is holding the disk → normal unmount fails**: one force attempt is allowed only when **Allow Force Unmount** is on, the callback reports busy, and the path is manual eject, Eject and Sleep, or lid close. Idle/display sleep never forces, and system sleep classified as active or unknown passes through untouched
 - **macOS started ejecting first**: another system component beat us to it before sleep
 
 Fix: quit the app holding the external before sleeping, or turn **Allow Force Unmount** off in Settings.
@@ -182,9 +182,10 @@ Fix: quit the app holding the external before sleeping, or turn **Allow Force Un
 
 ## Known limitations
 
-- **Clamshell mode (external monitor + power + lid closed)**: macOS doesn't enter sleep → auto-eject doesn't trigger. Dock disconnects also won't happen here, so it's safe.
-- **Busy drives**: Force unmount is attempted after normal unmount fails, but if an app still holds the disk, there's residual data risk.
-- **User unplugged during sleep**: out of our control. If you need a safe-eject during sleep, use <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> — it wakes + ejects in one go.
+- **Clamshell mode (external monitor + power + lid closed)**: lid-close auto-eject starts from the raw lid signal even when macOS stays awake. Turn off lid-close auto-eject if you intend to keep working in clamshell mode.
+- **Sleep-origin attribution**: public macOS IOKit notifications do not identify the exact requester. DiskOUT passes through requests with no preceding idle signal or lid-close signal in the last 15 seconds. A rare direct request overlapping those signals may be classified as idle or lid sleep.
+- **Busy drives**: Eject and Sleep and lid close may try one force unmount after an explicit busy response when the setting allows it, so work still in progress can be interrupted. Idle/display sleep never forces, and system sleep classified as active or unknown is untouched.
+- **Cable disconnected before clean completion**: unplugging before the clean callback or after an eject failure can still produce the macOS improper-eject warning. Disconnect only after success is confirmed.
 - **Remount reliability**: Only disks that DiskOUT auto-ejected are remounted on wake. Physically removed disks can't be remounted by software.
 
 See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for technical details.
@@ -203,21 +204,21 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | **Read/write activity indicator** | When read or write I/O is active on an external, a small systemBlue `●` appears next to the menu bar number + a "Reading / Writing — don't disconnect" tooltip (color-distinct from the red update dot). In the menu, the blue `●` appears **only next to the busy disk** — and the tooltip distinguishes reading / writing / both. Polls physical-disk I/O counters (IORegistry) every 1.5 s; volume→physical mapping via parent-walk handles RAID / APFS-synthesized / direct uniformly. Reads use a higher threshold to avoid background-indexing false positives. Runs only while externals are present (battery) |
 | **Disk capacity / usage** | Each disk's menu item shows *free · usage* on a second line — e.g. `2.9 TB free · 40% used`. Read via `URLResourceValues` on menu open (no process spawn) |
 | Individual eject | Click drive name |
-| **Confirm eject while writing** | Manually ejecting a disk or choosing **Eject and Sleep** while a disk is being written shows a warning with Cancel as the default. Automatic forced/lid sleep can still force once after a busy response; idle/display sleep never forces |
+| **Confirm eject while writing** | Manually ejecting a disk or choosing **Eject and Sleep** while a disk is being written shows a warning with Cancel as the default. Lid-close handling can still force once after a busy response; idle/display sleep never forces |
 | **Quit blocker & retry** | On eject failure, if a *quittable regular app* is holding the disk, the notification offers a "Quit apps and retry" button → graceful quit (never `forceTerminate`) → one eject retry. Excludes Finder, system daemons, and itself |
 | Eject all | Menu item or shortcut |
-| **Eject and Sleep** | Menu item. Whole-disk DA normal first, then one force attempt only after a busy callback. Active writes show a warning with Cancel as default. Sleep starts only after full success; any failure cancels sleep |
+| **Eject and Sleep** | Runs whole-disk DA normal requests in parallel, with one Force attempt only after a busy callback and only when **Allow Force Unmount** is enabled. All disks must report clean within 10 seconds before `pmset sleepnow`. Failure, pending, or `pmset` failure cancels sleep; successful and late-clean disks stay ejected for an explicit retry |
 | Global hotkey (eject) | Default <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (IME-independent, physical key code comparison). Preset configurable in settings |
 | Global hotkey (mount) | Default <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> — bulk mount unmounted externals. Configurable |
 | Right-click = eject all | Right-click or ctrl+left-click the menu bar icon. Disable in Settings → Eject Behavior for opt-out (prevents accidental ejection) |
 | **Mount unmounted externals** | Auto-shown menu section when candidates exist. Click = mount, <kbd>⌘</kbd>+click = mount + open in Finder |
 | **Mount state consistency** | `diskutil list -plist external` snapshot calculates mounted / unmounted together, reducing stale state in the mounted section |
 | **Disk-type icons** | `sdcard` icon when `diskutil info -plist` confirms SD card signals, `externaldrive` family otherwise |
-| **Eject on sleep** | Configure in Settings → Eject Behavior. IOKit delays sleep briefly. Forced sleep uses whole-disk DA normal, then one force attempt only for an explicit busy callback; automatic idle sleep stays normal-only |
+| **Eject on idle sleep** | Configure in Settings → Eject Behavior. Only sleep that macOS reports as idle is briefly delayed for whole-disk DA normal. Requests DiskOUT classifies as active or unknown pass through immediately |
 | **Eject on display sleep (optional)** | Configure in Settings → Eject Behavior, default OFF. Designed for `pmset sleep=0` setups. Whole-disk DA normal only; successful disks remount when the display wakes |
 | **Auto-remount on wake / display wake** | Only disks successfully auto-ejected get remounted. If enumeration fails, treated as user-removed and stays silent |
 | **DMG / sparseimage exclusion** | Mounted images filtered via `hdiutil info -plist` (1s timeout) + `diskutil info` fallback. Unmounted candidates excluded by `BusProtocol == "Disk Image"` |
-| Eject path | Manual eject uses `diskutil` with **Allow Force Unmount**. Automatic sleep/display sleep and “Eject and Sleep” start with whole-disk DA normal; one DA force is allowed only when both the trigger policy and setting permit it and the callback is busy. No force follows timeout, disconnect, or an unknown error |
+| Eject path | Manual eject uses `diskutil` with **Allow Force Unmount**. Lid/idle/display sleep and “Eject and Sleep” start with whole-disk DA normal; one DA force is allowed only when both the trigger policy and setting permit it and the callback is busy. No force follows timeout, disconnect, or an unknown error |
 | Result notifications | **Silent** banner + menu bar icon ✓ / ! / ✗ (unified circle-family symbols). Only negative outcomes (failures, remount failures, sleep eject failures) or background events are kept in Notification Center; user-triggered successes show a brief banner only |
 | Parallel eject | `DispatchGroup` for N drives ejected concurrently |
 | **Launch at login** | Configure in Settings → General. Uses `SMAppService.mainApp`; `.requiresApproval` appears as a mixed state with a “needs approval” label and a link to System Settings |
@@ -225,7 +226,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | **Hotkey conflict auto-fix** | If eject / mount / eject-and-sleep would share the same preset, the conflict is detected + one is auto-moved + alerted |
 | **Missing-permission menu hint** | If Accessibility (for global hotkeys) or notification permission is missing, a ⚠ warning row appears at the top of the menu. Click to jump to the relevant System Settings page |
 | **Fine-grained notification toggles** | Separate toggles for all / success / failure notifications. All ON by default. If macOS blocks notifications, Settings shows the status and opens the relevant System Settings page |
-| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 156 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
+| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 172 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
 | **Auto-update (Sparkle 2)** | 24h background check. On new version, no modal — just a small systemRed `●` in the menu bar + an "Update to X.Y.Z…" menu item with the same red-dot prefix (gentle reminder). Click → standard Sparkle download/install dialog → auto-restart. EdDSA(Ed25519) + Apple Code Signing double verification. Appcast on GitHub Pages, DMG on GitHub Releases — free hosting |
 | **Per-disk auto-eject exclude** | Per-disk toggles in the bottom *"Auto-Eject Excluded Disks"* submenu. Volume UUID-based (survives cable/port changes). Affects auto path only — explicit eject still works |
 | **Time Machine auto-protect** | TM backup disks auto-detected (`Backups.backupdb` / `.com.apple.timemachine.donotpresent`) → excluded from auto-eject on first sighting + 1 notification. Menu shows clock icon + a Time Machine badge (macOS 14+; parenthetical on 13) |
@@ -257,7 +258,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 diskOUT/
 ├── AppDelegate.swift            # Main logic (diskutil exec, menu cache, sleep/wake handling)
 ├── LanguageRuntime.swift        # language negotiation, stored-value validation, safe relaunch policy
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 156 keys)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 172 keys)
 ├── main.swift                   # Explicit entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen generated)
 ├── DiskOUT.entitlements         # empty plist. Prevents entitlements pitfalls in project.yml

@@ -1859,31 +1859,31 @@
         }
       }
     },
-    "Eject on sleep": {
+    "Eject on idle sleep": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eject on sleep"
+            "value": "Eject on idle sleep"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "잠자기 시 자동 추출"
+            "value": "유휴 잠자기 시 추출"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スリープ時に取り出し"
+            "value": "アイドルスリープ時に取り出す"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "睡眠时推出"
+            "value": "空闲睡眠时推出"
           }
         }
       }
@@ -2522,35 +2522,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已取消睡眠"
-          }
-        }
-      }
-    },
-    "Some drives didn't eject. Sleep was not started.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Some drives didn't eject. Sleep was not started."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "일부 드라이브 추출 실패. 잠자기를 시작하지 않았습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一部のドライブが取り出されませんでした。スリープは開始されませんでした。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "部分驱动器未推出。未启动睡眠。"
           }
         }
       }
@@ -4064,31 +4035,31 @@
         }
       }
     },
-    "Eject all external drives right before the Mac sleeps.": {
+    "Eject external drives only when macOS reports idle sleep. Sleep without an idle or recent lid signal passes through untouched.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eject all external drives right before the Mac sleeps."
+            "value": "Eject external drives only when macOS reports idle sleep. Sleep without an idle or recent lid signal passes through untouched."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac이 잠자기에 들어가기 직전에 모든 외장 드라이브를 추출합니다."
+            "value": "macOS가 유휴 잠자기라고 알린 경우에만 외장 드라이브를 추출합니다. 유휴 또는 최근 뚜껑 닫힘 신호가 없는 잠자기는 그대로 통과시킵니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac がスリープする直前にすべての外部ドライブを取り出します。"
+            "value": "macOSがアイドルスリープとして通知した場合のみ外付けドライブを取り出します。アイドルまたは直近の蓋閉じ信号がないスリープはそのまま通過させます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Mac 进入睡眠前推出所有外置驱动器。"
+            "value": "仅在macOS报告为空闲睡眠时推出外置驱动器。没有空闲或近期合盖信号的睡眠会直接交给系统处理。"
           }
         }
       }
@@ -4122,31 +4093,31 @@
         }
       }
     },
-    "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep, lid close, and immediate system sleep (Apple menu, power key, or similar causes) try it once only when the disk is busy. Idle and display sleep never use it.": {
+    "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle and display sleep never use it. Sleep classified as outside DiskOUT passes through untouched.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep, lid close, and immediate system sleep (Apple menu, power key, or similar causes) try it once only when the disk is busy. Idle and display sleep never use it."
+            "value": "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle and display sleep never use it. Sleep classified as outside DiskOUT passes through untouched."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일반 추출이 실패하면 수동 추출에서 강제 마운트 해제를 사용할 수 있습니다. ‘추출하고 잠자기’, 뚜껑 닫기, Apple 메뉴·전원 키 등으로 바로 시작되는 잠자기에서는 디스크가 사용 중일 때만 한 번 시도합니다. 유휴 잠자기와 화면 꺼짐에서는 시도하지 않습니다."
+            "value": "일반 추출이 실패하면 수동 추출에서 강제 마운트 해제를 사용할 수 있습니다. ‘추출하고 잠자기’와 뚜껑 닫기는 디스크가 사용 중일 때만 한 번 시도합니다. 유휴 잠자기와 화면 꺼짐에서는 시도하지 않습니다. DiskOUT 밖의 잠자기로 판정되면 그대로 통과시킵니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通常の取り出しに失敗した場合、手動取り出しでは強制アンマウントを使用できます。「取り出してスリープ」、蓋を閉じたとき、Appleメニューや電源キーなどですぐに始まるスリープでは、ディスクが使用中の場合に限り1回だけ試行します。アイドルスリープとディスプレイスリープでは試行しません。"
+            "value": "通常の取り出しに失敗した場合、手動取り出しでは強制アンマウントを使用できます。「取り出してスリープ」と蓋を閉じたときは、ディスクが使用中の場合に限り1回だけ試行します。アイドルスリープとディスプレイスリープでは試行しません。DiskOUT外のスリープと判定した場合はそのまま通過させます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正常推出失败时，手动推出可改用强制卸载。“推出并睡眠”、合盖，以及通过 Apple 菜单或电源键等立即触发的睡眠，仅在磁盘忙时尝试一次。空闲睡眠和仅显示器睡眠不会尝试强制卸载。"
+            "value": "正常推出失败时，手动推出可改用强制卸载。“推出并睡眠”和合盖仅在磁盘忙时尝试一次。空闲睡眠和仅显示器睡眠不会尝试强制卸载。判定为DiskOUT之外的睡眠会直接交给系统处理。"
           }
         }
       }
@@ -4584,6 +4555,159 @@
             "value": "无法恢复购买"
           }
         }
+      }
+    },
+    "A previous eject request is still pending. Keep the disk connected and try again after it finishes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A previous eject request is still pending. Keep the disk connected and try again after it finishes." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이전 추출 요청이 아직 진행 중입니다. 디스크를 연결한 상태로 두고 완료된 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "前の取り出し要求がまだ処理中です。ディスクを接続したまま、完了後にもう一度お試しください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "上一个推出请求仍在处理中。请保持磁盘连接，并在完成后重试。" } }
+      }
+    },
+    "An eject request is still pending. Keep the disk connected and wait for its result.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "An eject request is still pending. Keep the disk connected and wait for its result." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "추출 요청이 아직 진행 중입니다. 디스크를 연결한 상태로 두고 결과를 기다리세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り出し要求がまだ処理中です。ディスクを接続したまま結果をお待ちください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推出请求仍在处理中。请保持磁盘连接并等待结果。" } }
+      }
+    },
+    "The 10-second eject deadline expired.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The 10-second eject deadline expired." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "10초 추출 제한 시간이 만료되었습니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り出しの10秒の制限時間が切れました。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "10 秒推出时限已到。" } }
+      }
+    },
+    "The disk disconnected before clean eject completed. Reconnect it, then choose Eject and Sleep again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The disk disconnected before clean eject completed. Reconnect it, then choose Eject and Sleep again." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "정상 추출이 끝나기 전에 디스크 연결이 끊겼습니다. 다시 연결한 다음 ‘추출하고 잠자기’를 다시 선택하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "安全な取り出しが完了する前にディスクが切断されました。再接続してから、「取り出してスリープ」をもう一度選んでください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "磁盘在安全推出完成前断开了连接。请重新连接，然后再次选择“推出并睡眠”。" } }
+      }
+    },
+    "A disk is busy. Keep it connected, close the app using it, and try again, or enable Allow Force Unmount in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A disk is busy. Keep it connected, close the app using it, and try again, or enable Allow Force Unmount in Settings." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "디스크가 사용 중입니다. 연결한 상태로 두고 사용 중인 앱을 닫은 뒤 다시 시도하거나, 환경설정에서 ‘강제 마운트 해제 허용’을 켜세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ディスクは使用中です。接続したまま使用中のアプリを閉じて再試行するか、設定で「強制アンマウントを許可」を有効にしてください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "磁盘正在使用中。请保持连接，关闭正在使用它的应用后重试，或在设置中启用“允许强制卸载”。" } }
+      }
+    },
+    "A disk is still busy, and Eject and Sleep could not complete the allowed Force step. Keep it connected, close the app using it, then choose Eject and Sleep again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A disk is still busy, and Eject and Sleep could not complete the allowed Force step. Keep it connected, close the app using it, then choose Eject and Sleep again." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "디스크가 계속 사용 중이며 ‘추출하고 잠자기’가 허용된 강제 해제 단계를 완료하지 못했습니다. 연결한 상태로 두고 사용 중인 앱을 닫은 다음 ‘추출하고 잠자기’를 다시 선택하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ディスクは使用中のままで、「取り出してスリープ」は許可された強制アンマウントの段階を完了できませんでした。接続したまま使用中のアプリを閉じてから、「取り出してスリープ」をもう一度選んでください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "磁盘仍在使用中，“推出并睡眠”未能完成允许的强制卸载步骤。请保持连接，关闭正在使用它的应用，然后再次选择“推出并睡眠”。" } }
+      }
+    },
+    "DiskOUT could not start or continue the eject request. Keep the disk connected, then try Eject and Sleep again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "DiskOUT could not start or continue the eject request. Keep the disk connected, then try Eject and Sleep again." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "DiskOUT이 추출 요청을 시작하거나 계속할 수 없습니다. 디스크를 연결한 상태로 두고 ‘추출하고 잠자기’를 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "DiskOUTは取り出し要求を開始または継続できませんでした。ディスクを接続したまま、「取り出してスリープ」をもう一度お試しください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "DiskOUT无法开始或继续推出请求。请保持磁盘连接，然后再次尝试“推出并睡眠”。" } }
+      }
+    },
+    "macOS denied the eject request. Keep the disk connected, check it in Disk Utility, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "macOS denied the eject request. Keep the disk connected, check it in Disk Utility, then try again." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "macOS가 추출 요청을 거부했습니다. 디스크를 연결한 상태로 두고 디스크 유틸리티에서 확인한 다음 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "macOSが取り出し要求を拒否しました。ディスクを接続したままディスクユーティリティで確認し、もう一度お試しください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "macOS拒绝了推出请求。请保持磁盘连接，在“磁盘工具”中检查后重试。" } }
+      }
+    },
+    "DiskOUT cannot eject this disk. Keep it connected and try ejecting it from Finder or Disk Utility.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "DiskOUT cannot eject this disk. Keep it connected and try ejecting it from Finder or Disk Utility." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "DiskOUT이 이 디스크를 추출할 수 없습니다. 연결한 상태로 두고 Finder 또는 디스크 유틸리티에서 추출해 보세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "DiskOUTではこのディスクを取り出せません。接続したまま、Finderまたはディスクユーティリティから取り出してみてください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "DiskOUT无法推出此磁盘。请保持连接，并尝试从Finder或“磁盘工具”中推出。" } }
+      }
+    },
+    "The disk connection changed before eject completed. Keep it connected or reconnect it, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The disk connection changed before eject completed. Keep it connected or reconnect it, then try again." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "추출이 끝나기 전에 디스크 연결 상태가 바뀌었습니다. 연결을 유지하거나 다시 연결한 다음 재시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り出しが完了する前にディスクの接続状態が変わりました。接続を維持するか再接続してから、もう一度お試しください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推出完成前磁盘连接状态发生了变化。请保持连接或重新连接后重试。" } }
+      }
+    },
+    "Another system sleep started before eject finished.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Another system sleep started before eject finished." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "추출이 끝나기 전에 다른 시스템 잠자기가 시작되었습니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り出しが完了する前に、別のシステムスリープが開始されました。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推出完成前，系统已由其他请求开始睡眠。" } }
+      }
+    },
+    "Eject and Sleep is still waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Eject and Sleep is still waiting" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "추출하고 잠자기가 아직 대기 중입니다" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り出してスリープはまだ待機中です" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推出并睡眠仍在等待" } }
+      }
+    },
+    "Eject and Sleep stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Eject and Sleep stopped" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "추출하고 잠자기 중단됨" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り出してスリープを停止しました" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推出并睡眠已停止" } }
+      }
+    },
+    "Kept ejected: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kept ejected: %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "추출 상태 유지: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "取り出した状態を維持: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "保持已推出：%@" } }
+      }
+    },
+    "Keep any connected failed disk attached until it is cleanly ejected. Resolve the cause, then choose Eject and Sleep again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep any connected failed disk attached until it is cleanly ejected. Resolve the cause, then choose Eject and Sleep again." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "연결되어 있는 실패 디스크는 정상 추출이 확인될 때까지 분리하지 마세요. 원인을 해결한 다음 ‘추출하고 잠자기’를 다시 선택하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続中の失敗したディスクは、安全な取り出しが確認されるまで取り外さないでください。原因を解決してから、「取り出してスリープ」をもう一度選んでください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "对于仍保持连接但推出失败的磁盘，在确认安全推出前请勿断开。解决原因后，再次选择“推出并睡眠”。" } }
+      }
+    },
+    "The drives remain ejected. Try Eject and Sleep again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The drives remain ejected. Try Eject and Sleep again." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "드라이브는 추출된 상태로 유지됩니다. ‘추출하고 잠자기’를 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ドライブは取り出された状態のままです。「取り出してスリープ」をもう一度お試しください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "驱动器会保持已推出状态。请再次尝试“推出并睡眠”。" } }
+      }
+    },
+    "The sleep request state changed. Try Eject and Sleep again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The sleep request state changed. Try Eject and Sleep again." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "잠자기 요청 상태가 변경되었습니다. ‘추출하고 잠자기’를 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スリープ要求の状態が変わりました。「取り出してスリープ」をもう一度お試しください。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "睡眠请求状态已更改。请再次尝试“推出并睡眠”。" } }
       }
     },
     "Check the recovery code and internet connection, then try again.": {

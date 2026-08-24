@@ -32,7 +32,7 @@
 <!-- デモGIF枠: demo.gif をリポジトリのルートに追加し、この行と末尾の閉じコメントを削除すると有効化されます。
 <div align="center">
 
-<img src="demo.gif" width="700" alt="DiskOUT — スリープで外付けドライブを安全に取り出し、復帰時に再マウント。「ディスクが正しく取り出されませんでした」通知なし">
+<img src="demo.gif" width="700" alt="DiskOUT — 蓋を閉じると外付けドライブを安全に取り出し、開くと再マウントします">
 
 </div>
 -->
@@ -52,7 +52,7 @@ Apple の SSD 価格はおかしいです。しかもアップグレード不可
 ### 1️⃣ 蓋を閉じる瞬間、すべての外付けが安全に取り出されます。
 
 閉じる → 取り出し、開く → マウント。
-スリープ → 取り出し、復帰 → マウント。
+設定したアイドルスリープ → 取り出し、復帰 → マウント。
 
 ### 2️⃣ 10 個の外付けハードも一度に取り出し。
 
@@ -132,7 +132,7 @@ mount / eject などのディスク操作は sandbox(サンドボックス) 環�
 <details>
 <summary><b>安全ですか? データ損失の危険は?</b></summary>
 
-手動取り出しは `diskutil eject` 標準パスを使います (Finder の「取り出し」と同じ)。自動(スリープ)取り出しは正常 unmount を先に試し、失敗した場合のみ force 段階に移行します。使用中のディスクは占有プロセスを診断して通知に表示します。
+手動取り出しは `diskutil eject` 標準パスを使います (Finder の「取り出し」と同じ)。DiskOUTが管理する取り出しは、必ず通常のunmountを先に試します。「取り出してスリープ」と蓋を閉じた場合は、明確なbusy応答があり設定で許可されているときだけforceを1回試します。idle/display sleepではforceせず、active/unknownと判定したsystem sleepには関与しません。
 
 ただし、force 段階まで進んでも取り出せないディスクはそのままにして通知だけ出します — データ危険を冒してまで強制取り出しはしません。
 
@@ -171,7 +171,7 @@ mount / eject などのディスク操作は sandbox(サンドボックス) 環�
 
 DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試すため、通常は通知が出ません。それでも出るとしたら、通常以下のケースです。
 
-- **使用中のアプリがあり通常のアンマウントに失敗**: **強制アンマウントを許可**がONで、手動取り出し・「取り出してスリープ」・蓋を閉じたとき・forced sleepのいずれかでbusy応答を確認した場合に限り1回試行。idle/display sleepではforceしない。
+- **使用中のアプリがあり通常のアンマウントに失敗**: **強制アンマウントを許可**がONで、手動取り出し・「取り出してスリープ」・蓋を閉じたときのいずれかでbusy応答を確認した場合に限り1回試行。idle/display sleepではforceせず、active/unknownと判定したsystem sleepには関与しない。
 - **macOS が先に取り出しを始めたケース**: スリープ直前に他のシステムコンポーネントが先に試行。
 
 解決: 外付けにアクセスしていたアプリを終了してからスリープするか、設定で**強制アンマウントを許可**をOFFにしてください。
@@ -182,9 +182,10 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 
 ## 既知の制限
 
-- **クラムシェルモード (外部モニタ + 電源 + 蓋を閉じる)**: macOS が sleep(スリープ) 自体に入らない → 自動取り出しもトリガーされない。どのみちドック取り外しも起きないので安全。
-- **使用中ドライブ**: 1 次正常取り出し失敗時に force unmount(強制マウント解除) を試みますが、占有アプリがある場合データ危険には依然注意が必要です。
-- **ユーザーがスリープ中に外付けだけ抜いた場合**: アプリで扱える領域ではありません。スリープ中の安全取り出しが必要なら <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> 推奨 — wake(復帰) + 取り出しを一度に。
+- **クラムシェルモード (外部モニタ + 電源 + 蓋を閉じる)**: macOSがスリープしなくても、raw lid-close信号で自動取り出しは開始されます。クラムシェルモードで作業を続ける場合は、蓋を閉じたときの自動取り出しをOFFにしてください。
+- **スリープ原因の判定**: macOSの公開IOKit通知は正確な要求元を示しません。DiskOUTは直前のidle信号または過去15秒以内の蓋閉じ信号がない要求をactive/unknownとして通過させます。これらの信号と重なるまれな直接要求はidle/lid経路に分類される場合があります。
+- **使用中ドライブ**: 「取り出してスリープ」と蓋を閉じた場合は、明確なbusy応答後に設定に応じてforce unmountを1回試すため、進行中の作業が中断される可能性があります。idle/display sleepではforceせず、active/unknownと判定したsystem sleepには関与しません。
+- **正常完了前のケーブル切断**: clean callback前または取り出し失敗後にケーブルを抜くと、macOSの不正取り出し警告が出る場合があります。成功を確認してから取り外してください。
 - **再マウントの信頼性**: 自動取り出しに成功したディスクだけ wake 後に再マウントします。物理的にすでに抜けたディスクはアプリで再マウントできません。
 
 詳しい技術的制限は [リリースノート](https://github.com/yooongZa/DiskOUT/releases) を参照してください。
@@ -203,21 +204,21 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 | **読み書きアクティビティ表示** | 外付けに読み込み・書き込み I/O が進行中なら、メニューバーの数字の横に小さな systemBlue `●` +「読み込み中 / 書き込み中 — 取り外さないでください」tooltip (アップデート通知の赤い `●` と色で区別)。メニューでは**その busy なディスク項目の横にだけ**青い `●` — tooltip で読み込み・書き込み・両方を区別。物理ディスクの I/O カウンタ (IORegistry) を 1.5s ポーリング、ボリューム→物理マッピングは parent-walk で RAID · APFS 合成 · 直結すべて処理。読み込みは background インデックスの誤検出防止のため閾値が高め。外付けがある時だけ稼働 (バッテリー) |
 | **ディスク容量 / 使用率** | 各ディスクのメニュー項目の 2 行目に*空き容量 · 使用率* を表示 — 例 `2.9 TB 空き · 40% 使用`。メニューを開く時に `URLResourceValues` で取得 (プロセス起動なし) |
 | 個別取り出し | ドライブ名クリック |
-| **書き込み中の取り出し確認** | 書き込み中のディスクを手動で取り出す場合、または **「取り出してスリープ」**を選んだ場合は、キャンセルを既定とする警告を表示。自動の forced/lid sleep は busy 応答後に1回だけ force でき、idle/display sleep では force しない |
+| **書き込み中の取り出し確認** | 書き込み中のディスクを手動で取り出す場合、または **「取り出してスリープ」**を選んだ場合は、キャンセルを既定とする警告を表示。蓋を閉じたときは busy 応答後に1回だけ force でき、idle/display sleep では force しない |
 | **占有アプリ終了して再試行** | 取り出し失敗時、ディスクを掴んでいる*終了可能な一般アプリ*があれば通知に「アプリを終了して再試行」ボタン。押すと graceful 終了 (`forceTerminate` は使わない) → 1 回再取り出し。Finder · システムデーモン · 自分自身は除外 |
 | 全て取り出し | メニュー項目またはショートカット |
-| **取り出してスリープ** | whole-disk DA normal → busy callback 時のみ force 1回。書き込み中はキャンセル既定の警告を表示し、全て成功した場合のみ `pmset sleepnow` を実行 |
+| **取り出してスリープ** | 物理ディスクごとに whole-disk DA normal を並列実行し、busy callback かつ**強制アンマウントを許可**がONの場合に限りforceを1回。10秒以内に全て clean 成功した場合だけ `pmset sleepnow` を実行。失敗・pending・`pmset` 失敗時はスリープを中止し、成功分と遅い成功分は取り出した状態のまま明示的な再試行を待つ |
 | グローバルホットキー (取り出し) | デフォルト <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (日 / 英 IME 無関係、物理キーコード比較)。環境設定で E ベースの preset(プリセット) 変更可能 |
 | グローバルホットキー (マウント) | デフォルト <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> — マウントされていない外付けを一括マウント。環境設定で変更可能 |
 | 右クリック = 全て取り出し | メニューバーアイコン右クリックまたは ctrl+左クリック。環境設定 → Eject Behavior で OFF にすると右クリックがメニューを開く (誤取り出し防止 opt-out) |
 | **マウントされていない外付けのマウント** | メニューに「マウントされていない外付け」セクション自動表示 (候補がある時のみ)。クリック = マウント、<kbd>⌘</kbd>+クリック = マウント + Finder で開く |
 | **マウント / 未マウント状態の整合性** | `diskutil list -plist external` 1 つの snapshot(スナップショット) で mounted(マウント済み) / unmounted(マウントされていない) を一緒に計算し、実際にマウントがないのに mounted セクションに残る stale state(古い状態) を減らす |
 | **ディスク種類アイコン** | `diskutil info -plist` の SD card 信号が確認されれば `sdcard` アイコン、その他外付けは `externaldrive` 系アイコンを使用 |
-| **スリープ進入時**の自動取り出し | 設定 → 取り出しの動作で設定。IOKit で少し待機。forced sleep は whole-disk DA normal → 明示的 busy の時だけ force 1回、自動 idle sleep は normal のみ |
+| **アイドルスリープ時**の自動取り出し | 設定 → 取り出しの動作で設定。macOSがidle sleepとして通知した場合のみ少し待機してwhole-disk DA normalを実行。DiskOUTがactive/unknownと判定した要求は直ちに通過 |
 | **画面が消える時も自動取り出し** (オプション) | 設定 → 取り出しの動作で設定、default OFF。`pmset sleep=0` 環境向け。whole-disk DA normal のみで、成功したディスクは画面復帰時に再マウント |
 | **wake / 画面オン時自動再マウント** | 自動取り出しに成功したディスクだけ再マウント。enumerate(列挙) されなければユーザーが分離したと見なして silent |
 | **DMG / sparseimage 除外** | マウント済みイメージは `hdiutil info -plist` 1 秒 timeout + `diskutil info` fallback、unmounted 候補は `BusProtocol == "Disk Image"` で除外 |
-| 取り出しパス | 手動は `diskutil` と**強制アンマウントを許可**設定を使用。自動 sleep/display sleep/「取り出してスリープ」は whole-disk DA normal が基本で、trigger と設定が許可し callback が busy の場合のみ DA force を1回。timeout・物理切断・unknown error 後は force しない |
+| 取り出しパス | 手動は `diskutil` と**強制アンマウントを許可**設定を使用。lid/idle/display sleep/「取り出してスリープ」はwhole-disk DA normalが基本で、triggerと設定が許可しcallbackがbusyの場合のみDA forceを1回。timeout・物理切断・unknown error後はforceしない |
 | 結果通知 | **無音** バナー + メニューバーアイコン ✓ / ! / ✗ (circle 系シンボルに統一)。不在中発生または negative 結果 (失敗 · 再マウント失敗 · sleep 取り出し失敗) のみ**通知センターに保管**、本人 trigger + 成功はバナーのみ短時間表示 |
 | 並列取り出し | `DispatchGroup` で N 個のドライブを同時取り出し |
 | **ログイン時自動起動** | 設定 → 一般で設定。`SMAppService.mainApp` を使用し、`.requiresApproval` は混合状態と「承認が必要」ラベルで表示してシステム設定へ案内 |
@@ -225,7 +226,7 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 | **ショートカット衝突自動修正** | 取り出し / マウント / 取り出してスリープのショートカットが同じ preset で保存されると衝突検出 + 別 preset に自動移動 + alert |
 | **権限不足メニュー案内** | Accessibility(アクセシビリティ) / 通知権限が許可されていない状態だとメニュー上部に ⚠ 警告 row 表示。クリックでシステム設定の該当ページへ移動 |
 | **通知の詳細制御** | 全体通知、成功通知、失敗通知を個別に設定。デフォルトは全て ON。macOSのシステム設定で通知が許可されていない場合は状態を表示し、該当設定を直接開ける |
-| **多言語 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 156 個のキー。システムの優先言語リスト全体から最初の対応言語を選び、該当がない場合のみ英語にフォールバック。設定 → 一般 → Language でシステム設定または明示言語を選択可能 |
+| **多言語 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 172 個のキー。システムの優先言語リスト全体から最初の対応言語を選び、該当がない場合のみ英語にフォールバック。設定 → 一般 → Language でシステム設定または明示言語を選択可能 |
 | **自動アップデート (Sparkle 2)** | 24 時間周期でバックグラウンドチェック。新バージョン発見時にダイアログを出さず**メニューバーアイコンに小さな systemRed `●` + メニュー内「X.Y.Z にアップデート…」項目 (同じ赤い点 prefix)** だけで表示 (gentle reminder)。ユーザーがクリックすると標準 Sparkle ダウンロード / インストールダイアログ → 自動再起動。EdDSA(Ed25519) + Apple Code Signing の二重検証。appcast ホスティングは GitHub Pages、DMG ホスティングは GitHub Releases — 無料運用 |
 | **ディスク別自動取り出し除外** | メニュー下部の*「自動取り出しから除外されたディスク」* submenu でディスク別トグル。Volume UUID 基準 (ケーブルスロットが変わっても維持)。自動 path だけ影響、明示的取り出しはそのまま。 |
 | **Time Machine 自動保護** | TM バックアップディスクを自動識別 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 検査) → 初回登場時に自動取り出しから除外 + 1 回通知。メニューに時計アイコン + Time Machine バッジ表記 (macOS 14+、13 は括弧) |
@@ -257,7 +258,7 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 diskOUT/
 ├── AppDelegate.swift            # メインロジック (diskutil 実行、メニューキャッシュ、sleep/wake 処理)
 ├── LanguageRuntime.swift        # 言語ネゴシエーション・保存値検証・安全な再起動ポリシー
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻訳 (Xcode String Catalog、156 キー)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻訳 (Xcode String Catalog、172 キー)
 ├── main.swift                   # 明示的 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 自動生成)
 ├── DiskOUT.entitlements         # 空の plist。project.yml の entitlements 明示でハマるのを防止
