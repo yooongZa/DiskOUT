@@ -1,24 +1,22 @@
 <div align="center">
 
-<img src="DiskOUT-eject-transparent.png" width="180" alt="DiskOUT">
+<img src="DiskOUT-eject-transparent.png" width="140" alt="DiskOUT">
 
 # DiskOUT
 
 [한국어](README.md) · [English](README.en.md) · [日本語](README.ja.md) · **简体中文**
 
-### Mac 必备的免费应用,DiskOUT 介绍。
+## 别再看到“磁盘没有正常推出”。
 
-**한국어 · English · 日本語 · 中文 (简体)** · 睡眠时自动推出 · Apple Silicon 原生
+<img src="DiskOUT-warning-en.png" width="620" alt="四条macOS磁盘没有正常推出警告叠放在一起的英文通知画面">
 
-<br>
+**DiskOUT 并不会隐藏系统通知。**
+
+它会在合盖或已设置的空闲睡眠前尝试正常推出外置磁盘，从源头避免触发这条警告。
 
 [![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-![macOS](https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple)
-![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
-![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
-![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
-![Notarized](https://img.shields.io/badge/Apple-notarized-22C55E)
+核心功能免费 · macOS 13+ · Apple Silicon · Apple 公证
 
 [下载](https://github.com/yooongZa/DiskOUT/releases/latest) ·
 [更新日志](https://github.com/yooongZa/DiskOUT/releases) ·
@@ -29,53 +27,20 @@
 
 ---
 
-<!-- 演示 GIF 占位：将 demo.gif 放到仓库根目录后，删除本行与末尾的结束注释即可启用。
-<div align="center">
+## 不必每次都打开Finder
 
-<img src="demo.gif" width="700" alt="DiskOUT — 合上盖子时安全推出外置驱动器，打开时重新挂载">
+- 开启合盖自动推出后，关闭MacBook时会尝试正常推出目标磁盘。
+- 也可以在已设置的空闲睡眠前自动推出。
+- 通过睡眠自动推出且成功的磁盘会在Mac唤醒后重新挂载。
+- 可通过菜单或快捷键执行单盘推出、全部推出和`推出并睡眠`。
 
-</div>
--->
+> 请等到推出完成后再拔线。若在完成前或推出失败后断开，macOS仍可能显示警告。
 
-> Mac 是完美的 — 除了 *"未正确推出磁盘"* 通知。
+## 正在写入的磁盘会单独处理
 
-## 什么都不用做,磁盘也能正确推出。完美。
+DiskOUT会先尝试正常卸载。手动推出和`推出并睡眠`在磁盘正在写入时会先征求确认；推出失败时，会显示原因和下一步操作。Time Machine磁盘和你排除的磁盘不会参与自动推出。
 
-现在合上 Mac,拔掉,装包,出门吧。
-
-Apple 的 SSD 价格离谱,而且不能升级。只能靠外置硬盘撑着,但 *"Disk Not Ejected Properly"* 通知真烦人。装上 **DiskOUT**,你就不用再看到那种通知了。
-
----
-
-## 怎么做到的?
-
-### 1️⃣ 合上盖子的那一刻,所有外置都安全推出。
-
-合 → 推出,开 → 挂载。
-已启用的空闲睡眠 → 推出,唤醒 → 挂载。
-
-### 2️⃣ 10 个外置硬盘也一次性推出。
-
-快捷键一次,菜单栏右键一次,全部推出。
-
-### 3️⃣ 外置磁盘有几个,一眼看清。
-
-菜单栏显示已连接磁盘的数量。
-推出、挂载等核心功能与现有数字显示将继续免费。可选 Premium 为 USD 4.99 一次性购买，会把 0–12 变成可爱的 6 帧循环动画角色，同时在右侧保留较小的数字。启用“减弱动态效果”时会显示静止帧。
-
----
-
-## 安心使用
-
-|  |  |
-|---|---|
-| **Time Machine 自动保护** | TM 备份盘自动从自动推出对象中排除 — 防止意外打断备份 |
-| **忽略 DMG · 磁盘映像** | 已挂载的磁盘映像不会出现在菜单中,也不在自动推出范围 |
-| **预防“未正确推出”警告** | 睡眠前先尝试正常卸载。clean callback 后断开可避免警告；完成前或失败后拔线仍可能出现警告 |
-| **按盘选择性退出** | 可单独切换不想自动推出的磁盘。基于 Volume UUID,即使换线缆或端口也保持设置 |
-| **无广告 · 支付数据分离** | 磁盘名称和文件路径不会发送到支付服务器。仅在购买、验证或转移 Premium，以及查看购买详情时连接 Paddle 支付服务器；应用只验证签名后的 entitlement(使用权限) |
-| **Developer ID + Apple 公证** | 通过 Gatekeeper — 没有"未识别开发者"警告,直接打开 |
-| **温和的自动更新** | 新版本到来时菜单栏图标旁出现一个小红点 + 菜单内显示对应项,不会弹出模态框。经过 EdDSA + Apple 代码签名双重验证后才安装 |
+推出、挂载、睡眠自动化和数字菜单栏显示均免费。USD 4.99一次性Premium只是把数字换成菜单栏角色的可选功能。
 
 ---
 
@@ -85,7 +50,7 @@ Apple 的 SSD 价格离谱,而且不能升级。只能靠外置硬盘撑着,但 
 
 ### [获取最新版本 →](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-`DiskOUT-X.Y.Z.dmg` · 约 3MB · 仅 Apple Silicon
+`DiskOUT-X.Y.Z.dmg` · 仅 Apple Silicon
 
 </div>
 

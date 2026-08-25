@@ -1,24 +1,22 @@
 <div align="center">
 
-<img src="DiskOUT-eject-transparent.png" width="180" alt="DiskOUT">
+<img src="DiskOUT-eject-transparent.png" width="140" alt="DiskOUT">
 
 # DiskOUT
 
 **한국어** · [English](README.en.md) · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
 
-### Mac 필수 무료 프로그램, DiskOUT을 소개합니다.
+## “디스크가 제대로 추출되지 않음”, 이제 그만.
 
-**한국어 · English · 日本語 · 中文 (简体)** · 자동 추출 · Apple Silicon 네이티브
+<img src="DiskOUT-warning-ko.png" width="620" alt="디스크가 제대로 추출되지 않음 경고가 네 번 쌓인 macOS 한국어 알림 화면">
 
-<br>
+**DiskOUT은 경고를 숨기는 앱이 아닙니다.**
+
+덮개를 닫거나 설정한 유휴 잠자기 전에 외장 디스크의 정상 추출을 시도해, 경고가 뜰 상황을 예방합니다.
 
 [![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-![macOS](https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple)
-![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
-![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
-![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
-![Notarized](https://img.shields.io/badge/Apple-notarized-22C55E)
+핵심 기능 무료 · macOS 13+ · Apple Silicon · Apple 공증
 
 [다운로드](https://github.com/yooongZa/DiskOUT/releases/latest) ·
 [변경 내역](https://github.com/yooongZa/DiskOUT/releases) ·
@@ -29,53 +27,20 @@
 
 ---
 
-<!-- 데모 GIF 자리: demo.gif 를 저장소 루트에 추가한 뒤, 이 줄과 끝의 닫는 주석만 지우면 활성화됩니다.
-<div align="center">
+## 매번 Finder를 열 필요 없습니다
 
-<img src="demo.gif" width="700" alt="DiskOUT — 뚜껑을 닫으면 외장이 안전하게 추출되고, 다시 열면 재마운트됩니다">
+- 덮개 닫기 자동 추출을 켜두면, MacBook을 닫을 때 대상 디스크의 정상 추출을 시도합니다.
+- 설정한 유휴 잠자기 전에도 자동으로 추출합니다.
+- 잠자기 자동 추출에 성공한 디스크는 Mac이 깨어날 때 다시 마운트합니다.
+- 메뉴와 단축키로 개별 추출, 모두 추출, `추출하고 잠자기`를 바로 실행할 수 있습니다.
 
-</div>
--->
+> 추출 완료를 확인한 뒤 케이블을 분리하세요. 완료 전이나 추출 실패 후 분리하면 macOS 경고가 나타날 수 있습니다.
 
-> Mac 은 완벽합니다 — *"디스크가 정상적으로 추출되지 않았습니다"* 알림을 제외하면 말이죠.
+## 쓰기 중인 디스크는 구분해서 처리합니다
 
-## 아무것도 안 해도, 덮개를 닫거나 설정한 유휴 잠자기 전에 디스크 추출을 시도합니다.
+DiskOUT은 normal unmount(정상 마운트 해제)를 먼저 시도합니다. 수동 추출과 `추출하고 잠자기`는 쓰기 중이면 먼저 확인하고, 추출하지 못하면 이유와 다음 행동을 보여줍니다. Time Machine 디스크와 사용자가 제외한 디스크는 자동 추출하지 않습니다.
 
-이젠 맥북을 덮고, 뽑고, 넣고 외출하세요.
-
-Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능하죠. 외장하드로 버티고 있지만 *"Disk Not Ejected Properly"* 알림은 지겹습니다. **DiskOUT** 은 덮개 닫기와 설정한 유휴 잠자기에서 케이블을 뽑기 전에 clean unmount가 끝날 시간을 확보합니다.
-
----
-
-## 어떻게요?
-
-### 1️⃣ 노트북을 덮는 순간, 모든 외장이 안전하게 추출됩니다.
-
-덮으면 추출, 다시 열면 마운트.
-설정한 유휴 잠자기에서는 추출, 깨어나면 마운트.
-
-### 2️⃣ 10개의 외장 하드도 한 번에 추출하세요.
-
-단축키 한 번, 메뉴바 우클릭 한 번으로 모두 다 추출.
-
-### 3️⃣ 외장 디스크가 몇 개인지, 한눈에 확인하세요.
-
-메뉴바에 연결된 디스크 수가 숫자로 표시됩니다.
-핵심 기능은 그대로 무료이며, USD 4.99 일회성 Premium 은 0~12의 숫자를 귀여운 6-frame 캐릭터 animation(애니메이션)으로 바꿉니다. 캐릭터는 filled reverse pictogram(채운 반전 픽토그램)과 얇은 negative-space detail(음각 디테일)로 메뉴바 가시성을 높이고, 숫자는 캐릭터별 투명 여백만 제외해 오른쪽에 가깝게 붙인 9pt 보조 정보로 유지됩니다.
-
----
-
-## 안심하고 쓸 수 있게
-
-|  |  |
-|---|---|
-| **Time Machine 자동 보호** | TM 백업 디스크는 자동 추출 대상에서 자동 제외 — 실수로 백업 끊김 방지 |
-| **DMG · 디스크 이미지 무시** | 마운트된 디스크 이미지는 메뉴에도 안 뜨고, 자동 추출 대상도 아님 |
-| **비정상 추출 경고 예방** | sleep 추출은 normal unmount를 먼저 시도. clean callback 성공 뒤 분리하면 경고를 피할 수 있지만, 완료 전 또는 실패한 디스크를 뽑으면 경고가 날 수 있음 |
-| **Per-disk 옵트아웃** | 자동 추출에서 빼고 싶은 디스크만 개별 토글. Volume UUID 기반이라 케이블 슬롯 바뀌어도 유지 |
-| **광고 없음 · 결제 정보 분리** | 디스크 이름·파일 경로는 결제 서버로 보내지 않음. Premium 구매·권한 확인·구매 이전·구매 내역 조회에만 Paddle 기반 결제 서버와 통신하고, 앱은 서명된 entitlement(이용 권한)만 검증 |
-| **Developer ID + Apple 공증** | Gatekeeper(게이트키퍼) 통과 — "확인되지 않은 개발자" 경고 없이 그냥 열림 |
-| **자동 업데이트 (조용한 알림)** | 새 버전이 나오면 메뉴바 아이콘 옆에 작은 빨간 점 + 메뉴 안 항목으로만 표시. 모달 안 뜸. EdDSA + Apple Code Signing 이중 검증 후 설치 |
+추출·마운트·잠자기 자동화와 숫자 메뉴바 표시는 무료입니다. USD 4.99 일회성 Premium은 숫자를 메뉴바 캐릭터로 바꾸는 선택 기능입니다.
 
 ---
 
@@ -85,7 +50,7 @@ Apple 의 SSD 가격은 미쳤습니다. 심지어 업그레이드도 불가능�
 
 ### [최신 릴리즈 받기 →](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-`DiskOUT-X.Y.Z.dmg` · 약 3MB · Apple Silicon 전용
+`DiskOUT-X.Y.Z.dmg` · Apple Silicon 전용
 
 </div>
 

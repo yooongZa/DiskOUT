@@ -1,24 +1,22 @@
 <div align="center">
 
-<img src="DiskOUT-eject-transparent.png" width="180" alt="DiskOUT">
+<img src="DiskOUT-eject-transparent.png" width="140" alt="DiskOUT">
 
 # DiskOUT
 
 [한국어](README.md) · **English** · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
 
-### Introducing DiskOUT — a free Mac utility.
+## Stop seeing “Disk Not Ejected Properly.”
 
-**한국어 · English · 日本語 · 中文 (简体)** · Auto-eject on sleep · Apple Silicon native
+<img src="DiskOUT-warning-en.png" width="620" alt="Four stacked macOS Disk Not Ejected Properly notifications">
 
-<br>
+**DiskOUT does not hide the notification.**
+
+It attempts a clean eject when the lid closes or before configured idle sleep, preventing the warning at its source.
 
 [![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-![macOS](https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple)
-![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
-![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
-![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
-![Notarized](https://img.shields.io/badge/Apple-notarized-22C55E)
+Core features are free · macOS 13+ · Apple Silicon · Apple notarized
 
 [Download](https://github.com/yooongZa/DiskOUT/releases/latest) ·
 [Changelog](https://github.com/yooongZa/DiskOUT/releases) ·
@@ -29,53 +27,20 @@
 
 ---
 
-<!-- Demo GIF slot: add demo.gif to the repo root, then delete this line and the closing comment to activate.
-<div align="center">
+## No need to open Finder every time
 
-<img src="demo.gif" width="700" alt="DiskOUT safely ejects external drives when the lid closes and remounts them when it opens">
+- With lid-close auto-eject enabled, DiskOUT attempts a clean eject when you close your MacBook.
+- It can also eject before configured idle sleep.
+- Drives ejected successfully by sleep automation are remounted when the Mac wakes.
+- Eject one drive, eject all, or use `Eject and Sleep` from the menu or a shortcut.
 
-</div>
--->
+> Wait for eject to finish before unplugging. Disconnecting before completion or after a failed eject can still trigger the macOS warning.
 
-> Mac is perfect — except for the *"Disk Not Ejected Properly"* notification.
+## Busy drives are handled separately
 
-## You do nothing. The disk ejects properly. Perfectly.
+DiskOUT tries a normal unmount first. Manual eject and `Eject and Sleep` ask before proceeding when a drive is being written to, and explain what blocked an eject when it fails. Time Machine disks and drives you exclude are left out of auto-eject.
 
-Now close the lid, unplug, bag — and go.
-
-Apple's SSD prices are insane. And they're not even upgradeable. You get by with external drives, but those *"Disk Not Ejected Properly"* notifications are exhausting. With **DiskOUT**, you don't have to see them anymore.
-
----
-
-## How?
-
-### 1️⃣ The moment your lid closes, every external safely ejects.
-
-Close → eject. Open → remount.
-Configured idle sleep → eject. Wake → remount.
-
-### 2️⃣ Eject 10 externals at once.
-
-One shortcut, or one right-click on the menu bar icon — all of them, gone.
-
-### 3️⃣ See how many drives are connected, at a glance.
-
-The menu bar shows the count as a number.
-Core features and the existing numeric menu-bar display remain free. Optional Premium is a USD 4.99 one-time purchase that turns counts 0–12 into cute six-frame animated characters, while keeping a smaller count on the right. Reduce Motion shows a still frame.
-
----
-
-## Designed to be safe
-
-|  |  |
-|---|---|
-| **Time Machine auto-protect** | TM backup disks are automatically excluded from auto-eject — no accidental backup interruption |
-| **Ignores DMG / disk images** | Mounted disk images don't appear in the menu and aren't auto-ejected |
-| **Prevents improper-eject warnings** | Sleep eject tries a normal unmount first. Disconnect after the clean callback; unplugging before completion or after failure can still trigger a warning |
-| **Per-disk opt-out** | Exclude specific disks from auto-eject individually. Volume UUID-based, so it survives cable/port changes |
-| **No ads · billing data separated** | Disk names and file paths are never sent to the billing server. The Paddle-backed server is contacted only to purchase, verify or transfer Premium, or view purchase details; the app trusts only a signed entitlement |
-| **Developer ID + Apple notarized** | Passes Gatekeeper — no "unidentified developer" warning, just opens |
-| **Gentle auto-update** | A small red dot in the menu bar + an item in the menu announces new versions. No modal pop-ups. Installed only after EdDSA + Apple Code Signing double verification |
+Eject, mount, sleep automation, and the numeric menu-bar indicator are free. The optional USD 4.99 one-time Premium purchase only replaces the number with a menu-bar character.
 
 ---
 
@@ -85,7 +50,7 @@ Core features and the existing numeric menu-bar display remain free. Optional Pr
 
 ### [Get the latest release →](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-`DiskOUT-X.Y.Z.dmg` · ~3MB · Apple Silicon only
+`DiskOUT-X.Y.Z.dmg` · Apple Silicon only
 
 </div>
 

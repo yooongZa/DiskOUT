@@ -1,24 +1,22 @@
 <div align="center">
 
-<img src="DiskOUT-eject-transparent.png" width="180" alt="DiskOUT">
+<img src="DiskOUT-eject-transparent.png" width="140" alt="DiskOUT">
 
 # DiskOUT
 
 [한국어](README.md) · [English](README.en.md) · **日本語** · [简体中文](README.zh-Hans.md)
 
-### Mac 必須の無料アプリ、DiskOUT のご紹介。
+## 「ディスクの不正な取り出し」を、もう見ない。
 
-**한국어 · English · 日本語 · 中文 (简体)** · スリープ自動取り出し · Apple Silicon ネイティブ
+<img src="DiskOUT-warning-en.png" width="620" alt="macOSのディスクの不正な取り出し警告が4件重なった英語の通知画面">
 
-<br>
+**DiskOUTは通知を隠すアプリではありません。**
+
+蓋を閉じるときや設定したアイドルスリープの前に外付けドライブの正常な取り出しを試み、警告が出る状況を防ぎます。
 
 [![Download Latest](https://img.shields.io/github/v/release/yooongZa/DiskOUT?style=for-the-badge&label=Download&color=007AFF&logo=apple)](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-![macOS](https://img.shields.io/badge/macOS-13%2B-lightgrey?logo=apple)
-![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-native-A855F7)
-![Languages](https://img.shields.io/badge/i18n-4_languages-3B82F6)
-![Developer ID](https://img.shields.io/badge/Developer_ID-signed-22C55E)
-![Notarized](https://img.shields.io/badge/Apple-notarized-22C55E)
+基本機能は無料 · macOS 13+ · Apple Silicon · Apple 公証済み
 
 [ダウンロード](https://github.com/yooongZa/DiskOUT/releases/latest) ·
 [変更履歴](https://github.com/yooongZa/DiskOUT/releases) ·
@@ -29,53 +27,20 @@
 
 ---
 
-<!-- デモGIF枠: demo.gif をリポジトリのルートに追加し、この行と末尾の閉じコメントを削除すると有効化されます。
-<div align="center">
+## 毎回Finderを開く必要はありません
 
-<img src="demo.gif" width="700" alt="DiskOUT — 蓋を閉じると外付けドライブを安全に取り出し、開くと再マウントします">
+- 蓋を閉じたときの自動取り出しを有効にすると、MacBookを閉じた際に正常な取り出しを試みます。
+- 設定したアイドルスリープの前にも自動で取り出せます。
+- スリープの自動取り出しに成功したドライブは、Macの復帰時に再マウントします。
+- メニューやショートカットから、個別取り出し・すべて取り出し・`取り出してスリープ`を実行できます。
 
-</div>
--->
+> 取り出し完了を確認してからケーブルを外してください。完了前や失敗後に外すと、macOSの警告が表示される場合があります。
 
-> Mac は完璧です — 「ディスクが正しく取り出されませんでした」通知さえなければ。
+## 書き込み中のドライブは別に扱います
 
-## 何もしなくても、ディスクは正しく取り出されます。完璧に。
+DiskOUTは通常のアンマウントを先に試します。手動の取り出しと`取り出してスリープ`は書き込み中なら先に確認し、失敗した場合は原因と次の操作を表示します。Time Machineディスクと除外したドライブは自動取り出しの対象外です。
 
-これからは Mac を閉じて、抜いて、入れて、出かけてください。
-
-Apple の SSD 価格はおかしいです。しかもアップグレード不可。外付けでしのいでいますが、*「Disk Not Ejected Properly」*通知にはうんざり。**DiskOUT** を使えば、もうそんな通知を見る必要はありません。
-
----
-
-## どうやって?
-
-### 1️⃣ 蓋を閉じる瞬間、すべての外付けが安全に取り出されます。
-
-閉じる → 取り出し、開く → マウント。
-設定したアイドルスリープ → 取り出し、復帰 → マウント。
-
-### 2️⃣ 10 個の外付けハードも一度に取り出し。
-
-ショートカット 1 回、メニューバー右クリック 1 回で全部取り出し。
-
-### 3️⃣ 外付けディスクが何個か、一目で確認。
-
-メニューバーに接続されたディスクの数が数字で表示されます。
-取り出し・マウントなどの基本機能と従来の数字表示は無料のままです。USD 4.99 の買い切り Premium では、0〜12 をかわいい 6 フレームのアニメーションキャラクターに変え、右側に小さな数字も表示します。「視差効果を減らす」が有効な場合は静止フレームになります。
-
----
-
-## 安心して使えるように
-
-|  |  |
-|---|---|
-| **Time Machine 自動保護** | TM バックアップディスクは自動取り出しから自動除外 — うっかりバックアップを切断する事故を防止 |
-| **DMG · ディスクイメージ無視** | マウント済みディスクイメージはメニューに出ず、自動取り出し対象でもない |
-| **取り出し失敗通知を予防** | スリープ前に normal unmount を先に試す。clean callback 後に外せば警告を防げるが、完了前または失敗後に外すと警告が出る場合がある |
-| **ディスク別オプトアウト** | 自動取り出しから除外したいディスクだけ個別にトグル。Volume UUID 基準でケーブル / ポートが変わっても維持 |
-| **広告なし · 決済情報を分離** | ディスク名やファイルパスを決済サーバーへ送信しません。Paddle ベースのサーバーとの通信は Premium の購入・利用権確認・移行・購入内容の表示時だけで、アプリは署名済み entitlement(利用権)のみを検証します |
-| **Developer ID + Apple 公証** | Gatekeeper を通過 — 「未確認の開発元」警告なしでそのまま開きます |
-| **静かな自動アップデート** | 新しいバージョンが出るとメニューバーアイコンの横に小さな赤い点 + メニュー内項目で通知。モーダルは出ません。EdDSA + Apple Code Signing の二重検証後にインストール |
+取り出し・マウント・スリープ自動化と数字のメニューバー表示は無料です。USD 4.99の買い切りPremiumは、数字をメニューバーキャラクターに変えるオプション機能です。
 
 ---
 
@@ -85,7 +50,7 @@ Apple の SSD 価格はおかしいです。しかもアップグレード不可
 
 ### [最新リリースを入手 →](https://github.com/yooongZa/DiskOUT/releases/latest)
 
-`DiskOUT-X.Y.Z.dmg` · 約 3MB · Apple Silicon 専用
+`DiskOUT-X.Y.Z.dmg` · Apple Silicon 専用
 
 </div>
 
