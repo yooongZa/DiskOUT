@@ -1656,6 +1656,93 @@
         }
       }
     },
+    "Open Drive Folder (Finder)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Drive in Finder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드라이브 폴더 열기 (Finder)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderでドライブを開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开驱动器文件夹（访达）"
+          }
+        }
+      }
+    },
+    "Click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリック"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击"
+          }
+        }
+      }
+    },
+    "Eject Drive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject Drive"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드라이브 추출 하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドライブを取り出す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推出驱动器"
+          }
+        }
+      }
+    },
     "Click to mount.  ⌘+click to also open in Finder.": {
       "extractionState": "manual",
       "localizations": {
@@ -1681,6 +1768,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "点击挂载。⌘+点击同时在“访达”中打开。"
+          }
+        }
+      }
+    },
+    "Click to open in Finder.  ⌘+click to eject.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to open in Finder.  ⌘+click to eject."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭 = Finder에서 열기.  ⌘+클릭 = 추출."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックで Finder を開く。⌘+クリックで取り出す。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击可在“访达”中打开。⌘+点击可推出。"
           }
         }
       }
@@ -1739,6 +1855,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法挂载 %@"
+          }
+        }
+      }
+    },
+    "Couldn't open %@ in Finder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open %@ in Finder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 열 수 없음: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を Finder で開けませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在“访达”中打开 %@"
           }
         }
       }

@@ -71,7 +71,7 @@ Eject, mount, sleep automation, and the numeric menu-bar indicator are free. The
 
 | Action | How |
 |---|---|
-| Eject one drive | Menu bar icon → click drive name |
+| Open in Finder / eject one drive | Menu bar icon → click drive name / <kbd>⌘</kbd>+click |
 | Eject all | Menu "Eject all" or <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> |
 | Quick eject all | **Right-click** the menu bar icon |
 | Eject + Sleep | Menu "Eject and Sleep" — sleep only starts if all eject succeed |
@@ -168,7 +168,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | **Menu bar icon = ⏏ + mount count** | An eject glyph (⏏) next to the number of mounted external *devices* — instantly identifiable among other status items, and monospaced digits keep the width stable as the count changes. With 0 drives, only the glyph shows (no uninformative "0"). Multi-partition / RAID / APFS synthesized volumes count as 1. Event-driven auto-update from `DAInventory` changes (no polling). Temporary glyphs (↻ · ✓ · ✗) take over during eject progress/results, with a 0.15s crossfade (honors Reduce Motion) |
 | **Read/write activity indicator** | When read or write I/O is active on an external, a small systemBlue `●` appears next to the menu bar number + a "Reading / Writing — don't disconnect" tooltip (color-distinct from the red update dot). In the menu, the blue `●` appears **only next to the busy disk** — and the tooltip distinguishes reading / writing / both. Polls physical-disk I/O counters (IORegistry) every 1.5 s; volume→physical mapping via parent-walk handles RAID / APFS-synthesized / direct uniformly. Reads use a higher threshold to avoid background-indexing false positives. After an eject, once the updated mounted inventory and physical mapping are resolved, activity for the ejected disk is removed while the state of other mounted disks is preserved. Runs only while externals are present (battery) |
 | **Disk capacity / usage** | Each disk's menu item shows *free · usage* on a second line — e.g. `2.9 TB free · 40% used`. Read via `URLResourceValues` on menu open (no process spawn) |
-| Individual eject | Click drive name |
+| Open in Finder / individual eject | Click drive name = open in Finder, <kbd>⌘</kbd>+click = eject. A title-free frosted guide below the list shows only `Open Drive in Finder` and `Eject Drive`; Reduce Transparency switches it to an opaque background |
 | **Confirm eject while writing** | Manually ejecting a disk or choosing **Eject and Sleep** while a disk is being written shows a warning with Cancel as the default. Lid-close handling can still force once after a busy response; idle/display sleep never forces |
 | **Quit blocker & retry** | On eject failure, if a *quittable regular app* is holding the disk, the notification offers a "Quit apps and retry" button → graceful quit (never `forceTerminate`) → one eject retry. Excludes Finder, system daemons, and itself |
 | Eject all | Menu item or shortcut |
@@ -191,7 +191,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | **Hotkey conflict auto-fix** | If eject / mount / eject-and-sleep would share the same preset, the conflict is detected + one is auto-moved + alerted |
 | **Missing-permission menu hint** | If Accessibility (for global hotkeys) or notification permission is missing, a ⚠ warning row appears at the top of the menu. Click to jump to the relevant System Settings page |
 | **Fine-grained notification toggles** | Separate toggles for all / success / failure notifications. All ON by default. If macOS blocks notifications, Settings shows the status and opens the relevant System Settings page |
-| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 172 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
+| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 177 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
 | **Auto-update (Sparkle 2)** | 24h background check. On new version, no modal — just a small systemRed `●` in the menu bar + an "Update to X.Y.Z…" menu item with the same red-dot prefix (gentle reminder). On click, DiskOUT closes the status menu, starts the Sparkle check, and makes bounded foreground requests for the checking, update-presentation, and no-update/error modal stages. EdDSA(Ed25519) + Apple Code Signing double verification. Appcast on GitHub Pages, DMG on GitHub Releases — free hosting |
 | **Per-disk auto-eject exclude** | Per-disk toggles in the bottom *"Auto-Eject Excluded Disks"* submenu. Volume UUID-based (survives cable/port changes). Affects auto path only — explicit eject still works |
 | **Time Machine auto-protect** | TM backup disks auto-detected (`Backups.backupdb` / `.com.apple.timemachine.donotpresent`) → excluded from auto-eject on first sighting + 1 notification. Menu shows clock icon + a Time Machine badge (macOS 14+; parenthetical on 13) |
@@ -223,7 +223,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 diskOUT/
 ├── AppDelegate.swift            # Main logic (diskutil exec, menu cache, sleep/wake handling)
 ├── LanguageRuntime.swift        # language negotiation, stored-value validation, safe relaunch policy
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 172 keys)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 177 keys)
 ├── main.swift                   # Explicit entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen generated)
 ├── DiskOUT.entitlements         # empty plist. Prevents entitlements pitfalls in project.yml

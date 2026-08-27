@@ -1,0 +1,11 @@
+{"app_name":"DiskOUT","bundleID":"com.yongza.ejectdrives","incident_id":"ffffffff-1111-2222-3333-444444444444"}
+{
+  "faultingThread": 0,
+  "usedImages": [{"name": "DiskOUT"}],
+  "threads": [
+    {"frames": [
+      {"imageIndex": -1, "symbol": "invalidImageReference"},
+      {"imageIndex": 0, "symbol": "DiskOUT.validFrameAfterInvalidIndex()"}
+    ]}
+  ]
+}

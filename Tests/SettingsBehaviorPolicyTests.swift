@@ -32,6 +32,8 @@ private enum SettingsBehaviorPolicyTests {
         testCancelableRegistryBoundaries()
         testOneShotCallbackUnderConcurrency()
         testPremiumMenuPolicy()
+        testDriveActionGuidePresentation()
+        testDriveMenuActionRequiresExactCommandPrimaryClick()
         print("SettingsBehaviorPolicyTests: PASS")
     }
 
@@ -182,5 +184,85 @@ private enum SettingsBehaviorPolicyTests {
         expect(PremiumMenuPolicy.entry(isConfigured: true, hasPremiumAccess: true,
                                        hasInProgressAction: true) == .openSettings,
                "in-progress state remains reachable")
+    }
+
+    private static func testDriveActionGuidePresentation() {
+        expect(!DriveActionGuidePresentationPolicy.shouldShow(displayedDriveCount: 0),
+               "an empty drive section has no action guide")
+        expect(DriveActionGuidePresentationPolicy.shouldShow(displayedDriveCount: 1),
+               "one displayed drive has exactly one section-level guide")
+        expect(DriveActionGuidePresentationPolicy.shouldShow(displayedDriveCount: 8),
+               "multiple displayed drives share one section-level guide")
+        expect(DriveActionGuidePresentationPolicy.background(reduceTransparency: false) == .blurred,
+               "the default guide uses the requested blur material")
+        expect(DriveActionGuidePresentationPolicy.background(reduceTransparency: true) == .opaque,
+               "Reduce Transparency replaces blur with an opaque background")
+        expect(DriveActionGuidePresentationPolicy.gestureColumnWidth(
+            intrinsicWidths: [19.5, 32.5], cellWidths: [23.03, 36.34]
+        ) == 37,
+               "the gesture column includes NSTextField cell drawing insets")
+        expect(DriveActionGuidePresentationPolicy.gestureColumnWidth(
+            intrinsicWidths: [27, 51.5], cellWidths: [30.61, 55.37]
+        ) == 56,
+               "the longest localized command-click hint is not truncated")
+    }
+
+    private static func testDriveMenuActionRequiresExactCommandPrimaryClick() {
+        func action(primary: Bool = true,
+                    command: Bool = false,
+                    option: Bool = false,
+                    control: Bool = false,
+                    shift: Bool = false) -> DriveMenuAction {
+            DriveMenuActionPolicy.action(
+                isPrimaryClick: primary,
+                hasCommand: command,
+                hasOption: option,
+                hasControl: control,
+                hasShift: shift
+            )
+        }
+
+        expect(action() == .openInFinder,
+               "a plain primary click opens Finder")
+        expect(action(primary: false, command: true) == .openInFinder,
+               "keyboard or Accessibility activation cannot eject")
+        expect(action(command: true) == .eject,
+               "an exact Command primary click ejects")
+        expect(action(command: true, option: true) == .openInFinder,
+               "Command-Option click fails safe to Finder")
+        expect(action(command: true, control: true) == .openInFinder,
+               "Command-Control click fails safe to Finder")
+        expect(action(command: true, shift: true) == .openInFinder,
+               "Command-Shift click fails safe to Finder")
+
+        var openCount = 0
+        var ejectCount = 0
+        var notificationCount = 0
+        DriveMenuActionExecutor.perform(
+            action: .openInFinder,
+            openInFinder: { openCount += 1; return true },
+            eject: { ejectCount += 1 },
+            notifyOpenFailure: { notificationCount += 1 }
+        )
+        expect((openCount, ejectCount, notificationCount) == (1, 0, 0),
+               "successful Finder open has no eject or failure notification side effect")
+
+        DriveMenuActionExecutor.perform(
+            action: .openInFinder,
+            openInFinder: { openCount += 1; return false },
+            eject: { ejectCount += 1 },
+            notifyOpenFailure: { notificationCount += 1 }
+        )
+        expect((openCount, ejectCount, notificationCount) == (2, 0, 1),
+               "failed Finder open notifies exactly once without ejecting")
+
+        DriveMenuActionExecutor.perform(
+            action: .eject,
+            openInFinder: { openCount += 1; return false },
+            eject: { ejectCount += 1 },
+            notifyOpenFailure: { notificationCount += 1 }
+        )
+        expect((openCount, ejectCount, notificationCount) == (2, 1, 1),
+               "eject action preserves the existing eject path without opening Finder")
     }
 }

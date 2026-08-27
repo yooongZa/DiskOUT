@@ -43,6 +43,144 @@ private enum UI {
     static let statusCountSize: CGFloat = 9   // Premium 캐릭터 옆 보조 숫자
     static let dotSize: CGFloat = 8           // 색점 글리프 크기
     static let dotBaselineOffset: CGFloat = 2 // 색점을 숫자/텍스트 광학 중심에 맞추는 오프셋
+
+    // 드라이브 동작 안내 (NSMenuItem custom view의 frame이 실제 메뉴 행 높이를 결정)
+    static let driveGuideMinimumWidth: CGFloat = 250
+    static let driveGuideHeight: CGFloat = 52
+    static let driveGuideBoxHorizontalInset: CGFloat = 8
+    static let driveGuideBoxVerticalInset: CGFloat = 2
+    static let driveGuideContentHorizontalInset: CGFloat = 12
+    static let driveGuideContentVerticalInset: CGFloat = 5
+    static let driveGuideRowSpacing: CGFloat = 2
+    static let driveGuideColumnSpacing: CGFloat = 14
+    static let driveGuideCornerRadius: CGFloat = 8
+}
+
+/// 드라이브 행의 mouse gesture(마우스 제스처)를 실제 keyboard shortcut(키보드 단축키)처럼
+/// 오해시키지 않으면서 항상 보여 주는 읽기 전용 안내. 메뉴 자체의 blur 위에 같은 semantic
+/// material(의미 기반 재질)을 한 겹 더 써서 아주 약한 frosted box(반투명 박스)로 구분한다.
+private final class DriveActionGuideView: NSView {
+    private let effectView = NSVisualEffectView()
+    private let openLabel = NSTextField(labelWithString: "")
+    private let openGestureLabel = NSTextField(labelWithString: "")
+    private let ejectLabel = NSTextField(labelWithString: "")
+    private let ejectGestureLabel = NSTextField(labelWithString: "")
+
+    init(openAction: String, click: String, ejectAction: String) {
+        super.init(frame: NSRect(x: 0, y: 0,
+                                 width: UI.driveGuideMinimumWidth,
+                                 height: UI.driveGuideHeight))
+        autoresizingMask = [.width]
+
+        openLabel.stringValue = openAction
+        openGestureLabel.stringValue = click
+        ejectLabel.stringValue = ejectAction
+        ejectGestureLabel.stringValue = "⌘ \(click)"
+
+        openLabel.font = NSFont.menuFont(ofSize: 0)
+        ejectLabel.font = NSFont.menuFont(ofSize: 0)
+        openGestureLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize,
+                                                  weight: .medium)
+        ejectGestureLabel.font = openGestureLabel.font
+
+        [openLabel, openGestureLabel, ejectLabel, ejectGestureLabel].forEach {
+            $0.usesSingleLineMode = true
+            $0.lineBreakMode = .byTruncatingTail
+            $0.setAccessibilityElement(false)
+        }
+
+        effectView.blendingMode = .withinWindow
+        effectView.state = .followsWindowActiveState
+        effectView.isEmphasized = false
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = UI.driveGuideCornerRadius
+        effectView.layer?.masksToBounds = true
+        effectView.setAccessibilityElement(false)
+
+        addSubview(effectView)
+        [openLabel, openGestureLabel, ejectLabel, ejectGestureLabel].forEach {
+            effectView.addSubview($0)
+        }
+        updateFrames()
+
+        // NSMenuItem 하나만 VoiceOver에 노출하고 내부 label은 중복 낭독하지 않는다.
+        setAccessibilityElement(false)
+
+        updateVisualStyle()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        updateFrames()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateVisualStyle()
+    }
+
+    /// NSMenu가 custom item을 배치하는 중 Auto Layout을 다시 진입시키지 않도록 frame 기반으로 정렬한다.
+    private func updateFrames() {
+        effectView.frame = bounds.insetBy(dx: UI.driveGuideBoxHorizontalInset,
+                                          dy: UI.driveGuideBoxVerticalInset)
+
+        let content = effectView.bounds.insetBy(dx: UI.driveGuideContentHorizontalInset,
+                                                dy: UI.driveGuideContentVerticalInset)
+        let gestureWidth = DriveActionGuidePresentationPolicy.gestureColumnWidth(
+            intrinsicWidths: [openGestureLabel.intrinsicContentSize.width,
+                              ejectGestureLabel.intrinsicContentSize.width],
+            cellWidths: [openGestureLabel.cell?.cellSize.width ?? 0,
+                         ejectGestureLabel.cell?.cellSize.width ?? 0]
+        )
+        let actionWidth = max(0, content.width - gestureWidth - UI.driveGuideColumnSpacing)
+        let rowHeight = floor((content.height - UI.driveGuideRowSpacing) / 2)
+        let topY = content.maxY - rowHeight
+
+        openLabel.frame = NSRect(x: content.minX, y: topY,
+                                 width: actionWidth, height: rowHeight)
+        openGestureLabel.frame = NSRect(x: content.maxX - gestureWidth, y: topY,
+                                        width: gestureWidth, height: rowHeight)
+        ejectLabel.frame = NSRect(x: content.minX, y: content.minY,
+                                  width: actionWidth, height: rowHeight)
+        ejectGestureLabel.frame = NSRect(x: content.maxX - gestureWidth, y: content.minY,
+                                         width: gestureWidth, height: rowHeight)
+    }
+
+    private func updateVisualStyle() {
+        let workspace = NSWorkspace.shared
+        let background = DriveActionGuidePresentationPolicy.background(
+            reduceTransparency: workspace.accessibilityDisplayShouldReduceTransparency
+        )
+        let increaseContrast = workspace.accessibilityDisplayShouldIncreaseContrast
+
+        effectView.material = background == .blurred ? .menu : .contentBackground
+        effectiveAppearance.performAsCurrentDrawingAppearance { [self] in
+            let tint: NSColor = background == .blurred
+                ? NSColor.controlBackgroundColor.withAlphaComponent(0.18)
+                : NSColor.windowBackgroundColor
+            let border: NSColor = increaseContrast
+                ? NSColor.labelColor.withAlphaComponent(0.58)
+                : NSColor.separatorColor.withAlphaComponent(0.34)
+            effectView.layer?.backgroundColor = tint.cgColor
+            effectView.layer?.borderColor = border.cgColor
+            effectView.layer?.borderWidth = increaseContrast ? 1 : 0.5
+            openLabel.textColor = .labelColor
+            ejectLabel.textColor = .labelColor
+            openGestureLabel.textColor = increaseContrast ? .labelColor : .secondaryLabelColor
+            ejectGestureLabel.textColor = openGestureLabel.textColor
+        }
+    }
 }
 
 private let ioMessageCanSystemSleep: UInt32 = 0xe0000270
@@ -964,6 +1102,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return attr
     }
 
+    private func driveActionGuideMenuItem() -> NSMenuItem {
+        let openAction = String(localized: "Open Drive Folder (Finder)")
+        let click = String(localized: "Click")
+        let ejectAction = String(localized: "Eject Drive")
+        let actionHint = String(localized: "Click to open in Finder.  ⌘+click to eject.")
+
+        let item = NSMenuItem(title: "\(openAction) / \(ejectAction)", action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.view = DriveActionGuideView(openAction: openAction,
+                                         click: click,
+                                         ejectAction: ejectAction)
+        item.toolTip = actionHint
+        item.setAccessibilityLabel("\(openAction). \(click). \(ejectAction). ⌘ \(click).")
+        return item
+    }
+
     private struct PhysicalWholeDiskResolution {
         let disks: Set<String>
         let isComplete: Bool
@@ -1131,7 +1285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     baseTitle = statusLabel.map { "\(drive.name) (\($0))" } ?? drive.name
                 }
                 let item = NSMenuItem(title: baseTitle,
-                                      action: #selector(ejectOne(_:)),
+                                      action: #selector(activateDriveMenuItem(_:)),
                                       keyEquivalent: "")
                 item.target = self
                 item.representedObject = drive.url
@@ -1149,13 +1303,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 if detail != nil || active {
                     item.attributedTitle = menuItemTitle(primary: baseTitle, secondary: detail, active: active)
                 }
-                // 읽기/쓰기 종류에 따라 tooltip 문구 구분 (활동 없으면 nil → tooltip 제거).
-                item.toolTip = activityTooltip(writing: activity.writing, reading: activity.reading)
-                // submenu 폐기 — submenu 가 있으면 macOS 가 클릭 시 action 무시 (추출 안 됨).
-                // 자동 추출 제외 토글은 메뉴 하단의 별도 "자동 추출 제외 디스크" submenu 로 이동.
+                // 기존 읽기/쓰기 경고를 보존하면서 클릭 동작을 안내한다.
+                let actionHint = String(localized: "Click to open in Finder.  ⌘+click to eject.")
+                if let activityHint = activityTooltip(writing: activity.writing, reading: activity.reading) {
+                    item.toolTip = "\(activityHint)\n\(actionHint)"
+                } else {
+                    item.toolTip = actionHint
+                }
+                item.setAccessibilityHelp(item.toolTip)
                 menu.addItem(item)
             }
             menu.addItem(NSMenuItem.separator())
+            // stale cache → 최종 snapshot 갱신 중에도 같은 guide row를 유지해 AppKit menu가
+            // 불필요하게 커졌다 작아지는 tracking 잔상을 피한다. 드라이브 섹션당 정확히 한 번.
+            if DriveActionGuidePresentationPolicy.shouldShow(displayedDriveCount: drives.count) {
+                menu.addItem(driveActionGuideMenuItem())
+                menu.addItem(NSMenuItem.separator())
+            }
             let ejectHotkey = SettingsStore.ejectHotkey
             // 단축키는 keyEquivalent 가 메뉴 우측에 표시 — 제목 안 괄호 중복 표기 금지 (UI 컨벤션).
             let ejectAllItem = NSMenuItem(title: String(localized: "Eject All"),
@@ -1852,7 +2016,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// 개별 드라이브 추출 (메뉴 아이템 클릭).
+    /// 일반 클릭은 Finder에서 열고, 정확한 Command+좌클릭만 기존 개별 추출로 보낸다.
+    /// event는 메뉴 action 진입 즉시 snapshot해 이후 main-loop event 변화와 분리한다.
+    @objc private func activateDriveMenuItem(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        let event = NSApp.currentEvent
+        let flags = event?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+        let isPrimaryClick = event?.type == .leftMouseDown || event?.type == .leftMouseUp
+        let action = DriveMenuActionPolicy.action(
+            isPrimaryClick: isPrimaryClick,
+            hasCommand: flags.contains(.command),
+            hasOption: flags.contains(.option),
+            hasControl: flags.contains(.control),
+            hasShift: flags.contains(.shift)
+        )
+
+        DriveMenuActionExecutor.perform(
+            action: action,
+            openInFinder: {
+                let opened = NSWorkspace.shared.open(url)
+                if opened {
+                    log.info("OPENINFINDER done: \(sender.title, privacy: .public) at \(url.path, privacy: .public)")
+                }
+                return opened
+            },
+            eject: { [weak self] in
+                self?.ejectOne(sender)
+            },
+            notifyOpenFailure: { [weak self] in
+                guard let self else { return }
+                log.notice("OPENINFINDER failed: \(sender.title, privacy: .public) at \(url.path, privacy: .public)")
+                self.notify(title: String(localized: "Couldn't open \(sender.title) in Finder"),
+                            body: localizedOperationFailure(),
+                            archived: true,
+                            kind: .failure)
+            }
+        )
+    }
+
+    /// 개별 드라이브 추출 (Command+메뉴 아이템 클릭).
     @objc private func ejectOne(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         let name = sender.title
@@ -10314,25 +10516,12 @@ fileprivate enum CrashReporter {
     /// 어느 단계든 형식이 어긋나면 nil (best-effort).
     private static func parseIPS(at url: URL) -> ParsedCrash? {
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-
-        // 헤더 = 첫 번째 비어있지 않은 줄(JSON object). 바디 = 그 뒤 나머지 전체(JSON object).
-        guard let firstNewline = raw.firstIndex(of: "\n") else { return nil }
-        let headerLine = String(raw[raw.startIndex..<firstNewline])
-        let bodyText = String(raw[raw.index(after: firstNewline)...])
-
-        guard let headerData = headerLine.data(using: .utf8),
-              let header = (try? JSONSerialization.jsonObject(with: headerData)) as? [String: Any] else {
-            return nil
-        }
-
-        // 매칭 확정: 헤더 bundleID == com.yongza.ejectdrives.
-        let bundleID = (header["bundleID"] as? String) ?? (header["bundleId"] as? String)
-        guard bundleID == ReportEndpoint.expectedBundleID else { return nil }
-
-        guard let bodyData = bodyText.data(using: .utf8),
-              let body = (try? JSONSerialization.jsonObject(with: bodyData)) as? [String: Any] else {
-            return nil
-        }
+        guard let document = CrashReportParsing.document(
+            from: raw,
+            expectedBundleID: ReportEndpoint.expectedBundleID
+        ) else { return nil }
+        let header = document.header
+        let body = document.body
 
         // 앱 버전 — 헤더의 app_version 우선, 없으면 현재 번들 버전.
         let crashAppVersion = (header["app_version"] as? String).map { String($0.prefix(64)) }
@@ -10347,7 +10536,10 @@ fileprivate enum CrashReporter {
         let exceptionLabel = exceptionSignal.map { "\(exceptionType) (\($0))" } ?? exceptionType
 
         // 크래시 스레드 백트레이스 추출.
-        let (topAppSymbol, frameLines) = backtrace(from: body)
+        let (topAppSymbol, frameLines) = CrashReportParsing.backtrace(
+            from: body,
+            topFrameLimit: topFrameLimit
+        )
 
         // SIGNATURE = 예외타입 + top 앱 프레임 심볼.
         let rawSignature = topAppSymbol.map { "\(exceptionLabel) @ \($0)" } ?? exceptionLabel
@@ -10405,67 +10597,4 @@ fileprivate enum CrashReporter {
         return nil
     }
 
-    /// 크래시 스레드의 백트레이스를 (top 앱 심볼, "프레임 라인" 배열) 로 추림.
-    /// 레지스터 덤프·환경변수·스레드 전체 덤프는 제외 — 프레임 심볼/바이너리만.
-    /// 앱 프레임 = imageIndex 가 procName == DiskOUT 인 이미지인 프레임.
-    private static func backtrace(from body: [String: Any]) -> (topAppSymbol: String?, frames: [String]) {
-        let images = body["usedImages"] as? [[String: Any]] ?? []
-        // DiskOUT 메인 이미지 인덱스들 — 앱 프레임 판별용.
-        var appImageIndices = Set<Int>()
-        for (idx, img) in images.enumerated() {
-            if let name = img["name"] as? String, name == "DiskOUT" {
-                appImageIndices.insert(idx)
-            }
-        }
-
-        // 크래시 스레드 찾기: threads[].triggered == true 우선, 없으면 faultingThread 인덱스.
-        let threads = body["threads"] as? [[String: Any]] ?? []
-        var crashThread: [String: Any]?
-        for t in threads where (t["triggered"] as? Bool) == true {
-            crashThread = t
-            break
-        }
-        if crashThread == nil, let faulting = body["faultingThread"] as? Int, faulting < threads.count {
-            crashThread = threads[faulting]
-        }
-        if crashThread == nil { crashThread = threads.first }
-
-        let frames = (crashThread?["frames"] as? [[String: Any]]) ?? []
-        var lines: [String] = []
-        var topAppSymbol: String?
-
-        for frame in frames.prefix(topFrameLimit) {
-            let imageIndex = frame["imageIndex"] as? Int
-            let isAppFrame = imageIndex.map { appImageIndices.contains($0) } ?? false
-            let binaryName: String
-            if let imageIndex, imageIndex < images.count,
-               let n = images[imageIndex]["name"] as? String {
-                binaryName = n
-            } else {
-                binaryName = "?"
-            }
-
-            // 심볼: symbol(디멩글된 이름) 우선, 없으면 imageOffset 만.
-            let symbol = (frame["symbol"] as? String).map { String($0.prefix(120)) }
-            let offset = frame["imageOffset"] as? Int
-            let symbolText: String
-            if let symbol {
-                symbolText = symbol
-            } else if let offset {
-                symbolText = "\(binaryName) + \(offset)"
-            } else {
-                symbolText = binaryName
-            }
-
-            if isAppFrame, topAppSymbol == nil, let symbol {
-                topAppSymbol = symbol
-            } else if isAppFrame, topAppSymbol == nil {
-                topAppSymbol = symbolText
-            }
-
-            lines.append("\(binaryName)  \(symbolText)")
-        }
-
-        return (topAppSymbol, lines)
-    }
 }

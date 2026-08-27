@@ -240,3 +240,66 @@ enum PremiumMenuPolicy {
         return (!hasPremiumAccess || hasInProgressAction) ? .openSettings : .hidden
     }
 }
+
+enum DriveMenuAction: Equatable, Sendable {
+    case openInFinder
+    case eject
+}
+
+enum DriveActionGuideBackground: Equatable, Sendable {
+    case blurred
+    case opaque
+}
+
+enum DriveActionGuidePresentationPolicy {
+    static func shouldShow(displayedDriveCount: Int) -> Bool {
+        displayedDriveCount > 0
+    }
+
+    static func background(reduceTransparency: Bool) -> DriveActionGuideBackground {
+        reduceTransparency ? .opaque : .blurred
+    }
+
+    /// NSTextField intrinsic width excludes part of the cell drawing inset on macOS.
+    /// Reserve the larger measured width so the command-click hint never truncates itself.
+    static func gestureColumnWidth(intrinsicWidths: [Double],
+                                   cellWidths: [Double]) -> Double {
+        ceil((intrinsicWidths + cellWidths).max() ?? 0)
+    }
+}
+
+enum DriveMenuActionPolicy {
+    /// Eject is destructive, so it requires positive proof of an exact Command + primary click.
+    /// Keyboard/Accessibility activation, a missing event, or any additional primary modifier
+    /// falls back to opening Finder.
+    static func action(isPrimaryClick: Bool,
+                       hasCommand: Bool,
+                       hasOption: Bool,
+                       hasControl: Bool,
+                       hasShift: Bool) -> DriveMenuAction {
+        guard isPrimaryClick,
+              hasCommand,
+              !hasOption,
+              !hasControl,
+              !hasShift else {
+            return .openInFinder
+        }
+        return .eject
+    }
+}
+
+enum DriveMenuActionExecutor {
+    static func perform(action: DriveMenuAction,
+                        openInFinder: () -> Bool,
+                        eject: () -> Void,
+                        notifyOpenFailure: () -> Void) {
+        switch action {
+        case .openInFinder:
+            if !openInFinder() {
+                notifyOpenFailure()
+            }
+        case .eject:
+            eject()
+        }
+    }
+}
