@@ -246,25 +246,11 @@ enum DriveMenuAction: Equatable, Sendable {
     case eject
 }
 
-enum DriveActionGuideBackground: Equatable, Sendable {
-    case blurred
-    case opaque
-}
-
-enum DriveActionGuidePresentationPolicy {
+enum DriveUsageHintPresentationPolicy {
+    /// The non-interactive usage hint is useful only when at least one mounted
+    /// drive row can perform the described actions.
     static func shouldShow(displayedDriveCount: Int) -> Bool {
         displayedDriveCount > 0
-    }
-
-    static func background(reduceTransparency: Bool) -> DriveActionGuideBackground {
-        reduceTransparency ? .opaque : .blurred
-    }
-
-    /// NSTextField intrinsic width excludes part of the cell drawing inset on macOS.
-    /// Reserve the larger measured width so the command-click hint never truncates itself.
-    static func gestureColumnWidth(intrinsicWidths: [Double],
-                                   cellWidths: [Double]) -> Double {
-        ceil((intrinsicWidths + cellWidths).max() ?? 0)
     }
 }
 

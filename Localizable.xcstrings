@@ -1656,89 +1656,31 @@
         }
       }
     },
-    "Open Drive Folder (Finder)": {
+    "Click: Open in Finder\n⌘-Click: Eject": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Drive in Finder"
+            "value": "Click: Open in Finder\n⌘-Click: Eject"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "드라이브 폴더 열기 (Finder)"
+            "value": "클릭: Finder에서 열기\n⌘클릭: 드라이브 추출"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finderでドライブを開く"
+            "value": "クリック：Finderで開く\n⌘クリック：取り出す"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开驱动器文件夹（访达）"
-          }
-        }
-      }
-    },
-    "Click": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Click"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "클릭"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クリック"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "点击"
-          }
-        }
-      }
-    },
-    "Eject Drive": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eject Drive"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "드라이브 추출 하기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドライブを取り出す"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "推出驱动器"
+            "value": "点击：在“访达”中打开\n⌘点击：推出"
           }
         }
       }
@@ -1784,7 +1726,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클릭 = Finder에서 열기.  ⌘+클릭 = 추출."
+            "value": "클릭 = Finder에서 열기.  ⌘+클릭 = 드라이브 추출."
           }
         },
         "ja": {

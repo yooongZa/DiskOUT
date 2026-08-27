@@ -32,7 +32,7 @@ private enum SettingsBehaviorPolicyTests {
         testCancelableRegistryBoundaries()
         testOneShotCallbackUnderConcurrency()
         testPremiumMenuPolicy()
-        testDriveActionGuidePresentation()
+        testDriveUsageHintPresentation()
         testDriveMenuActionRequiresExactCommandPrimaryClick()
         print("SettingsBehaviorPolicyTests: PASS")
     }
@@ -186,25 +186,15 @@ private enum SettingsBehaviorPolicyTests {
                "in-progress state remains reachable")
     }
 
-    private static func testDriveActionGuidePresentation() {
-        expect(!DriveActionGuidePresentationPolicy.shouldShow(displayedDriveCount: 0),
-               "an empty drive section has no action guide")
-        expect(DriveActionGuidePresentationPolicy.shouldShow(displayedDriveCount: 1),
-               "one displayed drive has exactly one section-level guide")
-        expect(DriveActionGuidePresentationPolicy.shouldShow(displayedDriveCount: 8),
-               "multiple displayed drives share one section-level guide")
-        expect(DriveActionGuidePresentationPolicy.background(reduceTransparency: false) == .blurred,
-               "the default guide uses the requested blur material")
-        expect(DriveActionGuidePresentationPolicy.background(reduceTransparency: true) == .opaque,
-               "Reduce Transparency replaces blur with an opaque background")
-        expect(DriveActionGuidePresentationPolicy.gestureColumnWidth(
-            intrinsicWidths: [19.5, 32.5], cellWidths: [23.03, 36.34]
-        ) == 37,
-               "the gesture column includes NSTextField cell drawing insets")
-        expect(DriveActionGuidePresentationPolicy.gestureColumnWidth(
-            intrinsicWidths: [27, 51.5], cellWidths: [30.61, 55.37]
-        ) == 56,
-               "the longest localized command-click hint is not truncated")
+    private static func testDriveUsageHintPresentation() {
+        expect(!DriveUsageHintPresentationPolicy.shouldShow(displayedDriveCount: -1),
+               "invalid negative drive counts do not show the usage hint")
+        expect(!DriveUsageHintPresentationPolicy.shouldShow(displayedDriveCount: 0),
+               "an empty drive list does not show an inapplicable usage hint")
+        expect(DriveUsageHintPresentationPolicy.shouldShow(displayedDriveCount: 1),
+               "one mounted drive shows the shared usage hint")
+        expect(DriveUsageHintPresentationPolicy.shouldShow(displayedDriveCount: 8),
+               "multiple mounted drives still show only the shared section-level hint")
     }
 
     private static func testDriveMenuActionRequiresExactCommandPrimaryClick() {

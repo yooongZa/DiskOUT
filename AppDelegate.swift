@@ -44,143 +44,6 @@ private enum UI {
     static let dotSize: CGFloat = 8           // 색점 글리프 크기
     static let dotBaselineOffset: CGFloat = 2 // 색점을 숫자/텍스트 광학 중심에 맞추는 오프셋
 
-    // 드라이브 동작 안내 (NSMenuItem custom view의 frame이 실제 메뉴 행 높이를 결정)
-    static let driveGuideMinimumWidth: CGFloat = 250
-    static let driveGuideHeight: CGFloat = 52
-    static let driveGuideBoxHorizontalInset: CGFloat = 8
-    static let driveGuideBoxVerticalInset: CGFloat = 2
-    static let driveGuideContentHorizontalInset: CGFloat = 12
-    static let driveGuideContentVerticalInset: CGFloat = 5
-    static let driveGuideRowSpacing: CGFloat = 2
-    static let driveGuideColumnSpacing: CGFloat = 14
-    static let driveGuideCornerRadius: CGFloat = 8
-}
-
-/// 드라이브 행의 mouse gesture(마우스 제스처)를 실제 keyboard shortcut(키보드 단축키)처럼
-/// 오해시키지 않으면서 항상 보여 주는 읽기 전용 안내. 메뉴 자체의 blur 위에 같은 semantic
-/// material(의미 기반 재질)을 한 겹 더 써서 아주 약한 frosted box(반투명 박스)로 구분한다.
-private final class DriveActionGuideView: NSView {
-    private let effectView = NSVisualEffectView()
-    private let openLabel = NSTextField(labelWithString: "")
-    private let openGestureLabel = NSTextField(labelWithString: "")
-    private let ejectLabel = NSTextField(labelWithString: "")
-    private let ejectGestureLabel = NSTextField(labelWithString: "")
-
-    init(openAction: String, click: String, ejectAction: String) {
-        super.init(frame: NSRect(x: 0, y: 0,
-                                 width: UI.driveGuideMinimumWidth,
-                                 height: UI.driveGuideHeight))
-        autoresizingMask = [.width]
-
-        openLabel.stringValue = openAction
-        openGestureLabel.stringValue = click
-        ejectLabel.stringValue = ejectAction
-        ejectGestureLabel.stringValue = "⌘ \(click)"
-
-        openLabel.font = NSFont.menuFont(ofSize: 0)
-        ejectLabel.font = NSFont.menuFont(ofSize: 0)
-        openGestureLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize,
-                                                  weight: .medium)
-        ejectGestureLabel.font = openGestureLabel.font
-
-        [openLabel, openGestureLabel, ejectLabel, ejectGestureLabel].forEach {
-            $0.usesSingleLineMode = true
-            $0.lineBreakMode = .byTruncatingTail
-            $0.setAccessibilityElement(false)
-        }
-
-        effectView.blendingMode = .withinWindow
-        effectView.state = .followsWindowActiveState
-        effectView.isEmphasized = false
-        effectView.wantsLayer = true
-        effectView.layer?.cornerRadius = UI.driveGuideCornerRadius
-        effectView.layer?.masksToBounds = true
-        effectView.setAccessibilityElement(false)
-
-        addSubview(effectView)
-        [openLabel, openGestureLabel, ejectLabel, ejectGestureLabel].forEach {
-            effectView.addSubview($0)
-        }
-        updateFrames()
-
-        // NSMenuItem 하나만 VoiceOver에 노출하고 내부 label은 중복 낭독하지 않는다.
-        setAccessibilityElement(false)
-
-        updateVisualStyle()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var acceptsFirstResponder: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-
-    override func layout() {
-        super.layout()
-        updateFrames()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateVisualStyle()
-    }
-
-    /// NSMenu가 custom item을 배치하는 중 Auto Layout을 다시 진입시키지 않도록 frame 기반으로 정렬한다.
-    private func updateFrames() {
-        effectView.frame = bounds.insetBy(dx: UI.driveGuideBoxHorizontalInset,
-                                          dy: UI.driveGuideBoxVerticalInset)
-
-        let content = effectView.bounds.insetBy(dx: UI.driveGuideContentHorizontalInset,
-                                                dy: UI.driveGuideContentVerticalInset)
-        let gestureWidth = DriveActionGuidePresentationPolicy.gestureColumnWidth(
-            intrinsicWidths: [openGestureLabel.intrinsicContentSize.width,
-                              ejectGestureLabel.intrinsicContentSize.width],
-            cellWidths: [openGestureLabel.cell?.cellSize.width ?? 0,
-                         ejectGestureLabel.cell?.cellSize.width ?? 0]
-        )
-        let actionWidth = max(0, content.width - gestureWidth - UI.driveGuideColumnSpacing)
-        let rowHeight = floor((content.height - UI.driveGuideRowSpacing) / 2)
-        let topY = content.maxY - rowHeight
-
-        openLabel.frame = NSRect(x: content.minX, y: topY,
-                                 width: actionWidth, height: rowHeight)
-        openGestureLabel.frame = NSRect(x: content.maxX - gestureWidth, y: topY,
-                                        width: gestureWidth, height: rowHeight)
-        ejectLabel.frame = NSRect(x: content.minX, y: content.minY,
-                                  width: actionWidth, height: rowHeight)
-        ejectGestureLabel.frame = NSRect(x: content.maxX - gestureWidth, y: content.minY,
-                                         width: gestureWidth, height: rowHeight)
-    }
-
-    private func updateVisualStyle() {
-        let workspace = NSWorkspace.shared
-        let background = DriveActionGuidePresentationPolicy.background(
-            reduceTransparency: workspace.accessibilityDisplayShouldReduceTransparency
-        )
-        let increaseContrast = workspace.accessibilityDisplayShouldIncreaseContrast
-
-        effectView.material = background == .blurred ? .menu : .contentBackground
-        effectiveAppearance.performAsCurrentDrawingAppearance { [self] in
-            let tint: NSColor = background == .blurred
-                ? NSColor.controlBackgroundColor.withAlphaComponent(0.18)
-                : NSColor.windowBackgroundColor
-            let border: NSColor = increaseContrast
-                ? NSColor.labelColor.withAlphaComponent(0.58)
-                : NSColor.separatorColor.withAlphaComponent(0.34)
-            effectView.layer?.backgroundColor = tint.cgColor
-            effectView.layer?.borderColor = border.cgColor
-            effectView.layer?.borderWidth = increaseContrast ? 1 : 0.5
-            openLabel.textColor = .labelColor
-            ejectLabel.textColor = .labelColor
-            openGestureLabel.textColor = increaseContrast ? .labelColor : .secondaryLabelColor
-            ejectGestureLabel.textColor = openGestureLabel.textColor
-        }
-    }
 }
 
 private let ioMessageCanSystemSleep: UInt32 = 0xe0000270
@@ -203,11 +66,24 @@ private enum UserInitiatedUpdateCheckState: Equatable {
     case presenting
 }
 
+/// attributedTitle(속성 제목)은 NSMenuItem.title 자체도 용량을 포함한 시각 문자열로 바꾼다.
+/// 동작·알림에는 원래 드라이브 이름과 URL을 별도로 보존한다.
+private final class DriveMenuItemPayload: NSObject {
+    let url: URL
+    let displayName: String
+
+    init(url: URL, displayName: String) {
+        self.url = url
+        self.displayName = displayName
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
 
     private var statusItem: NSStatusItem!
     private let statusCharacterAnimator = StatusCharacterAnimator()
     private var billingController: PaddleBillingController?
+    private let lifecycleTelemetryController = AppLifecycleTelemetryController.live()
     private var pendingPremiumRefreshCallback = false
     private var isTerminating = false
     private var isPurchaseInProgress = false
@@ -403,6 +279,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        // Capture this before migrations, Sparkle, or billing can create persistent state. A
+        // telemetry rollout on an existing installation must not masquerade as a first install.
+        let priorAppStateExists = lifecycleTelemetryController.priorAppStateExists()
+
         // Resolve the legacy lid-only preference before any sleep callback or Settings view can
         // read either modern key. Doing both values in one pass removes getter-order dependence.
         SleepEjectSettingsMigration.migrate(in: .standard)
@@ -497,10 +377,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             )
             log.notice("Language relaunch ready: \(token, privacy: .public)")
         }
+
+        // Reaching this boundary means the menu-bar app completed its normal startup setup.
+        // Telemetry is persisted before its best-effort send and cannot block the launch path.
+        if let currentBuild = AppLifecycleTelemetryController.currentBuild() {
+            lifecycleTelemetryController.recordSuccessfulLaunch(
+                current: currentBuild,
+                priorAppStateExists: priorAppStateExists
+            )
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         guard !isTerminating else { return }
+        lifecycleTelemetryController.flush()
         settingsWindowController?.refreshExternalState()
         billingController?.refreshAfterReturningFromCheckout()
     }
@@ -518,6 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         clearCopiedRecoveryCodeIfUnchanged()
         statusCharacterAnimator.invalidate()
         billingController?.stop()
+        lifecycleTelemetryController.stop()
         NSAppleEventManager.shared().removeEventHandler(
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
@@ -1070,7 +961,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
-    /// 활동/업데이트 표시용 작은 색점(" ●"). menuItemTitle / applyCountTitle 공용 헬퍼.
+    /// 활동/업데이트 표시용 작은 색점(" ●"). driveMenuPrimaryTitle / applyCountTitle 공용 헬퍼.
     /// baselineOffset 으로 본문 텍스트의 광학 중심에 맞춘다 (베이스라인에 그대로 두면 점이 처져 보임).
     private func activityDot(color: NSColor) -> NSAttributedString {
         let dot = NSMutableAttributedString(string: " ")
@@ -1082,39 +973,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return dot
     }
 
-    /// 메뉴 항목 attributedTitle — 1줄 primary(기본 메뉴 폰트). 읽기/쓰기 중이면 systemBlue `●` 부착
-    /// (메뉴바 표시와 동일한 시각 언어). secondary 가 있으면 2줄로 작게·dimmed 추가.
-    private func menuItemTitle(primary: String, secondary: String?, active: Bool) -> NSAttributedString {
-        let attr = NSMutableAttributedString(
+    private func driveMenuPrimaryTitle(_ primary: String, active: Bool) -> NSMutableAttributedString {
+        let title = NSMutableAttributedString(
             string: primary,
             attributes: [.font: NSFont.menuFont(ofSize: 0)])
         if active {
-            attr.append(activityDot(color: .systemBlue))
+            title.append(activityDot(color: .systemBlue))
         }
-        if let secondary {
-            attr.append(NSAttributedString(
-                string: "\n" + secondary,
-                attributes: [
-                    .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
-                    .foregroundColor: NSColor.secondaryLabelColor
-                ]))
-        }
-        return attr
+        return title
     }
 
-    private func driveActionGuideMenuItem() -> NSMenuItem {
-        let openAction = String(localized: "Open Drive Folder (Finder)")
-        let click = String(localized: "Click")
-        let ejectAction = String(localized: "Eject Drive")
-        let actionHint = String(localized: "Click to open in Finder.  ⌘+click to eject.")
+    private func driveMenuSecondaryTitle(_ secondary: String?) -> NSAttributedString {
+        NSAttributedString(
+            string: secondary ?? "",
+            attributes: [
+                .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ])
+    }
 
-        let item = NSMenuItem(title: "\(openAction) / \(ejectAction)", action: nil, keyEquivalent: "")
+    /// 이름과 용량만 native NSMenuItem(네이티브 메뉴 항목)의 두 줄 제목으로 결합한다.
+    /// custom view를 쓰지 않아 선택 강조·키보드·VoiceOver 입력과 기존 action 경로를 유지한다.
+    private func driveMenuItemTitle(primary: NSAttributedString,
+                                    secondary: NSAttributedString) -> NSAttributedString {
+        let title = NSMutableAttributedString(attributedString: primary)
+        if secondary.length > 0 {
+            title.append(NSAttributedString(string: "\n"))
+            title.append(secondary)
+        }
+        return title
+    }
+
+    /// LinearMouse의 상태 정보처럼 드라이브 동작을 메뉴 위쪽에 두 줄로 한 번만 흐리게 표시한다.
+    /// action 없는 native item이라 클릭 영역이나 키보드 실행 경로를 추가하지 않는다.
+    private func driveUsageHintMenuItem() -> NSMenuItem {
+        let usage = String(localized: "Click: Open in Finder\n⌘-Click: Eject")
+        let item = NSMenuItem(title: usage, action: nil, keyEquivalent: "")
+        item.attributedTitle = NSAttributedString(
+            string: usage,
+            attributes: [
+                .font: NSFont.menuFont(ofSize: 0),
+                .foregroundColor: NSColor.secondaryLabelColor
+        ])
         item.isEnabled = false
-        item.view = DriveActionGuideView(openAction: openAction,
-                                         click: click,
-                                         ejectAction: ejectAction)
-        item.toolTip = actionHint
-        item.setAccessibilityLabel("\(openAction). \(click). \(ejectAction). ⌘ \(click).")
+        item.setAccessibilityLabel(String(localized: "Click to open in Finder.  ⌘+click to eject."))
         return item
     }
 
@@ -1254,6 +1156,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             menu.addItem(NSMenuItem.separator())
         }
 
+        if DriveUsageHintPresentationPolicy.shouldShow(displayedDriveCount: drives.count) {
+            menu.addItem(driveUsageHintMenuItem())
+            menu.addItem(NSMenuItem.separator())
+        }
+
         if drives.isEmpty {
             let empty = NSMenuItem(title: String(localized: "No External Drives"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
@@ -1263,13 +1170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             // 사용자가 모르는 사이 백업 디스크가 자동 추출되어 백업 사이클 깨지는 사고 방지.
             autoExcludeNewTimeMachineDisks(drives)
 
-            // 섹션 헤더 (macOS 14+) — 시스템 메뉴(Wi-Fi 등)와 같은 작은 회색 헤더.
-            // 13 은 헤더 없는 현행 유지 (disabled 행을 추가하면 오히려 행 수만 늘어남).
-            if #available(macOS 14.0, *) {
-                menu.addItem(NSMenuItem.sectionHeader(title: String(localized: "External Drives")))
-            }
-
-            for drive in drives {
+            let rows = drives.map { drive in
                 let isExcluded = ExcludedVolumes.isExcluded(drive.volumeUUID)
                 // 디스크 상태 라벨 — 한 번에 하나만 (TM 디스크는 자동 제외가 기본이라 TM 우선):
                 //   macOS 14+ → 네이티브 badge ("업무백업  Time Machine") — 본문과 분리된 회색 캡션
@@ -1284,42 +1185,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 } else {
                     baseTitle = statusLabel.map { "\(drive.name) (\($0))" } ?? drive.name
                 }
-                let item = NSMenuItem(title: baseTitle,
-                                      action: #selector(activateDriveMenuItem(_:)),
-                                      keyEquivalent: "")
-                item.target = self
-                item.representedObject = drive.url
-                item.isEnabled = !isRefreshing
-                item.image = menuSymbol(drive.isTimeMachine ? "clock.arrow.circlepath" : drive.kind.symbolName,
-                                        fallback: "externaldrive")
-                if #available(macOS 14.0, *), let statusLabel {
-                    item.badge = NSMenuItemBadge(string: statusLabel)
-                }
-                // 용량/여유공간(2번째 줄, dimmed) + 읽기/쓰기 중이면 이름 옆 systemBlue `●`.
-                // 둘 다 없으면 단일 줄 plain title 유지 (네트워크/일부 TM 등 용량 nil + 비활성).
                 let detail = capacityDetail(forVolumeURL: drive.url)
                 let activity = volumeActivity(drive.url)
                 let active = activity.writing || activity.reading
-                if detail != nil || active {
-                    item.attributedTitle = menuItemTitle(primary: baseTitle, secondary: detail, active: active)
+                var accessibilityParts = [baseTitle]
+                // macOS 13은 statusLabel이 이미 baseTitle의 괄호 suffix에 포함된다.
+                if #available(macOS 14.0, *), let statusLabel {
+                    accessibilityParts.append(statusLabel)
                 }
+                if let detail {
+                    accessibilityParts.append(detail)
+                }
+                return (drive: drive,
+                        statusLabel: statusLabel,
+                        baseTitle: baseTitle,
+                        accessibilityLabel: accessibilityParts.joined(separator: "\n"),
+                        activity: activity,
+                        primary: driveMenuPrimaryTitle(baseTitle, active: active),
+                        secondary: driveMenuSecondaryTitle(detail))
+            }
+
+            for row in rows {
+                let drive = row.drive
+                let item = NSMenuItem(title: row.baseTitle,
+                                      action: #selector(activateDriveMenuItem(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                item.representedObject = DriveMenuItemPayload(url: drive.url,
+                                                              displayName: drive.name)
+                item.isEnabled = !isRefreshing
+                item.image = menuSymbol(drive.isTimeMachine ? "clock.arrow.circlepath" : drive.kind.symbolName,
+                                        fallback: "externaldrive")
+                if #available(macOS 14.0, *), let statusLabel = row.statusLabel {
+                    item.badge = NSMenuItemBadge(string: statusLabel)
+                }
+                // 드라이브 행에는 이름·상태·용량만 표시한다. 동작 안내는 목록 위에 한 번만 둔다.
+                item.attributedTitle = driveMenuItemTitle(primary: row.primary,
+                                                          secondary: row.secondary)
                 // 기존 읽기/쓰기 경고를 보존하면서 클릭 동작을 안내한다.
                 let actionHint = String(localized: "Click to open in Finder.  ⌘+click to eject.")
-                if let activityHint = activityTooltip(writing: activity.writing, reading: activity.reading) {
+                if let activityHint = activityTooltip(writing: row.activity.writing,
+                                                       reading: row.activity.reading) {
                     item.toolTip = "\(activityHint)\n\(actionHint)"
                 } else {
                     item.toolTip = actionHint
                 }
+                // 상단의 시각용 사용법은 중복 낭독하지 않되 기존 이름·상태·용량 정보는 보존한다.
+                item.setAccessibilityLabel(row.accessibilityLabel)
                 item.setAccessibilityHelp(item.toolTip)
                 menu.addItem(item)
             }
             menu.addItem(NSMenuItem.separator())
-            // stale cache → 최종 snapshot 갱신 중에도 같은 guide row를 유지해 AppKit menu가
-            // 불필요하게 커졌다 작아지는 tracking 잔상을 피한다. 드라이브 섹션당 정확히 한 번.
-            if DriveActionGuidePresentationPolicy.shouldShow(displayedDriveCount: drives.count) {
-                menu.addItem(driveActionGuideMenuItem())
-                menu.addItem(NSMenuItem.separator())
-            }
             let ejectHotkey = SettingsStore.ejectHotkey
             // 단축키는 keyEquivalent 가 메뉴 우측에 표시 — 제목 안 괄호 중복 표기 금지 (UI 컨벤션).
             let ejectAllItem = NSMenuItem(title: String(localized: "Eject All"),
@@ -2019,7 +1935,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 일반 클릭은 Finder에서 열고, 정확한 Command+좌클릭만 기존 개별 추출로 보낸다.
     /// event는 메뉴 action 진입 즉시 snapshot해 이후 main-loop event 변화와 분리한다.
     @objc private func activateDriveMenuItem(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
+        guard let payload = sender.representedObject as? DriveMenuItemPayload else { return }
+        let url = payload.url
+        let name = payload.displayName
         let event = NSApp.currentEvent
         let flags = event?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
         let isPrimaryClick = event?.type == .leftMouseDown || event?.type == .leftMouseUp
@@ -2036,17 +1954,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             openInFinder: {
                 let opened = NSWorkspace.shared.open(url)
                 if opened {
-                    log.info("OPENINFINDER done: \(sender.title, privacy: .public) at \(url.path, privacy: .public)")
+                    log.info("OPENINFINDER done: \(name, privacy: .public) at \(url.path, privacy: .public)")
                 }
                 return opened
             },
             eject: { [weak self] in
-                self?.ejectOne(sender)
+                self?.ejectOne(url: url, name: name)
             },
             notifyOpenFailure: { [weak self] in
                 guard let self else { return }
-                log.notice("OPENINFINDER failed: \(sender.title, privacy: .public) at \(url.path, privacy: .public)")
-                self.notify(title: String(localized: "Couldn't open \(sender.title) in Finder"),
+                log.notice("OPENINFINDER failed: \(name, privacy: .public) at \(url.path, privacy: .public)")
+                self.notify(title: String(localized: "Couldn't open \(name) in Finder"),
                             body: localizedOperationFailure(),
                             archived: true,
                             kind: .failure)
@@ -2055,9 +1973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     /// 개별 드라이브 추출 (Command+메뉴 아이템 클릭).
-    @objc private func ejectOne(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        let name = sender.title
+    private func ejectOne(url: URL, name: String) {
         let path = url.path
         // 쓰는 중이면 강제 추출 전에 확인 (수동 경로 전용 가드).
         if isWritingVolume(url),
@@ -10224,7 +10140,23 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
 }
 
 extension AppDelegate: SPUUpdaterDelegate {
-    // 옵셔널 hook 들. 기본 동작으로 충분 — 향후 필요 시 추가:
+    /// `willInstallUpdate` proves only that Sparkle is about to attempt installation. Completion
+    /// is emitted on the next successful launch and only when this target build is actually live.
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        guard let source = AppLifecycleTelemetryController.currentBuild() else { return }
+        let target = AppLifecycleBuild(
+            version: item.displayVersionString,
+            build: item.versionString
+        )
+        lifecycleTelemetryController.markPendingUpdate(source: source, target: target)
+    }
+
+    /// A canceled or failed install cannot be promoted to update_completed on a later relaunch.
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        lifecycleTelemetryController.clearPendingUpdate()
+    }
+
+    // 나머지 옵셔널 hook 들은 기본 동작으로 충분 — 향후 필요 시 추가:
     //   - feedURLString(for:) : 동적으로 SUFeedURL 변경 (예: beta 채널)
     //   - allowedSystemProfileKeys(for:) : 익명 텔레메트리 옵트인
     //   - bestValidUpdate(in:for:) : 사용자 시스템에 맞는 best 버전 선택 로직 커스텀
