@@ -70,7 +70,7 @@ private enum SleepEpisodeCoordinatorTests {
 
         for item in cases {
             expect(item.trigger.participatesInEjectFlow == item.participatesInEjectFlow,
-                   "\(item.label) eject participation must match the product sleep policy")
+                   "\(item.label) participation must match the established eject-flow policy")
             expect(item.trigger.allowsForceFallback == item.force,
                    "\(item.label) force fallback policy must match its explicit trigger intent")
             expect(item.trigger.effectiveForceFallback(masterEnabled: true) == item.force,

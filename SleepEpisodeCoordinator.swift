@@ -26,11 +26,12 @@ enum SleepEjectTrigger: Equatable, Sendable {
         return isIdle ? .systemIdle : .systemForced
     }
 
-    /// Whether DiskOUT owns the eject decision for this trigger.
+    /// Whether this trigger enters DiskOUT's established automatic/manual eject flow.
     ///
     /// A system sleep explicitly requested outside DiskOUT, or one whose cause cannot be
-    /// classified, passes through without DiskOUT inventory, unmount, or force work. Lid close,
-    /// idle sleep, the opt-in display flow, and DiskOUT's own Eject and Sleep remain eligible.
+    /// classified, does not enter that 24-second flow. IOKit-confirmed `systemForced` may instead
+    /// use the separate default-off short best-effort experiment. Lid close, idle sleep, the opt-in
+    /// display flow, and DiskOUT's own Eject and Sleep remain eligible here.
     var participatesInEjectFlow: Bool {
         switch self {
         case .lidClose, .systemIdle, .displaySleep, .ejectAndSleep:

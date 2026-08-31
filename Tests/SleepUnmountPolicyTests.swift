@@ -41,6 +41,11 @@ private enum SleepUnmountPolicyTests {
         testDuplicateDisplayNamesUsePhysicalRequestIdentity()
         testDissenterStatusClassification()
         testPolicyPreservesNormalThenExplicitForceFallback()
+        testForcedSleepPolicyIsShortNormalOnlyOneShotBatch()
+        testForcedSleepBoundaryRouteIsIOKitOnlyAndNeverRetries()
+        testForcedSleepPolicyNeverRecordsSuccessAfterTimeout()
+        testPreparedForcedRequestStillEntersWaitAfterDeadline()
+        testForcedSleepSubmissionWaveValidatesEverythingBeforeDestructiveIO()
         testForceClaimLedgerIsEpisodeScopedAndPhysicalOnly()
         testForceClaimLedgerAllowsOneConcurrentClaimPerPhysicalKey()
         testOnlyExplicitCallbackSuccessIsClean()
@@ -224,6 +229,192 @@ private enum SleepUnmountPolicyTests {
                "all three contention statuses must be force eligible")
         expect(!unknown.isForceEligible,
                "an unknown status must fail closed")
+    }
+
+    private static func testForcedSleepPolicyIsShortNormalOnlyOneShotBatch() {
+        let targets = [
+            SleepUnmountTarget(name: "Work",
+                               volumePath: "/Volumes/Work",
+                               wholeDiskBSD: "disk7",
+                               physicalGeneration: 3,
+                               mediaRegistryEntryID: 30),
+            SleepUnmountTarget(name: "Media",
+                               volumePath: "/Volumes/Media",
+                               wholeDiskBSD: "disk7",
+                               physicalGeneration: 3,
+                               mediaRegistryEntryID: 30),
+            SleepUnmountTarget(name: "Backup",
+                               volumePath: "/Volumes/Backup",
+                               wholeDiskBSD: "disk8",
+                               physicalGeneration: 4,
+                               mediaRegistryEntryID: 40)
+        ]
+
+        let requests = ForcedSleepUnmountBatchPolicy.requests(for: targets)
+
+        expect(ForcedSleepUnmountBatchPolicy.maximumWait == 3,
+               "forced sleep must use the isolated short wait cap")
+        expect(requests.count == 2,
+               "one forced-sleep batch must emit exactly one request per physical disk")
+        expect(requests[0].targets.map(\.name) == ["Work", "Media"],
+               "sibling volumes must share one physical request")
+        expect(requests.allSatisfy { !$0.allowsForceFallback },
+               "every forced-sleep request must remain normal-only")
+        expect(
+            SleepUnmountPolicy.nextOperation(
+                after: .callbackFailure(.busy),
+                forceFallback: ForcedSleepUnmountBatchPolicy.allowsForceFallback
+            ) == nil,
+            "a busy normal decline must not start force fallback in forced sleep"
+        )
+    }
+
+    private static func testForcedSleepBoundaryRouteIsIOKitOnlyAndNeverRetries() {
+        expect(
+            ForcedSleepBoundaryRoutingPolicy.route(
+                isIOKitConfirmed: true,
+                isForcedSleep: true,
+                isEnabled: true
+            ) == .bestEffortNoRetry(maximumWait: 3),
+            "an enabled IOKit-confirmed forced boundary gets one short no-retry route"
+        )
+        expect(
+            ForcedSleepBoundaryRoutingPolicy.route(
+                isIOKitConfirmed: false,
+                isForcedSleep: true,
+                isEnabled: true
+            ) == .passThrough,
+            "an NSWorkspace or otherwise unconfirmed boundary must never enter the experiment"
+        )
+        expect(
+            ForcedSleepBoundaryRoutingPolicy.route(
+                isIOKitConfirmed: true,
+                isForcedSleep: false,
+                isEnabled: true
+            ) == .passThrough,
+            "idle, lid, display, and manual triggers remain on their existing policies"
+        )
+        expect(
+            ForcedSleepBoundaryRoutingPolicy.route(
+                isIOKitConfirmed: true,
+                isForcedSleep: true,
+                isEnabled: false
+            ) == .passThrough,
+            "the default-off experiment passes through until explicitly enabled"
+        )
+    }
+
+    private static func testForcedSleepPolicyNeverRecordsSuccessAfterTimeout() {
+        let policy = ForcedSleepUnmountBatchPolicy.lateSuccessRecordingPolicy
+
+        expect(
+            policy.shouldRecordCleanSuccess(timing: .beforeTimeout),
+            "an explicit clean callback observed before the deadline may create a remount target"
+        )
+        expect(
+            !policy.shouldRecordCleanSuccess(timing: .afterTimeout),
+            "a callback arriving after the forced-sleep deadline must not create a remount target"
+        )
+        expect(
+            ForcedSleepCleanSuccessPolicy.shouldRecord(
+                callbackSucceeded: true,
+                requestWasForced: false,
+                timing: .beforeTimeout
+            ),
+            "an on-time explicit clean callback from the one normal request may be recorded"
+        )
+        expect(
+            !ForcedSleepCleanSuccessPolicy.shouldRecord(
+                callbackSucceeded: true,
+                requestWasForced: true,
+                timing: .beforeTimeout
+            ),
+            "a forced request joined from another policy must never become forced-sleep success"
+        )
+        expect(ForcedSleepSubmissionModePolicy.allows(requestWasForced: false),
+               "the forced-sleep path may submit or join only a normal request")
+        expect(!ForcedSleepSubmissionModePolicy.allows(requestWasForced: true),
+               "the forced-sleep path must refuse an existing force request before joining it")
+        expect(
+            SleepUnmountLateSuccessRecordingPolicy.preserveAutomaticRemountOwnership
+                .shouldRecordCleanSuccess(timing: .afterTimeout),
+            "the new forced-sleep policy must not alter existing automatic late-clean ownership"
+        )
+    }
+
+    private static func testPreparedForcedRequestStillEntersWaitAfterDeadline() {
+        expect(PreparedSleepUnmountDeadlinePolicy.shouldEnterWait(
+            hasPreparedRequest: true,
+            remainingBudget: 0
+        ), "a submitted prepared request must install late-terminal observation after deadline")
+        expect(!PreparedSleepUnmountDeadlinePolicy.shouldEnterWait(
+            hasPreparedRequest: false,
+            remainingBudget: 0
+        ), "an unsubmitted request must not start after its deadline")
+        expect(PreparedSleepUnmountDeadlinePolicy.shouldEnterWait(
+            hasPreparedRequest: false,
+            remainingBudget: 0.1
+        ), "an ordinary request may start while positive budget remains")
+        expect(!ForcedSleepDestructiveSubmissionPolicy.allows(
+            isEnabled: true,
+            remainingBudget: 0
+        ),
+               "the destructive submission phase must stop exactly at the forced-sleep deadline")
+        expect(ForcedSleepDestructiveSubmissionPolicy.allows(
+            isEnabled: true,
+            remainingBudget: 0.001
+        ),
+               "the destructive submission phase may run only while positive budget remains")
+        expect(!ForcedSleepDestructiveSubmissionPolicy.allows(
+            isEnabled: false,
+            remainingBudget: 1
+        ), "turning the experiment off must stop a staged destructive submission")
+
+        let tracker = SleepUnmountActivityTracker()
+        let lateTerminal = StickyAsyncEvidence<Int>()
+        tracker.begin()
+        lateTerminal.observe { _ in tracker.finish() }
+        expect(tracker.activeCount == 1,
+               "a prepared request remains active after its zero-time waiter returns")
+        expect(lateTerminal.finishOnce(1), "the first late DA terminal is accepted")
+        expect(tracker.activeCount == 0,
+               "the actual late terminal releases prepared-request ownership exactly once")
+        expect(!lateTerminal.finishOnce(2) && tracker.activeCount == 0,
+               "a duplicate terminal cannot release tracking twice")
+    }
+
+    private static func testForcedSleepSubmissionWaveValidatesEverythingBeforeDestructiveIO() {
+        var firstProbeStillMounted = true
+        var events: [String] = []
+
+        _ = ForcedSleepSubmissionWavePolicy.prepareAuthorizeThenSubmit(
+            count: 2,
+            prepare: { index -> () -> Void in
+                expect(firstProbeStillMounted,
+                       "every preparation must finish before the first unmount")
+                events.append("prepare-\(index)")
+                return {
+                    events.append("submit-\(index)")
+                    if index == 0 { firstProbeStillMounted = false }
+                }
+            },
+            authorize: { submissions in
+                submissions.enumerated().map { index, submission in
+                    expect(firstProbeStillMounted,
+                           "every final global validation must finish before the first unmount")
+                    events.append("authorize-\(index)")
+                    return submission
+                }
+            },
+            submit: { _, submission in
+                submission()
+                return submission
+            }
+        )
+
+        expect(events == [
+            "prepare-0", "prepare-1", "authorize-0", "authorize-1", "submit-0", "submit-1"
+        ], "forced requests must finish both safe phases before the destructive submission phase")
     }
 
     private static func testForceClaimLedgerIsEpisodeScopedAndPhysicalOnly() {

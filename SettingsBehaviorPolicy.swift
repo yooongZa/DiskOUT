@@ -117,6 +117,26 @@ enum SleepEjectSettingsMigration {
     }
 }
 
+/// Experimental best-effort eject for IOKit-confirmed forced sleep boundaries.
+/// Fresh installs and existing users remain opted out unless they explicitly enable it.
+enum ForcedSleepEject {
+    static let defaultsKey = "ejectOnForcedSleep"
+    static let defaultEnabled = false
+
+    static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: defaultsKey) as? Bool ?? defaultEnabled
+    }
+
+    static func setEnabled(_ enabled: Bool, in defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: defaultsKey)
+    }
+
+    static var enabled: Bool {
+        get { isEnabled() }
+        set { setEnabled(newValue) }
+    }
+}
+
 struct LibraryAppRelaunchOwner: Hashable, Sendable {
     let rawValue: String
 }

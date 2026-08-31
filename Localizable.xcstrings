@@ -1581,7 +1581,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "잠자기 전에 Music / Photos 자동 종료, 깨어나면 다시 실행. 외장 디스크에 라이브러리 둔 경우 유용."
+            "value": "잠자기 전에 실행 중인 Music과 Photos를 종료하고, Mac이 깨어나면 다시 실행합니다."
           }
         },
         "ja": {
@@ -1871,7 +1871,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "화면 꺼질 때도 자동 추출 (실험)"
+            "value": "화면만 꺼질 때 추출 (Mac은 깨어 있음)"
           }
         },
         "ja": {
@@ -1888,6 +1888,64 @@
         }
       }
     },
+    "Eject on forced sleep (experimental)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eject on forced sleep (experimental)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 잠자기를 시작할 때 추출 (주의)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強制スリープ時に取り出しを試す (実験的)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制睡眠时尝试推出（实验性）"
+          }
+        }
+      }
+    },
+    "When enabled, this best-effort option applies to every forced sleep confirmed by IOKit. DiskOUT briefly holds sleep and requests one normal eject only for physical disks confirmed idle. Active or uncertain disks are left untouched. It never force-unmounts or retries; sleep continues when the short limit is reached.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, this best-effort option applies to every forced sleep confirmed by IOKit. DiskOUT briefly holds sleep and requests one normal eject only for physical disks confirmed idle. Active or uncertain disks are left untouched. It never force-unmounts or retries; sleep continues when the short limit is reached."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠자기 메뉴나 전원 버튼 등으로 Mac을 잠들게 할 때, 추출이 가능한 드라이브만 추출합니다. 추출한 드라이브가 Mac이 깨어났을 때도 연결되어 있으면 자동으로 다시 마운트합니다. (해당 시점에 드라이브가 사용 중이면 추출 없이 그대로 잠자기에 들어갑니다.)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、IOKitで確認されたすべての強制スリープに適用するベストエフォート方式です。アイドル状態が確実な物理ディスクにのみ通常の取り出しを1回要求し、スリープを短時間だけ保留します。使用中または判定が不確実なディスクには触れず、強制アンマウントも再試行も行いません。短い上限時間を過ぎるとスリープを続行します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用后，此尽力而为选项适用于 IOKit 确认的所有强制睡眠。DiskOUT 只会对确定处于空闲状态的物理磁盘请求一次正常推出，并短暂延迟睡眠。正在活动或状态不确定的磁盘不会被处理；不会强制卸载或重试，达到短暂时限后将继续睡眠。"
+          }
+        }
+      }
+    },
     "Eject on lid close": {
       "extractionState": "manual",
       "localizations": {
@@ -1900,7 +1958,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트북을 닫으면 자동 추출"
+            "value": "MacBook 덮개를 닫을 때 추출"
           }
         },
         "ja": {
@@ -1929,7 +1987,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트북 뚜껑을 닫는 순간 모든 외장 드라이브를 추출합니다."
+            "value": "덮개를 닫으면 외장 드라이브를 추출합니다. 추출한 드라이브가 Mac이 깨어났을 때도 연결되어 있으면 자동으로 다시 마운트합니다."
           }
         },
         "ja": {
@@ -1958,7 +2016,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "유휴 잠자기 시 추출"
+            "value": "Mac이 자동으로 잠들 때 추출"
           }
         },
         "ja": {
@@ -2103,7 +2161,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "잠자기 전 Music / Photos 자동 종료"
+            "value": "잠자기 전에 Music과 Photos 종료"
           }
         },
         "ja": {
@@ -3177,7 +3235,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "강제 마운트 해제 허용"
+            "value": "추출 실패 시 강제 분리 허용 (주의)"
           }
         },
         "ja": {
@@ -3554,7 +3612,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "메뉴바 아이콘 우클릭 = 모두 추출"
+            "value": "우클릭으로 모든 드라이브 추출"
           }
         },
         "ja": {
@@ -3583,7 +3641,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "끄면 우클릭(또는 Control-클릭)이 추출 대신 메뉴를 엽니다. 실수로 외장 드라이브를 추출하는 것을 방지합니다."
+            "value": "메뉴바 아이콘을 우클릭하면 모든 외장 드라이브를 추출합니다. 끄면 드라이브를 추출하지 않고 일반 메뉴를 엽니다."
           }
         },
         "ja": {
@@ -4122,31 +4180,31 @@
         }
       }
     },
-    "Eject external drives only when macOS reports idle sleep. Sleep without an idle or recent lid signal passes through untouched.": {
+    "This option ejects external drives only when macOS reports idle sleep. Lid close and the forced-sleep experiment are controlled separately.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eject external drives only when macOS reports idle sleep. Sleep without an idle or recent lid signal passes through untouched."
+            "value": "This option ejects external drives only when macOS reports idle sleep. Lid close and the forced-sleep experiment are controlled separately."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS가 유휴 잠자기라고 알린 경우에만 외장 드라이브를 추출합니다. 유휴 또는 최근 뚜껑 닫힘 신호가 없는 잠자기는 그대로 통과시킵니다."
+            "value": "Mac을 사용하지 않아 자동으로 잠들 때 외장 드라이브를 추출합니다. 추출한 드라이브가 Mac이 깨어났을 때도 연결되어 있으면 자동으로 다시 마운트합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOSがアイドルスリープとして通知した場合のみ外付けドライブを取り出します。アイドルまたは直近の蓋閉じ信号がないスリープはそのまま通過させます。"
+            "value": "この設定は、macOSがアイドルスリープと通知した場合にのみ外付けドライブを取り出します。蓋を閉じた場合と強制スリープの実験機能は別々に設定します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "仅在macOS报告为空闲睡眠时推出外置驱动器。没有空闲或近期合盖信号的睡眠会直接交给系统处理。"
+            "value": "此选项仅在 macOS 报告为空闲睡眠时推出外置驱动器。合盖和强制睡眠实验功能需分别设置。"
           }
         }
       }
@@ -4163,7 +4221,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "화면만 꺼질 때도 추출합니다 — 본체가 잠자지 않게 설정된 Mac용."
+            "value": "Mac은 깨어 있고 화면만 꺼지는 경우에도 외장 드라이브를 추출합니다. 잠자기를 막아 둔 환경에서 유용합니다. 화면이 다시 켜졌을 때도 연결되어 있으면 자동으로 다시 마운트됩니다."
           }
         },
         "ja": {
@@ -4180,31 +4238,31 @@
         }
       }
     },
-    "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle and display sleep never use it. Sleep classified as outside DiskOUT passes through untouched.": {
+    "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle, display, and forced sleep never use it.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle and display sleep never use it. Sleep classified as outside DiskOUT passes through untouched."
+            "value": "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle, display, and forced sleep never use it."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일반 추출이 실패하면 수동 추출에서 강제 마운트 해제를 사용할 수 있습니다. ‘추출하고 잠자기’와 뚜껑 닫기는 디스크가 사용 중일 때만 한 번 시도합니다. 유휴 잠자기와 화면 꺼짐에서는 시도하지 않습니다. DiskOUT 밖의 잠자기로 판정되면 그대로 통과시킵니다."
+            "value": "일반 추출이 실패하면 수동 추출에서 강제 분리를 사용할 수 있습니다. ‘추출하고 잠자기’와 덮개 닫기에서는 드라이브가 사용 중일 때 한 번만 시도합니다. 자동 잠자기나 화면 꺼짐에는 적용되지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通常の取り出しに失敗した場合、手動取り出しでは強制アンマウントを使用できます。「取り出してスリープ」と蓋を閉じたときは、ディスクが使用中の場合に限り1回だけ試行します。アイドルスリープとディスプレイスリープでは試行しません。DiskOUT外のスリープと判定した場合はそのまま通過させます。"
+            "value": "通常の取り出しに失敗した場合、手動取り出しでは強制アンマウントを使用できます。「取り出してスリープ」と蓋を閉じたときは、ディスクが使用中の場合に限り1回だけ試行します。アイドルスリープ、ディスプレイスリープ、強制スリープでは使用しません。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正常推出失败时，手动推出可改用强制卸载。“推出并睡眠”和合盖仅在磁盘忙时尝试一次。空闲睡眠和仅显示器睡眠不会尝试强制卸载。判定为DiskOUT之外的睡眠会直接交给系统处理。"
+            "value": "正常推出失败时，手动推出可改用强制卸载。“推出并睡眠”和合盖仅在磁盘忙时尝试一次。空闲睡眠、仅显示器睡眠和强制睡眠不会使用强制卸载。"
           }
         }
       }

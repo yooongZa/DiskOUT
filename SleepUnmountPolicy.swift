@@ -348,6 +348,111 @@ struct SleepUnmountRequest: Equatable, Sendable {
     }
 }
 
+enum SleepUnmountCleanSuccessTiming: Equatable, Sendable {
+    case beforeTimeout
+    case afterTimeout
+}
+
+enum SleepUnmountLateSuccessRecordingPolicy: Equatable, Sendable {
+    /// Existing automatic sleep flows preserve remount ownership when a clean DA callback arrives
+    /// after their bounded waiter returns.
+    case preserveAutomaticRemountOwnership
+    /// Forced sleep must allow the power transition after its short deadline. A later callback is
+    /// still terminal evidence for request bookkeeping, but must not create a wake-remount target.
+    case discardAfterTimeout
+
+    func shouldRecordCleanSuccess(timing: SleepUnmountCleanSuccessTiming) -> Bool {
+        switch timing {
+        case .beforeTimeout:
+            return true
+        case .afterTimeout:
+            return self == .preserveAutomaticRemountOwnership
+        }
+    }
+}
+
+/// Dedicated best-effort contract for an IOKit-confirmed forced-sleep boundary. This remains
+/// separate from `SleepEjectTrigger` so none of the established idle/lid/display/manual contracts
+/// or their deadlines are changed by enabling the experimental path.
+enum ForcedSleepUnmountBatchPolicy {
+    static let maximumWait: TimeInterval = 3
+    static let allowsForceFallback = false
+    static let lateSuccessRecordingPolicy: SleepUnmountLateSuccessRecordingPolicy =
+        .discardAfterTimeout
+
+    static func requests(for targets: [SleepUnmountTarget]) -> [SleepUnmountRequest] {
+        SleepUnmountPolicy.requests(for: targets, forceFallback: allowsForceFallback)
+    }
+}
+
+enum ForcedSleepCleanSuccessPolicy {
+    /// A clean callback from a joined force request is not proof of the requested normal-only
+    /// operation, and a callback after the short deadline cannot create wake-remount ownership.
+    static func shouldRecord(callbackSucceeded: Bool,
+                             requestWasForced: Bool,
+                             timing: SleepUnmountCleanSuccessTiming) -> Bool {
+        callbackSucceeded
+            && !requestWasForced
+            && ForcedSleepUnmountBatchPolicy.lateSuccessRecordingPolicy
+                .shouldRecordCleanSuccess(timing: timing)
+    }
+}
+
+enum ForcedSleepSubmissionModePolicy {
+    /// A pending normal request may be joined without issuing a duplicate. A pending force request
+    /// belongs to another policy and must not be joined by the normal-only forced-sleep path.
+    static func allows(requestWasForced: Bool) -> Bool {
+        !requestWasForced
+    }
+}
+
+enum PreparedSleepUnmountDeadlinePolicy {
+    /// A prepared DA request may already be submitted even when its worker reaches the deadline.
+    /// It must still enter a zero-time wait so late-terminal observation retains ownership until
+    /// the uncancelable request actually terminates.
+    static func shouldEnterWait(hasPreparedRequest: Bool,
+                                remainingBudget: TimeInterval) -> Bool {
+        hasPreparedRequest || remainingBudget > 0
+    }
+}
+
+enum ForcedSleepDestructiveSubmissionPolicy {
+    static func allows(isEnabled: Bool, remainingBudget: TimeInterval) -> Bool {
+        isEnabled && remainingBudget > 0
+    }
+}
+
+enum ForcedSleepSubmissionWavePolicy {
+    /// Execute all preparations, then all final authorizations, before the first destructive
+    /// submission. The caller supplies queue confinement; the three-phase ordering is testable.
+    static func prepareAuthorizeThenSubmit<Prepared>(
+        count: Int,
+        prepare: (Int) -> Prepared,
+        authorize: ([Prepared]) -> [Prepared],
+        submit: (Int, Prepared) -> Prepared
+    ) -> [Prepared] {
+        let staged = (0..<count).map(prepare)
+        let authorized = authorize(staged)
+        return authorized.enumerated().map { submit($0.offset, $0.element) }
+    }
+}
+
+enum ForcedSleepBoundaryRoute: Equatable, Sendable {
+    case passThrough
+    /// The caller starts at most one short batch, then returns directly to the power ACK path.
+    /// There is intentionally no route from this case into the established refresh/retry chain.
+    case bestEffortNoRetry(maximumWait: TimeInterval)
+}
+
+enum ForcedSleepBoundaryRoutingPolicy {
+    static func route(isIOKitConfirmed: Bool,
+                      isForcedSleep: Bool,
+                      isEnabled: Bool) -> ForcedSleepBoundaryRoute {
+        guard isIOKitConfirmed, isForcedSleep, isEnabled else { return .passThrough }
+        return .bestEffortNoRetry(maximumWait: ForcedSleepUnmountBatchPolicy.maximumWait)
+    }
+}
+
 enum SleepUnmountPolicy {
     static func requests(
         for targets: [SleepUnmountTarget],

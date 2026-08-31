@@ -1879,7 +1879,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     self.scheduleMountedDriveCountRefresh(after: 0)
                     return
                 }
-                DiskIOMonitor.shared.updateMountedPhysicalDisks(mountedPhysicalBSDs)
+                DiskIOMonitor.shared.updateMountedPhysicalDisks(
+                    mountedPhysicalBSDs,
+                    inventoryRevision: inventoryRevision
+                )
                 // Time Machine 디스크 자동 제외를 '메뉴 열기' 와 분리해 DA 인벤토리 변경(mount /
                 // unmount / launch / wake)마다 선제 등록한다. 메뉴를 한 번도 안 열고 슬립해도 TM
                 // 보호가 동작 (idempotent — TimeMachineNotified 가 중복 알림/재등록 차단).
@@ -3003,6 +3006,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let isEjectTarget: Bool
     }
 
+    private struct ForcedSleepProtectionProbe: Sendable {
+        let volumePath: String
+        let volumeUUID: String?
+        let isEjectTarget: Bool
+    }
+
+    /// The established automatic/manual batch keeps its existing waits and late-remount contract.
+    /// IOKit forced sleep captures its fail-closed activity generation only after the protected
+    /// authoritative inventory snapshot has been taken inside this batch.
+    private enum SleepEjectBatchMode: Sendable {
+        case established
+        case forcedBestEffort
+
+        var waitsForInFlightAutomaticRemount: Bool {
+            if case .established = self { return true }
+            return false
+        }
+
+        var waitsForPendingInventoryMount: Bool {
+            if case .established = self { return true }
+            return false
+        }
+
+        var lateSuccessRecordingPolicy: SleepUnmountLateSuccessRecordingPolicy {
+            switch self {
+            case .established:
+                return .preserveAutomaticRemountOwnership
+            case .forcedBestEffort:
+                return ForcedSleepUnmountBatchPolicy.lateSuccessRecordingPolicy
+            }
+        }
+    }
+
     private static func automaticEjectCandidates(_ drives: [ExternalDrive]) -> [AutomaticEjectCandidate] {
         drives.map {
             AutomaticEjectCandidate(drive: $0,
@@ -3011,10 +3047,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
+    private static func isAutomaticEjectProtected(_ candidate: AutomaticEjectCandidate) -> Bool {
+        ExcludedVolumes.isExcluded(candidate.drive.volumeUUID) || candidate.drive.isTimeMachine
+    }
+
     private static func filterAutoEjectExclusions(_ candidates: [AutomaticEjectCandidate]) -> (kept: [AutomaticEjectCandidate], skipped: Int, blocked: [AutomaticEjectCandidate]) {
-        func isProtected(_ d: ExternalDrive) -> Bool {
-            ExcludedVolumes.isExcluded(d.volumeUUID) || d.isTimeMachine
-        }
         let policyInputs = candidates.map { candidate -> SleepProtectionCandidate in
             let physicalID: String?
             if let identity = candidate.identity {
@@ -3024,7 +3061,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }
             return SleepProtectionCandidate(physicalDiskID: physicalID,
                                             isEjectTarget: candidate.isEjectTarget,
-                                            isProtected: isProtected(candidate.drive))
+                                            isProtected: isAutomaticEjectProtected(candidate))
         }
         let decision = SleepProtectionPolicy.evaluate(policyInputs)
         if policyInputs.contains(where: { $0.isProtected && $0.physicalDiskID == nil }) {
@@ -3110,7 +3147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                   trigger: SleepEjectTrigger,
                                   forceClaims: SleepEpisodeForceClaimLedger,
                                   deadline: Date? = nil,
-                                  manualAttemptStartedAtNanoseconds: UInt64? = nil) -> SleepEjectBatchResult {
+                                  manualAttemptStartedAtNanoseconds: UInt64? = nil,
+                                  mode: SleepEjectBatchMode = .established) -> SleepEjectBatchResult {
         let operationDeadline = deadline ?? Date().addingTimeInterval(24)
         // Snapshot 이전부터 모든 whole-disk callback terminal까지 global approval lease를
         // 유지한다. Power willSleep lease와 중첩되므로 exact token으로 각자 해제한다.
@@ -3121,10 +3159,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // close/new eject가 stale remount token을 먼저 무효화한다. 그 전에 이미 command gate를
         // 통과한 mountDisk만 끝날 때까지 기다린 뒤 현재 inventory를 수집한다.
         let inFlightRemountStarted = Date()
-        let remountWaitBudget = remainingSleepOperationBudget(
-            wallDeadline: operationDeadline,
-            manualStartedAtNanoseconds: manualAttemptStartedAtNanoseconds
-        )
+        let remountWaitBudget = mode.waitsForInFlightAutomaticRemount
+            ? remainingSleepOperationBudget(
+                wallDeadline: operationDeadline,
+                manualStartedAtNanoseconds: manualAttemptStartedAtNanoseconds
+            )
+            : 0
         guard automaticRemountCommandGroup.wait(
             timeout: .now() + remountWaitBudget
         ) == .success else {
@@ -3145,10 +3185,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // Normal reconciliation is synchronous and returns immediately. The full remaining budget
         // is used only when an external mount has been approved but is not visible yet; returning
         // early there would let a late mount complete after the power ACK.
-        let inventoryWait = remainingSleepOperationBudget(
-            wallDeadline: operationDeadline,
-            manualStartedAtNanoseconds: manualAttemptStartedAtNanoseconds
-        )
+        let inventoryWait = mode.waitsForPendingInventoryMount
+            ? remainingSleepOperationBudget(
+                wallDeadline: operationDeadline,
+                manualStartedAtNanoseconds: manualAttemptStartedAtNanoseconds
+            )
+            : 0
         guard let sleepSnapshot = DAInventory.shared.automaticSleepVolumeSnapshot(
             waitUntilReady: inventoryWait
         ) else {
@@ -3160,7 +3202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                          remountTargets: [],
                                          manualAttemptID: nil)
         }
-        var candidates = sleepSnapshot.map {
+        var candidates = sleepSnapshot.volumes.map {
             AutomaticEjectCandidate(drive: $0.drive,
                                     identity: $0.identity,
                                     isEjectTarget: $0.isEjectTarget)
@@ -3168,7 +3210,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject list complete source=DA-atomic count=\(candidates.count, privacy: .public) elapsed=\(self.elapsedText(since: listStarted), privacy: .public)s")
 
         var preflightFailures: [(String, String)] = []
-        if applyExcludeFilter {
+        var forcedInventoryRevision: UInt64?
+        var forcedActivitySnapshot: ForcedSleepActivitySnapshot?
+        var forcedMountedPhysicalDisks = Set<String>()
+        var forcedBackingByVolumePath: [String: Set<String>] = [:]
+        var forcedProtectionProbes: [ForcedSleepProtectionProbe] = []
+        switch mode {
+        case .established where applyExcludeFilter:
             let filterStarted = Date()
             let (kept, skipped, blocked) = AppDelegate.filterAutoEjectExclusions(candidates)
             candidates = kept
@@ -3178,8 +3226,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             if skipped > 0 {
                 log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject filtered out \(skipped, privacy: .public) excluded/protected disks elapsed=\(self.elapsedText(since: filterStarted), privacy: .public)s")
             }
-        } else {
+        case .established:
             candidates = candidates.filter(\.isEjectTarget)
+        case .forcedBestEffort:
+            let filterStarted = Date()
+            let originalCandidates = candidates
+            let backingResolutions: [Set<String>?] = originalCandidates.map { candidate in
+                let resolution = self.physicalWholeDiskResolution(
+                    forVolumeURL: candidate.drive.url
+                )
+                return resolution.isComplete && !resolution.disks.isEmpty
+                    ? resolution.disks
+                    : nil
+            }
+            forcedProtectionProbes = originalCandidates.indices.map { index in
+                ForcedSleepProtectionProbe(
+                    volumePath: originalCandidates[index].drive.url.path,
+                    volumeUUID: originalCandidates[index].drive.volumeUUID,
+                    isEjectTarget: originalCandidates[index].isEjectTarget
+                )
+            }
+            let protectionInputs = originalCandidates.indices.map { index in
+                ForcedSleepPhysicalProtectionCandidate(
+                    backingPhysicalDisks: backingResolutions[index],
+                    isEjectTarget: originalCandidates[index].isEjectTarget,
+                    isProtected: applyExcludeFilter
+                        && AppDelegate.isAutomaticEjectProtected(originalCandidates[index])
+                )
+            }
+            let decision = ForcedSleepPhysicalProtectionPolicy.evaluate(protectionInputs)
+            preflightFailures.append(contentsOf: decision.blockedTargetIndices.sorted().map { index in
+                (originalCandidates[index].drive.name,
+                 "Physical backing identity was unresolved or shared with a protected volume")
+            })
+            candidates = decision.allowedTargetIndices.sorted().map { index in
+                let candidate = originalCandidates[index]
+                if let backing = backingResolutions[index] {
+                    forcedBackingByVolumePath[candidate.drive.url.path] = backing
+                }
+                return candidate
+            }
+            forcedMountedPhysicalDisks = backingResolutions.compactMap { $0 }.reduce(
+                into: Set<String>()
+            ) { $0.formUnion($1) }
+            if decision.skippedTargetCount > 0 {
+                log.notice("cycle \(operationID, privacy: .public) forcedSleep filtered out \(decision.skippedTargetCount, privacy: .public) protected/ambiguous targets by true physical backing elapsed=\(self.elapsedText(since: filterStarted), privacy: .public)s")
+            }
+
+            if !candidates.isEmpty {
+                let revision = sleepSnapshot.revision
+                guard operationDeadline.timeIntervalSinceNow > 0,
+                      DAInventory.shared.isCurrentSnapshotRevision(revision) else {
+                    let message = "Disk Arbitration inventory changed during forced-sleep preflight"
+                    log.notice("cycle \(operationID, privacy: .public) forcedSleep skipped all targets: \(message, privacy: .public)")
+                    return SleepEjectBatchResult(
+                        attempted: preflightFailures.map(\.0) + candidates.map { $0.drive.name },
+                        success: [],
+                        failure: preflightFailures + candidates.map { ($0.drive.name, message) },
+                        remountTargets: [],
+                        manualAttemptID: nil
+                    )
+                }
+                let activitySnapshot = DiskIOMonitor.shared.refreshedForcedSleepActivitySnapshot(
+                    mountedPhysicalDisks: forcedMountedPhysicalDisks,
+                    inventoryRevision: revision
+                )
+                guard DAInventory.shared.isCurrentSnapshotRevision(revision),
+                      activitySnapshot.inventoryRevision == revision else {
+                    let message = "Disk Arbitration inventory changed while forced-sleep activity was sampled"
+                    log.notice("cycle \(operationID, privacy: .public) forcedSleep skipped all targets: \(message, privacy: .public)")
+                    return SleepEjectBatchResult(
+                        attempted: preflightFailures.map(\.0) + candidates.map { $0.drive.name },
+                        success: [],
+                        failure: preflightFailures + candidates.map { ($0.drive.name, message) },
+                        remountTargets: [],
+                        manualAttemptID: nil
+                    )
+                }
+                forcedInventoryRevision = revision
+                forcedActivitySnapshot = activitySnapshot
+            }
         }
 
         let targets = candidates.map { candidate in
@@ -3191,14 +3317,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                mountedVolumeBSDs: candidate.identity?.mountedVolumeBSDs,
                                enforceProtectionClosure: applyExcludeFilter)
         }
-        let effectiveForceFallback = trigger.effectiveForceFallback(
-            masterEnabled: SettingsStore.forceFallbackEnabled
-        )
-        let requests = SleepUnmountPolicy.requests(
-            for: targets,
-            forceFallback: effectiveForceFallback
-        )
+        let effectiveForceFallback: Bool
+        var requests: [SleepUnmountRequest]
+        var forcedBackingByRequestKey: [SleepUnmountGroupKey: Set<String>] = [:]
+        switch mode {
+        case .established:
+            effectiveForceFallback = trigger.effectiveForceFallback(
+                masterEnabled: SettingsStore.forceFallbackEnabled
+            )
+            requests = SleepUnmountPolicy.requests(
+                for: targets,
+                forceFallback: effectiveForceFallback
+            )
+        case .forcedBestEffort:
+            effectiveForceFallback = ForcedSleepUnmountBatchPolicy.allowsForceFallback
+            let initialRequests = ForcedSleepUnmountBatchPolicy.requests(for: targets)
+            guard let activitySnapshot = forcedActivitySnapshot,
+                  let inventoryRevision = forcedInventoryRevision else {
+                requests = []
+                break
+            }
+            let requestPlans: [(request: SleepUnmountRequest,
+                                backing: Set<String>?,
+                                assessment: ForcedSleepActivityAssessment)] = initialRequests.map { request in
+                let backingResolutions = request.targets.map {
+                    forcedBackingByVolumePath[$0.volumePath]
+                }
+                let assessment = ForcedSleepPhysicalRequestActivityPolicy.assessment(
+                    backingResolutions: backingResolutions,
+                    snapshot: activitySnapshot,
+                    expectedInventoryRevision: inventoryRevision
+                )
+                let backing = MountedPhysicalDiskFilterPolicy.aggregate(backingResolutions)
+                return (request, backing?.isEmpty == false ? backing : nil, assessment)
+            }
+            let eligibility = ForcedSleepPhysicalBatchEligibilityPolicy.evaluate(
+                backingPhysicalDisksByRequest: requestPlans.map { $0.backing },
+                assessments: requestPlans.map { $0.assessment }
+            )
+            for index in eligibility.ownershipBlockedRequestIndices.sorted() {
+                let blocked = requestPlans[index]
+                log.notice("cycle \(operationID, privacy: .public) forcedSleep skipped ambiguous/unresolved physical ownership bsd=\(blocked.request.wholeDiskBSD ?? "-", privacy: .public) backing=\(blocked.backing?.sorted() ?? [], privacy: .public)")
+            }
+            for index in eligibility.activityBlockedRequestIndices.sorted() {
+                let blocked = requestPlans[index]
+                log.notice("cycle \(operationID, privacy: .public) forcedSleep skipped physical request bsd=\(blocked.request.wholeDiskBSD ?? "-", privacy: .public) activity=\(String(describing: blocked.assessment), privacy: .public)")
+            }
+            requests = eligibility.allowedRequestIndices.sorted().compactMap { index in
+                let allowed = requestPlans[index]
+                guard let backing = allowed.backing else { return nil }
+                forcedBackingByRequestKey[allowed.request.key] = backing
+                return allowed.request
+            }
+        }
         let labelsByRequest = SleepUnmountBatchPresentationPolicy.labelsByRequest(requests)
+        let forcedSubmissionBackingByRequestKey = forcedBackingByRequestKey
+        let forcedSubmissionInventoryRevision = forcedInventoryRevision
+        let forcedSubmissionMountedPhysicalDisks = forcedMountedPhysicalDisks
+        let forcedSubmissionProtectionProbes = forcedProtectionProbes
+        let forcedSubmissionProbeIndexByPath = forcedProtectionProbes.enumerated().reduce(
+            into: [String: Int]()
+        ) { result, entry in
+            result[entry.element.volumePath] = entry.offset
+        }
         let attemptedRequestLabels = requests.flatMap {
             labelsByRequest[$0.key] ?? $0.targets.map(\.name)
         }
@@ -3228,13 +3409,183 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         } else {
             manualAttemptID = nil
         }
-        log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject targets count=\(targets.count, privacy: .public) physicalRequests=\(requests.count, privacy: .public) trigger=\(trigger.logLabel, privacy: .public) forceAllowed=\(effectiveForceFallback, privacy: .public) names=\(attemptedRequestLabels, privacy: .public) bsds=\(targets.compactMap { $0.wholeDiskBSD }.sorted(), privacy: .public)")
-        guard !targets.isEmpty else {
+        let eligibleTargetCount = requests.reduce(0) { $0 + $1.targets.count }
+        log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject targets count=\(eligibleTargetCount, privacy: .public) physicalRequests=\(requests.count, privacy: .public) trigger=\(trigger.logLabel, privacy: .public) forceAllowed=\(effectiveForceFallback, privacy: .public) names=\(attemptedRequestLabels, privacy: .public) bsds=\(requests.compactMap { $0.wholeDiskBSD }.sorted(), privacy: .public)")
+        guard !requests.isEmpty else {
             return SleepEjectBatchResult(attempted: preflightFailures.map(\.0),
                                          success: [],
                                          failure: preflightFailures,
                                          remountTargets: [],
                                          manualAttemptID: manualAttemptID)
+        }
+
+        func forcedSubmissionAuthorizer(
+            for request: SleepUnmountRequest
+        ) -> SleepDAUnmountSubmissionAuthorizer? {
+            guard case .forcedBestEffort = mode,
+                  forcedSubmissionBackingByRequestKey[request.key] != nil,
+                  let inventoryRevision = forcedSubmissionInventoryRevision else { return nil }
+            return { requestWasForced, submission in
+                guard ForcedSleepSubmissionModePolicy.allows(
+                    requestWasForced: requestWasForced
+                ) else {
+                    return .denied("forced-sleep normal-only policy will not join a force request")
+                }
+                guard ForcedSleepEject.enabled else {
+                    return .denied("forced-sleep experiment was disabled before request submission")
+                }
+                guard operationDeadline.timeIntervalSinceNow > 0 else {
+                    return .denied("forced-sleep deadline expired before request submission")
+                }
+                guard DAInventory.shared.isCurrentSnapshotRevision(inventoryRevision) else {
+                    return .denied("Disk Arbitration inventory changed before request submission")
+                }
+                submission()
+                return .submitted
+            }
+        }
+
+        func forcedFinalBatchDenialReasons() -> [String?] {
+            func denyAll(_ reason: String) -> [String?] {
+                Array(repeating: Optional(reason), count: requests.count)
+            }
+            guard case .forcedBestEffort = mode,
+                  let inventoryRevision = forcedSubmissionInventoryRevision else {
+                return denyAll("forced-sleep final inventory identity was unavailable")
+            }
+            guard ForcedSleepEject.enabled else {
+                return denyAll("forced-sleep experiment was disabled before request submission")
+            }
+            guard operationDeadline.timeIntervalSinceNow > 0 else {
+                return denyAll("forced-sleep deadline expired before request submission")
+            }
+            guard DAInventory.shared.isCurrentSnapshotRevision(inventoryRevision) else {
+                return denyAll("Disk Arbitration inventory changed before request submission")
+            }
+
+            // One latest full physical/protection snapshot is shared by every request. This keeps
+            // an active or newly protected sibling from being missed by an earlier per-request poll.
+            let currentProtectionBackings: [Set<String>?] =
+                forcedSubmissionProtectionProbes.map { probe in
+                let resolution = self.physicalWholeDiskResolution(
+                    forVolumeURL: URL(fileURLWithPath: probe.volumePath)
+                )
+                return resolution.isComplete && !resolution.disks.isEmpty
+                    ? resolution.disks
+                    : nil
+            }
+            let currentProtectionInputs = forcedSubmissionProtectionProbes.indices.map { index in
+                let probe = forcedSubmissionProtectionProbes[index]
+                return ForcedSleepPhysicalProtectionCandidate(
+                    backingPhysicalDisks: currentProtectionBackings[index],
+                    isEjectTarget: probe.isEjectTarget,
+                    isProtected: ExcludedVolumes.isExcluded(probe.volumeUUID)
+                        || ExternalDrive.isTimeMachineDisk(
+                            volumeURL: URL(fileURLWithPath: probe.volumePath)
+                        )
+                )
+            }
+            let currentProtection = ForcedSleepPhysicalProtectionPolicy.evaluate(
+                currentProtectionInputs
+            )
+            let currentBackingResolutionsByRequest: [[Set<String>?]] = requests.map { request in
+                request.targets.map { target in
+                    guard let index = forcedSubmissionProbeIndexByPath[target.volumePath]
+                    else { return nil }
+                    return currentProtectionBackings[index]
+                }
+            }
+            let currentBackingByRequest: [Set<String>?] =
+                currentBackingResolutionsByRequest.map { resolutions in
+                guard let backing = MountedPhysicalDiskFilterPolicy.aggregate(resolutions),
+                      !backing.isEmpty else { return nil }
+                return backing
+            }
+            let currentOwnership = ForcedSleepPhysicalRequestUniquenessPolicy.evaluate(
+                backingPhysicalDisksByRequest: currentBackingByRequest
+            )
+            let refreshedActivity = DiskIOMonitor.shared
+                .refreshedForcedSleepActivitySnapshot(
+                    mountedPhysicalDisks: forcedSubmissionMountedPhysicalDisks,
+                    inventoryRevision: inventoryRevision
+                )
+
+            guard ForcedSleepEject.enabled,
+                  operationDeadline.timeIntervalSinceNow > 0,
+                  DAInventory.shared.isCurrentSnapshotRevision(inventoryRevision),
+                  refreshedActivity.inventoryRevision == inventoryRevision else {
+                return denyAll(
+                    "physical disk activity or inventory certainty changed before request submission"
+                )
+            }
+            return requests.enumerated().map { requestIndex, request -> String? in
+                let requestProbeIndices = Set(request.targets.compactMap {
+                    forcedSubmissionProbeIndexByPath[$0.volumePath]
+                })
+                guard requestProbeIndices.count == request.targets.count else {
+                    return "forced-sleep protection probe identity was incomplete"
+                }
+                guard ForcedSleepProtectionRevalidationPolicy.allowsSubmission(
+                    requestTargetIndices: requestProbeIndices,
+                    currentDecision: currentProtection
+                ) else {
+                    return "physical protection state changed before request submission"
+                }
+                guard currentOwnership.allowedRequestIndices.contains(requestIndex) else {
+                    return "physical request ownership changed or became ambiguous before submission"
+                }
+                guard let expectedBacking = forcedSubmissionBackingByRequestKey[request.key],
+                      let currentBacking = currentBackingByRequest[requestIndex],
+                      currentBacking == expectedBacking else {
+                    return "physical backing identity changed before request submission"
+                }
+                let assessment = ForcedSleepPhysicalRequestActivityPolicy.assessment(
+                    backingResolutions: currentBackingResolutionsByRequest[requestIndex],
+                    snapshot: refreshedActivity,
+                    expectedInventoryRevision: inventoryRevision
+                )
+                guard assessment == .idle else {
+                    return "physical disk activity was active or uncertain before submission"
+                }
+                return nil
+            }
+        }
+
+        let preparedForcedRequestsByKey: [SleepUnmountGroupKey: PreparedSleepDAUnmount]
+        if case .forcedBestEffort = mode {
+            // Own DA callbacks cannot overtake the rest of this batch: tracking starts first, then
+            // every final authorizer + normal request is issued in one DA serial-queue turn.
+            requests.forEach { _ in sleepUnmountActivityTracker.begin() }
+            let preparationTimeout = max(0, operationDeadline.timeIntervalSinceNow)
+            let preparations = requests.map { request in
+                let authorizer = forcedSubmissionAuthorizer(for: request) ?? { _, _ in
+                    .denied("forced-sleep submission authorizer was unavailable")
+                }
+                return SleepDAUnmountPreparation(
+                    volumePath: request.representativeVolumePath ?? "-",
+                    wholeDiskBSDName: request.wholeDiskBSD,
+                    expectedGeneration: request.physicalGeneration,
+                    expectedMediaRegistryEntryID: request.mediaRegistryEntryID,
+                    expectedMountedVolumeBSDs: request.mountedVolumeBSDs,
+                    enforceProtectionClosure: request.enforceProtectionClosure,
+                    force: false,
+                    retainBarrierForForceContinuation: false,
+                    timeout: preparationTimeout,
+                    submissionDeadline: operationDeadline,
+                    operationID: operationID,
+                    context: context,
+                    submissionAuthorizer: authorizer
+                )
+            }
+            let prepared = DAInventory.shared.prepareForcedSleepUnmountBatch(
+                preparations,
+                finalDenialReasons: forcedFinalBatchDenialReasons
+            )
+            preparedForcedRequestsByKey = Dictionary(
+                uniqueKeysWithValues: zip(requests.map(\.key), prepared)
+            )
+        } else {
+            preparedForcedRequestsByKey = [:]
         }
 
         let lock = NSLock()
@@ -3250,7 +3601,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         for request in requests {
             // Retain before dispatch so a scheduler-stalled worker still blocks any overlapping
             // automatic wake relaunch, including a manual request superseded by real sleep.
-            sleepUnmountActivityTracker.begin()
+            if case .established = mode {
+                sleepUnmountActivityTracker.begin()
+            }
             group.enter()
             parallelQueue.async {
                 defer { group.leave() }
@@ -3258,6 +3611,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 let names = labelsByRequest[request.key] ?? request.targets.map(\.name)
                 let volumePath = request.representativeVolumePath ?? "-"
                 log.info("cycle \(operationID, privacy: .public) → \(context, privacy: .public) unmount start names=\(names, privacy: .public) at \(volumePath, privacy: .public) bsd=\(request.wholeDiskBSD ?? "-", privacy: .public) generation=\(request.physicalGeneration.map(String.init) ?? "-", privacy: .public) forceFallback=\(request.allowsForceFallback, privacy: .public)")
+                let submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer? = {
+                    if let startedAt = manualAttemptStartedAtNanoseconds {
+                        return { _, submission in
+                            self.authorizeManualEjectAndSleepUnmountSubmission(
+                                startedAtNanoseconds: startedAt,
+                                submission: submission
+                            )
+                        }
+                    }
+                    return forcedSubmissionAuthorizer(for: request)
+                }()
+                let preparedNormalRequest: PreparedSleepDAUnmount? = {
+                    guard case .forcedBestEffort = mode else { return nil }
+                    return preparedForcedRequestsByKey[request.key]
+                        ?? .unavailable("forced-sleep batch preparation result was missing")
+                }()
                 let result = self.unmountRequestForSleep(volumePath: volumePath,
                                                          requestKey: request.key,
                                                          wholeDiskBSDName: request.wholeDiskBSD,
@@ -3271,14 +3640,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                          context: context,
                                                          deadline: operationDeadline,
                                                          manualStartedAtNanoseconds: manualAttemptStartedAtNanoseconds,
-                                                         submissionAuthorizer: manualAttemptStartedAtNanoseconds.map { startedAt in
-                                                             { submission in
-                                                                 self.authorizeManualEjectAndSleepUnmountSubmission(
-                                                                     startedAtNanoseconds: startedAt,
-                                                                     submission: submission
-                                                                 )
-                                                             }
-                                                         },
+                                                         preparedNormalRequest: preparedNormalRequest,
+                                                         submissionAuthorizer: submissionAuthorizer,
                                                          onWaiterTimeout: manualAttemptID.map { attemptID in
                                                              { requestWasForced in
                                                                  if requestWasForced,
@@ -3310,7 +3673,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                          },
                                                          onPendingRequestTerminal: {
                                                              self.sleepUnmountActivityTracker.finish()
-                                                         })
+                                                         },
+                                                         lateSuccessRecordingPolicy: mode.lateSuccessRecordingPolicy)
                 let elapsed = Date().timeIntervalSince(started)
                 let manualTerminalRecord = manualAttemptID.flatMap { attemptID in
                     Self.manualIdentity(for: request).flatMap { identity in
@@ -3323,7 +3687,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     }
                 }
                 let cleanTarget: SleepRemountTarget? = {
-                    guard result.success,
+                    let timing: SleepUnmountCleanSuccessTiming = Date() <= operationDeadline
+                        ? .beforeTimeout
+                        : .afterTimeout
+                    let shouldRecord: Bool
+                    switch mode {
+                    case .established:
+                        shouldRecord = result.success
+                            && mode.lateSuccessRecordingPolicy.shouldRecordCleanSuccess(
+                                timing: timing
+                            )
+                    case .forcedBestEffort:
+                        shouldRecord = ForcedSleepCleanSuccessPolicy.shouldRecord(
+                            callbackSucceeded: result.success,
+                            requestWasForced: result.requestWasForced,
+                            timing: timing
+                        )
+                    }
+                    guard shouldRecord,
                           let bsd = request.wholeDiskBSD,
                           let generation = request.physicalGeneration,
                           let entryID = request.mediaRegistryEntryID else { return nil }
@@ -3334,13 +3715,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 lock.lock()
                 completedRequestKeys.insert(request.key)
                 let finishedAfterBatchReturn = batchReturnState.hasReturned
-                if result.success {
+                let acceptedCleanSuccess = result.success && cleanTarget != nil
+                if acceptedCleanSuccess {
                     success.append(contentsOf: names)
                     if let cleanTarget {
                         remountTargets.insert(cleanTarget)
                     }
                 } else {
-                    let message = result.errorMessage ?? String(localized: "Unknown error")
+                    let message: String
+                    if result.success, result.requestWasForced,
+                       case .forcedBestEffort = mode {
+                        message = "Clean callback belonged to a force request and was not accepted by the normal-only forced-sleep policy"
+                    } else if result.success {
+                        message = "Clean unmount confirmation arrived after the forced-sleep deadline"
+                    } else {
+                        message = result.errorMessage ?? String(localized: "Unknown error")
+                    }
                     failure.append(contentsOf: names.map { ($0, message) })
                 }
                 lock.unlock()
@@ -3358,6 +3748,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
                 if finishedAfterBatchReturn,
                    manualAttemptID == nil,
+                   mode.lateSuccessRecordingPolicy.shouldRecordCleanSuccess(timing: .afterTimeout),
                    let cleanTarget {
                     // A scheduler stall may outlive the caller's hard deadline even though the DA
                     // callback itself is clean. Preserve automatic wake-remount ownership.
@@ -3373,10 +3764,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     self.sleepUnmountActivityTracker.finish()
                 }
 
-                if result.success {
+                if acceptedCleanSuccess {
                     log.info("cycle \(operationID, privacy: .public) ✓ \(context, privacy: .public) clean unmount OK names=\(names, privacy: .public) elapsed=\(String(format: "%.2f", elapsed), privacy: .public)s")
                 } else {
-                    log.error("cycle \(operationID, privacy: .public) ✗ \(context, privacy: .public) clean unmount FAIL names=\(names, privacy: .public) elapsed=\(String(format: "%.2f", elapsed), privacy: .public)s error=\(result.errorMessage ?? "unknown", privacy: .public)")
+                    let diagnostic: String
+                    if result.success, result.requestWasForced,
+                       case .forcedBestEffort = mode {
+                        diagnostic = "clean callback came from a force request"
+                    } else if result.success {
+                        diagnostic = "clean confirmation crossed forced-sleep deadline"
+                    } else {
+                        diagnostic = result.errorMessage ?? "unknown"
+                    }
+                    log.error("cycle \(operationID, privacy: .public) ✗ \(context, privacy: .public) clean unmount UNCONFIRMED names=\(names, privacy: .public) elapsed=\(String(format: "%.2f", elapsed), privacy: .public)s error=\(diagnostic, privacy: .public)")
                 }
             }
         }
@@ -3507,10 +3907,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                         context: String = "sleep",
                                         deadline: Date,
                                         manualStartedAtNanoseconds: UInt64? = nil,
+                                        preparedNormalRequest: PreparedSleepDAUnmount? = nil,
                                         submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer? = nil,
                                         onWaiterTimeout: ((Bool) -> Void)? = nil,
                                         onLateTerminal: ((EjectAndSleepDiskEvent) -> Void)? = nil,
-                                        onPendingRequestTerminal: (() -> Void)? = nil)
+                                        onPendingRequestTerminal: (() -> Void)? = nil,
+                                        lateSuccessRecordingPolicy: SleepUnmountLateSuccessRecordingPolicy =
+                                            .preserveAutomaticRemountOwnership)
         -> SleepUnmountAttemptResult {
         // 기존 설정 의미를 보존한다: normal을 먼저 시도하고, callback이 명시적으로 거절한 경우에만
         // force를 순차 실행한다. timeout은 underlying request 취소가 아니므로 절대 force와 겹치지 않는다.
@@ -3519,7 +3922,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             wallDeadline: deadline,
             manualStartedAtNanoseconds: manualStartedAtNanoseconds
         )
-        guard normalBudget > 0 else {
+        guard PreparedSleepUnmountDeadlinePolicy.shouldEnterWait(
+            hasPreparedRequest: preparedNormalRequest != nil,
+            remainingBudget: normalBudget
+        ) else {
             return SleepUnmountAttemptResult(
                 success: false,
                 errorMessage: "Automatic unmount deadline expired before the request could start",
@@ -3540,10 +3946,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             operationID: operationID,
             timeout: normalBudget,
             context: context,
+            preparedRequest: preparedNormalRequest,
             submissionAuthorizer: submissionAuthorizer,
             onWaiterTimeout: onWaiterTimeout,
             onLateTerminal: onLateTerminal,
-            onPendingRequestTerminal: onPendingRequestTerminal
+            onPendingRequestTerminal: onPendingRequestTerminal,
+            lateSuccessRecordingPolicy: lateSuccessRecordingPolicy
         )
         if normal.success {
             return normal
@@ -3607,7 +4015,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             submissionAuthorizer: submissionAuthorizer,
             onWaiterTimeout: onWaiterTimeout,
             onLateTerminal: onLateTerminal,
-            onPendingRequestTerminal: onPendingRequestTerminal
+            onPendingRequestTerminal: onPendingRequestTerminal,
+            lateSuccessRecordingPolicy: lateSuccessRecordingPolicy
         )
         if !forced.success {
             ErrorReporter.report(signature: "sleep_da_force_unmount_failed")
@@ -3626,27 +4035,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                 operationID: String? = nil,
                                                 timeout: TimeInterval,
                                                 context: String = "sleep",
+                                                preparedRequest: PreparedSleepDAUnmount? = nil,
                                                 submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer? = nil,
                                                 onWaiterTimeout: ((Bool) -> Void)? = nil,
                                                 onLateTerminal: ((EjectAndSleepDiskEvent) -> Void)? = nil,
-                                                onPendingRequestTerminal: (() -> Void)? = nil)
+                                                onPendingRequestTerminal: (() -> Void)? = nil,
+                                                lateSuccessRecordingPolicy: SleepUnmountLateSuccessRecordingPolicy)
         -> SleepUnmountAttemptResult {
         let operation = operationID ?? "-"
         let started = Date()
-        let result = DAInventory.shared.unmountForSleep(
-            volumePath: volumePath,
-            wholeDiskBSDName: wholeDiskBSDName,
-            expectedGeneration: expectedGeneration,
-            expectedMediaRegistryEntryID: expectedMediaRegistryEntryID,
-            expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
-            enforceProtectionClosure: enforceProtectionClosure,
-            force: force,
-            retainBarrierForForceContinuation: retainBarrierForForceContinuation,
-            timeout: timeout,
-            operationID: operation,
-            context: context,
-            submissionAuthorizer: submissionAuthorizer
-        )
+        let result: SleepDAUnmountWaitResult
+        if let preparedRequest {
+            result = DAInventory.shared.waitForPreparedSleepUnmount(
+                preparedRequest,
+                timeout: timeout,
+                retainBarrierForForceContinuation: retainBarrierForForceContinuation
+            )
+        } else {
+            result = DAInventory.shared.unmountForSleep(
+                volumePath: volumePath,
+                wholeDiskBSDName: wholeDiskBSDName,
+                expectedGeneration: expectedGeneration,
+                expectedMediaRegistryEntryID: expectedMediaRegistryEntryID,
+                expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
+                enforceProtectionClosure: enforceProtectionClosure,
+                force: force,
+                retainBarrierForForceContinuation: retainBarrierForForceContinuation,
+                timeout: timeout,
+                operationID: operation,
+                context: context,
+                submissionAuthorizer: submissionAuthorizer
+            )
+        }
         let elapsed = elapsedText(since: started)
         switch result {
         case let .completed(.callbackSuccess, requestWasForced):
@@ -3686,7 +4106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) late DA clean callback accepted after waiter timeout target=\(lateTarget.wholeDiskBSD, privacy: .public) generation=\(lateTarget.physicalGeneration, privacy: .public)")
                     if let onLateTerminal {
                         onLateTerminal(.clean(request.force ? .force : .normal))
-                    } else {
+                    } else if lateSuccessRecordingPolicy.shouldRecordCleanSuccess(
+                        timing: .afterTimeout
+                    ) {
                         self.recordAutomaticUnmountTargets([lateTarget],
                                                            operationID: operation,
                                                            reason: context)
@@ -4206,6 +4628,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return
         case .none:
             break
+        }
+
+        if case let .bestEffortNoRetry(maximumWait) = ForcedSleepBoundaryRoutingPolicy.route(
+            isIOKitConfirmed: true,
+            isForcedSleep: trigger == .systemForced,
+            isEnabled: ForcedSleepEject.enabled
+        ) {
+            // Dedicated IOKit-only best-effort path. It intentionally does not enter the existing
+            // 24s power-boundary refresh/retry chain and never asks library apps to quit.
+            let operationDeadline = Date().addingTimeInterval(maximumWait)
+            let task = startSleepEjectIfNeeded(
+                reason: "forcedPowerSleep",
+                trigger: .systemForced,
+                forceClaims: SleepEpisodeForceClaimLedger(),
+                deadline: operationDeadline
+            )
+            if !task.started, task.trigger != .systemForced {
+                // Do not reinterpret or duplicate an already-authorized idle/lid/display/manual
+                // operation. Its existing policy remains unchanged; this forced boundary simply
+                // adds no second request and does not wait beyond the sleep transition.
+                log.notice("cycle \(task.operationID, privacy: .public) IOKit forced systemWillSleep skipped because a different eject policy is already active trigger=\(task.trigger.logLabel, privacy: .public)")
+                powerSleepAckCoordinator?.acknowledgeImmediately(
+                    messageType: ioMessageSystemWillSleep,
+                    notificationID: notificationID,
+                    operationID: task.operationID
+                )
+                return
+            }
+            let acknowledgmentBudget = max(0, operationDeadline.timeIntervalSinceNow)
+            log.notice("cycle \(task.operationID, privacy: .public) IOKit forced systemWillSleep best-effort \((task.started ? "started" : "joined"), privacy: .public); no force/retry notificationID=\(notificationID, privacy: .public) ackBudget=\(String(format: "%.2f", acknowledgmentBudget), privacy: .public)s")
+            powerSleepAckCoordinator?.deferAcknowledgment(
+                messageType: ioMessageSystemWillSleep,
+                notificationID: notificationID,
+                operationID: task.operationID,
+                until: task.group,
+                deadline: acknowledgmentBudget
+            )
+            return
         }
 
         guard trigger.participatesInEjectFlow else {
@@ -4785,7 +5245,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }
             log.info("cycle \(operation, privacy: .public) automatic eject worker started reason=\(reason, privacy: .public) trigger=\(trigger.logLabel, privacy: .public) forceAllowed=\(trigger.effectiveForceFallback(masterEnabled: SettingsStore.forceFallbackEnabled), privacy: .public) dispatchLatency=\(self.elapsedText(since: requestedAt), privacy: .public)s")
             let attemptSucceeded: Bool
-            if trigger.isDisplaySleep {
+            if trigger == .systemForced {
+                attemptSucceeded = self.performForcedSleepEject(
+                    operation: operation,
+                    totalStarted: requestedAt,
+                    forceClaims: selectedForceClaims,
+                    deadline: operationDeadline
+                )
+            } else if trigger.isDisplaySleep {
                 attemptSucceeded = self.performDisplaySleepEject(operation: operation,
                                                                  totalStarted: requestedAt,
                                                                  forceClaims: selectedForceClaims,
@@ -5006,6 +5473,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                    kind: .failure)
         }
         return r.failure.isEmpty
+    }
+
+    /// IOKit classified this boundary as forced after lid attribution. This opt-in path is
+    /// best-effort only: the protected batch captures authoritative inventory + activity, selects
+    /// confirmed-idle physical requests, submits normal DA unmount once, and returns at the short
+    /// deadline regardless of outcome.
+    private func performForcedSleepEject(operation: String,
+                                         totalStarted: Date,
+                                         forceClaims: SleepEpisodeForceClaimLedger,
+                                         deadline: Date) -> Bool {
+        guard ForcedSleepEject.enabled else {
+            log.notice("cycle \(operation, privacy: .public) forcedSleep skipped because setting turned off before worker start")
+            return true
+        }
+        guard deadline.timeIntervalSinceNow > 0 else {
+            log.notice("cycle \(operation, privacy: .public) forcedSleep skipped because short deadline expired before worker start")
+            return true
+        }
+
+        let ejectStarted = Date()
+        let result = ejectAllForSleep(
+            operationID: operation,
+            context: "forcedSleep",
+            trigger: .systemForced,
+            forceClaims: forceClaims,
+            deadline: deadline,
+            mode: .forcedBestEffort
+        )
+        recordAutomaticUnmountTargets(
+            result.remountTargets,
+            operationID: operation,
+            reason: "forcedPowerSleep"
+        )
+        log.notice("cycle \(operation, privacy: .public) forcedSleep DONE — attempted=\(result.attempted.count, privacy: .public) clean=\(result.success.count, privacy: .public) unconfirmed=\(result.failure.count, privacy: .public) recordedTargets=\(result.remountTargets.sorted(), privacy: .public) ejectElapsed=\(self.elapsedText(since: ejectStarted), privacy: .public)s totalElapsed=\(self.elapsedText(since: totalStarted), privacy: .public)s; sleep continues")
+        // Forced sleep is non-cancelable here. Failure changes neither ACK nor any other policy.
+        return true
     }
 
     @objc private func systemWillPowerOff() {
@@ -5705,6 +6208,12 @@ private struct SleepAutomaticVolumeSnapshot {
     let isEjectTarget: Bool
 }
 
+private struct SleepAutomaticInventorySnapshot {
+    let volumes: [SleepAutomaticVolumeSnapshot]
+    /// Authoritative DA inventory generation captured with `volumes` after mount reconciliation.
+    let revision: UInt64
+}
+
 private enum SleepUnmountAttemptStatus {
     case clean
     case declined(SleepUnmountDissenterStatus)
@@ -5798,7 +6307,32 @@ private enum SleepDAUnmountSubmissionAuthorization {
 }
 
 private typealias SleepDAUnmountSubmissionAuthorizer =
-    (_ submission: () -> Void) -> SleepDAUnmountSubmissionAuthorization
+    (_ requestWasForced: Bool,
+     _ submission: () -> Void) -> SleepDAUnmountSubmissionAuthorization
+
+private struct SleepDAUnmountPreparation {
+    let volumePath: String
+    let wholeDiskBSDName: String?
+    let expectedGeneration: UInt64?
+    let expectedMediaRegistryEntryID: UInt64?
+    let expectedMountedVolumeBSDs: Set<String>?
+    let enforceProtectionClosure: Bool
+    let force: Bool
+    let retainBarrierForForceContinuation: Bool
+    let timeout: TimeInterval
+    let submissionDeadline: Date?
+    let operationID: String
+    let context: String
+    let submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer?
+}
+
+private enum PreparedSleepDAUnmount {
+    case request(PendingSleepDAUnmount)
+    /// Final checks passed, but the public DA request is held until every item in the forced batch
+    /// has completed the same checks on the serial DA queue.
+    case deferred(PendingSleepDAUnmount, submit: () -> Void, abandon: () -> Void)
+    case unavailable(String)
+}
 
 private enum SleepDAMountEvidence {
     case callbackSuccess
@@ -6108,6 +6642,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private var loginToggle: NSButton!
     private var sleepToggle: NSButton!
     private var lidCloseToggle: NSButton!
+    private var forcedSleepToggle: NSButton!
     private var displaySleepToggle: NSButton!
     private var libraryAppToggle: NSButton!
     private var notificationsToggle: NSButton!
@@ -6324,6 +6859,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private func makeEjectPane() -> NSView {
         sleepToggle = checkbox(title: String(localized: "Eject on idle sleep"), action: #selector(toggleSleepEject(_:)))
         lidCloseToggle = checkbox(title: String(localized: "Eject on lid close"), action: #selector(toggleLidCloseEject(_:)))
+        forcedSleepToggle = checkbox(title: String(localized: "Eject on forced sleep (experimental)"), action: #selector(toggleForcedSleepEject(_:)))
         displaySleepToggle = checkbox(title: String(localized: "Eject on display sleep (experimental)"), action: #selector(toggleDisplaySleepEject(_:)))
         libraryAppToggle = checkbox(title: String(localized: "Quit Music/Photos before sleep"), action: #selector(toggleLibraryAppManagement(_:)))
         forceFallbackToggle = checkbox(title: String(localized: "Allow Force Unmount"), action: #selector(toggleForceFallback(_:)))
@@ -6331,11 +6867,12 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
                                          action: #selector(toggleRightClickEject(_:)))
 
         return pane([
-            settingRow(sleepToggle, description: String(localized: "Eject external drives only when macOS reports idle sleep. Sleep without an idle or recent lid signal passes through untouched.")),
+            settingRow(sleepToggle, description: String(localized: "This option ejects external drives only when macOS reports idle sleep. Lid close and the forced-sleep experiment are controlled separately.")),
             settingRow(lidCloseToggle, description: String(localized: "Eject all external drives the moment you close the lid.")),
+            settingRow(forcedSleepToggle, description: String(localized: "When enabled, this best-effort option applies to every forced sleep confirmed by IOKit. DiskOUT briefly holds sleep and requests one normal eject only for physical disks confirmed idle. Active or uncertain disks are left untouched. It never force-unmounts or retries; sleep continues when the short limit is reached.")),
             settingRow(displaySleepToggle, description: String(localized: "Also eject when only the display goes to sleep — for Macs set to never sleep.")),
             settingRow(libraryAppToggle, description: String(localized: "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives.")),
-            settingRow(forceFallbackToggle, description: String(localized: "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle and display sleep never use it. Sleep classified as outside DiskOUT passes through untouched.")),
+            settingRow(forceFallbackToggle, description: String(localized: "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle, display, and forced sleep never use it.")),
             settingRow(rightClickEjectToggle, description: String(localized: "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives.")),
         ])
     }
@@ -6604,6 +7141,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             : (loginStatus == .enabled ? .on : .off)
         sleepToggle.state = SleepEject.enabled ? .on : .off
         lidCloseToggle.state = LidCloseEject.enabled ? .on : .off
+        forcedSleepToggle.state = ForcedSleepEject.enabled ? .on : .off
         displaySleepToggle.state = DisplaySleepEject.enabled ? .on : .off
         libraryAppToggle.state = LibraryAppManagement.enabled ? .on : .off
         notificationsToggle.state = SettingsStore.notificationsEnabled ? .on : .off
@@ -6722,6 +7260,10 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     @objc private func toggleLidCloseEject(_ sender: NSButton) {
         LidCloseEject.enabled = sender.state == .on
+    }
+
+    @objc private func toggleForcedSleepEject(_ sender: NSButton) {
+        ForcedSleepEject.enabled = sender.state == .on
     }
 
     @objc private func toggleDisplaySleepEject(_ sender: NSButton) {
@@ -8665,212 +9207,113 @@ private final class DAInventory {
                          context: String,
                          submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer? = nil)
         -> SleepDAUnmountWaitResult {
-        var request: PendingSleepDAUnmount?
-        var unavailableReason: String?
-
-        queue.sync {
-            if session == nil {
-                startOnQueue()
-            }
-            guard let session else {
-                unavailableReason = "DASession unavailable"
-                return
-            }
-
-            guard let wholeBSD = wholeDiskBSDName,
-                  !wholeBSD.isEmpty,
-                  let expectedGeneration,
-                  let expectedMediaRegistryEntryID,
-                  let expectedMountedVolumeBSDs else {
-                unavailableReason = "stable whole-disk identity unavailable"
-                return
-            }
-
-            guard physicalGenerations[wholeBSD] == expectedGeneration,
-                  currentIOMediaRegistryEntryID(bsd: wholeBSD)
-                    == expectedMediaRegistryEntryID else {
-                unavailableReason = "physical media identity changed before unmount"
-                return
-            }
-            let generation = expectedGeneration
-            let token = SleepDAPhysicalToken(wholeDiskBSD: wholeBSD,
-                                             generation: generation,
-                                             mediaRegistryEntryID: expectedMediaRegistryEntryID)
-
-            if let existing = pendingSleepUnmounts[token] {
-                let joinExistingRequest = {
-                    self.blockedSleepUnmountMounts[wholeBSD] = token
-                    if retainBarrierForForceContinuation, !existing.force {
-                        self.reserveForceContinuationOnQueue(token)
-                    }
-                    request = existing
-                    log.notice("cycle \(operationID, privacy: .public) \(context, privacy: .public) DA unmount joined pending target=\(wholeBSD, privacy: .public) generation=\(generation, privacy: .public) requestedMode=\(force ? "force" : "normal", privacy: .public) activeMode=\(existing.modeLabel, privacy: .public)")
-                }
-                if let submissionAuthorizer {
-                    switch submissionAuthorizer(joinExistingRequest) {
-                    case .submitted:
-                        break
-                    case let .denied(reason):
-                        unavailableReason = reason
-                    }
-                } else {
-                    joinExistingRequest()
-                }
-                return
-            }
-
-            guard SleepMountApprovalPolicy.canBeginAutomaticUnmount(
-                hasPendingApprovedMount: pendingApprovedMounts.values.contains { pending in
-                    pending.wholeDiskBSD == wholeBSD
-                        && SleepMountApprovalPolicy.pendingApprovalMatchesCapturedMedia(
-                            pendingMediaRegistryEntryID: pending.mediaRegistryEntryID,
-                            capturedMediaRegistryEntryID: expectedMediaRegistryEntryID
-                        )
-                }
-            ) else {
-                unavailableReason = "a mount was approved but is not yet visible in the protection snapshot"
-                onInventoryChanged?(.safetyRefreshRequired)
-                return
-            }
-
-            // Install the approval barrier before the final mount-table reconciliation. Mount
-            // approvals queued after this point run on this same DA queue and are rejected.
-            blockedSleepUnmountMounts[wholeBSD] = token
-            var keepMountBarrier = false
-            defer {
-                if !keepMountBarrier,
-                   blockedSleepUnmountMounts[wholeBSD] == token {
-                    blockedSleepUnmountMounts.removeValue(forKey: wholeBSD)
-                }
-            }
-
-            // Whole-disk protection closure must remain valid through request issuance. Reconcile
-            // the authoritative OS mount table on this same DA queue immediately before creating
-            // the request; a newly mounted sibling (protected or otherwise) invalidates the old
-            // snapshot and is handled only by a fresh cycle.
-            guard let mountedNow = currentMountedDiskInfosOnQueue() else {
-                unavailableReason = "mounted-volume inventory could not be revalidated"
-                return
-            }
-            let currentGroup = mountedNow.values.filter {
-                $0.wholeDiskBSD == wholeBSD && $0.mountPath?.isEmpty == false
-            }
-            let currentMountedVolumeBSDs = Set(currentGroup.map(\.bsd))
-            let protectedSiblingAppeared = currentGroup.contains { info in
-                guard let path = info.mountPath else { return false }
-                return ExcludedVolumes.isExcluded(info.volumeUUID)
-                    || ExternalDrive.isTimeMachineDisk(volumeURL: URL(fileURLWithPath: path))
-            }
-            guard SleepMountedSiblingPolicy.isSnapshotStillSafe(
-                expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
-                currentMountedVolumeBSDs: currentMountedVolumeBSDs,
-                allowMissingExpectedSiblings: force,
-                enforceProtectionClosure: enforceProtectionClosure,
-                hasProtectedCurrentSibling: protectedSiblingAppeared
-            ) else {
-                unavailableReason = currentMountedVolumeBSDs == expectedMountedVolumeBSDs
-                    ? "a protected sibling is mounted on the target whole disk"
-                    : "mounted sibling set changed after the protection snapshot"
-                // Reconciliation has already populated `disks`, so the later DA changed callback
-                // may see prevMount == mountPath and suppress `.mountedExternal`. Emit an explicit
-                // safety edge now so Amphetamine CDM (no later willSleep) still runs a fresh cycle.
-                onInventoryChanged?(.safetyRefreshRequired)
-                return
-            }
-
-            if !force {
-                // Normal request must still originate from the representative mounted volume.
-                // Snapshot 이후 같은 경로에 replacement media가 붙은 경우에도 captured token과
-                // 섞이지 않게 한다. Force continuation은 normal Whole이 이 representative를 이미
-                // unmount한 partial-decline 경로가 있으므로 exact physical token만 검증한다.
-                guard let volumeDisk = DADiskCreateFromVolumePath(
-                    kCFAllocatorDefault,
-                    session,
-                    URL(fileURLWithPath: volumePath) as CFURL
-                ),
-                let currentVolume = parseDescription(disk: volumeDisk),
-                currentVolume.mountPath == volumePath,
-                currentVolume.wholeDiskBSD == wholeBSD else {
-                    unavailableReason = "volume path no longer matches the captured whole disk"
-                    return
-                }
-            }
-            guard physicalGenerations[wholeBSD] == expectedGeneration else {
-                unavailableReason = "physical disk generation changed before unmount"
-                return
-            }
-            guard currentIOMediaRegistryEntryID(bsd: wholeBSD)
-                    == expectedMediaRegistryEntryID else {
-                unavailableReason = "physical media identity changed before unmount"
-                return
-            }
-
-            // BSD lookup 뒤 replacement가 같은 diskN을 재사용하는 TOCTOU를 없앤다. Snapshot에서
-            // 잡은 exact registry entry 자체로 DADisk를 만들고 BSD도 다시 대조한다.
-            guard let matching = IORegistryEntryIDMatching(expectedMediaRegistryEntryID) else {
-                unavailableReason = "IOMedia identity lookup unavailable for \(wholeBSD)"
-                return
-            }
-            let mediaService = IOServiceGetMatchingService(kIOMainPortDefault, matching)
-            guard mediaService != 0 else {
-                unavailableReason = "captured physical media is no longer present"
-                return
-            }
-            defer { IOObjectRelease(mediaService) }
-            guard let disk = DADiskCreateFromIOMedia(kCFAllocatorDefault, session, mediaService),
-                  let diskBSDPointer = DADiskGetBSDName(disk),
-                  String(cString: diskBSDPointer) == wholeBSD,
-                  mediaRegistryEntryID(for: disk) == expectedMediaRegistryEntryID else {
-                unavailableReason = "captured physical media no longer matches \(wholeBSD)"
-                return
-            }
-
-            let modeLabel = force ? "force" : "normal"
-            let pending = PendingSleepDAUnmount(session: session,
-                                                disk: disk,
-                                                token: token,
-                                                target: wholeBSD,
-                                                force: force,
-                                                modeLabel: modeLabel,
-                                                inventory: self)
-            let base = force ? kDADiskUnmountOptionForce : kDADiskUnmountOptionDefault
-            let options = DADiskUnmountOptions(base | kDADiskUnmountOptionWhole)
-            let submitRequest = {
-                self.pendingSleepUnmounts[token] = pending
-                if retainBarrierForForceContinuation, !force {
-                    self.reserveForceContinuationOnQueue(token)
-                }
-                request = pending
-                keepMountBarrier = true
-                let contextPointer = Unmanaged.passRetained(pending).toOpaque()
-                log.notice("cycle \(operationID, privacy: .public) \(context, privacy: .public) DA \(modeLabel, privacy: .public) unmount start target=\(wholeBSD, privacy: .public) generation=\(generation, privacy: .public) timeout=\(String(format: "%.1f", timeout), privacy: .public)s")
-                DADiskUnmount(disk, options, { (_, dissenter, contextPointer) in
-                    guard let contextPointer else { return }
-                    let pending = Unmanaged<PendingSleepDAUnmount>
-                        .fromOpaque(contextPointer)
-                        .takeRetainedValue()
-                    guard let inventory = pending.inventory else {
-                        _ = pending.finishOnce(.callbackFailure(.other(0),
-                                                                 "DA inventory unavailable"))
-                        return
-                    }
-                    inventory.finishSleepUnmountOnQueue(pending, dissenter: dissenter)
-                }, contextPointer)
-            }
-            if let submissionAuthorizer {
-                switch submissionAuthorizer(submitRequest) {
-                case .submitted:
-                    break
-                case let .denied(reason):
-                    unavailableReason = reason
-                }
-            } else {
-                submitRequest()
-            }
+        let preparation = SleepDAUnmountPreparation(
+            volumePath: volumePath,
+            wholeDiskBSDName: wholeDiskBSDName,
+            expectedGeneration: expectedGeneration,
+            expectedMediaRegistryEntryID: expectedMediaRegistryEntryID,
+            expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
+            enforceProtectionClosure: enforceProtectionClosure,
+            force: force,
+            retainBarrierForForceContinuation: retainBarrierForForceContinuation,
+            timeout: timeout,
+            submissionDeadline: nil,
+            operationID: operationID,
+            context: context,
+            submissionAuthorizer: submissionAuthorizer
+        )
+        let prepared = queue.sync {
+            prepareSleepUnmountOnQueue(preparation)
         }
+        return waitForPreparedSleepUnmount(
+            prepared,
+            timeout: timeout,
+            retainBarrierForForceContinuation: retainBarrierForForceContinuation
+        )
+    }
 
-        guard let request else {
-            return .unavailable(unavailableReason ?? "DA unmount request unavailable")
+    /// Forced sleep validates and submits every independent normal request in one DA-queue turn.
+    /// Because DA callbacks and description changes use this same serial queue, an early clean
+    /// unmount cannot mutate the captured inventory generation before the remaining submissions.
+    func prepareForcedSleepUnmountBatch(
+        _ preparations: [SleepDAUnmountPreparation],
+        finalDenialReasons: () -> [String?]
+    ) -> [PreparedSleepDAUnmount] {
+        queue.sync {
+            ForcedSleepSubmissionWavePolicy.prepareAuthorizeThenSubmit(
+                count: preparations.count,
+                prepare: { index in
+                    // Phase 1 prepares identities/barriers without starting an OS unmount.
+                    self.prepareSleepUnmountOnQueue(
+                        preparations[index],
+                        deferRequestSubmission: true
+                    )
+                },
+                authorize: { staged in
+                    // Phase 2 takes one latest global protection/backing/activity snapshot and
+                    // decides every request before the first destructive call.
+                    let reasons = finalDenialReasons()
+                    guard reasons.count == staged.count else {
+                        return staged.map { item in
+                            if case let .deferred(_, _, abandon) = item { abandon() }
+                            return .unavailable(
+                                "forced-sleep final batch authorization was incomplete"
+                            )
+                        }
+                    }
+                    return staged.enumerated().map { index, item in
+                        let submissionGateReason: String?
+                        if !ForcedSleepEject.enabled {
+                            submissionGateReason =
+                                "forced-sleep experiment was disabled before the request wave"
+                        } else if let deadline = preparations[index].submissionDeadline,
+                                  !ForcedSleepDestructiveSubmissionPolicy.allows(
+                                    isEnabled: true,
+                                    remainingBudget: deadline.timeIntervalSinceNow
+                                  ) {
+                            submissionGateReason =
+                                "forced-sleep deadline expired before the prepared request wave"
+                        } else {
+                            submissionGateReason = nil
+                        }
+                        let reason = reasons[index] ?? submissionGateReason
+                        guard let reason else { return item }
+                        if case let .deferred(_, _, abandon) = item { abandon() }
+                        return .unavailable(reason)
+                    }
+                },
+                submit: { index, item in
+                    // Phase 3 starts every still-authorized normal request. DA callbacks and
+                    // description events cannot run until this serial queue turn returns.
+                    guard case let .deferred(request, submit, abandon) = item else { return item }
+                    let isEnabled = ForcedSleepEject.enabled
+                    if let deadline = preparations[index].submissionDeadline,
+                       !ForcedSleepDestructiveSubmissionPolicy.allows(
+                           isEnabled: isEnabled,
+                           remainingBudget: deadline.timeIntervalSinceNow
+                       ) {
+                        abandon()
+                        return .unavailable(
+                            isEnabled
+                                ? "forced-sleep deadline expired at destructive submission"
+                                : "forced-sleep experiment was disabled at destructive submission"
+                        )
+                    }
+                    submit()
+                    return .request(request)
+                }
+            )
+        }
+    }
+
+    func waitForPreparedSleepUnmount(
+        _ prepared: PreparedSleepDAUnmount,
+        timeout: TimeInterval,
+        retainBarrierForForceContinuation: Bool
+    ) -> SleepDAUnmountWaitResult {
+        guard case let .request(request) = prepared else {
+            if case let .unavailable(reason) = prepared { return .unavailable(reason) }
+            return .unavailable("DA unmount request unavailable")
         }
         let result = request.wait(timeout: timeout)
         if case .timedOutPending = result,
@@ -8888,6 +9331,211 @@ private final class DAInventory {
             }
         }
         return result
+    }
+
+    /// Must run on `queue`. This contains the complete identity/protection/submission boundary but
+    /// never waits, allowing a caller to prepare several requests atomically before callbacks run.
+    private func prepareSleepUnmountOnQueue(
+        _ preparation: SleepDAUnmountPreparation,
+        deferRequestSubmission: Bool = false
+    ) -> PreparedSleepDAUnmount {
+        if session == nil {
+            startOnQueue()
+        }
+        guard let session else { return .unavailable("DASession unavailable") }
+        guard let wholeBSD = preparation.wholeDiskBSDName,
+              !wholeBSD.isEmpty,
+              let expectedGeneration = preparation.expectedGeneration,
+              let expectedMediaRegistryEntryID = preparation.expectedMediaRegistryEntryID,
+              let expectedMountedVolumeBSDs = preparation.expectedMountedVolumeBSDs else {
+            return .unavailable("stable whole-disk identity unavailable")
+        }
+        guard physicalGenerations[wholeBSD] == expectedGeneration,
+              currentIOMediaRegistryEntryID(bsd: wholeBSD)
+                == expectedMediaRegistryEntryID else {
+            return .unavailable("physical media identity changed before unmount")
+        }
+        let token = SleepDAPhysicalToken(
+            wholeDiskBSD: wholeBSD,
+            generation: expectedGeneration,
+            mediaRegistryEntryID: expectedMediaRegistryEntryID
+        )
+
+        if let existing = pendingSleepUnmounts[token] {
+            var didJoin = false
+            let joinExistingRequest = {
+                self.blockedSleepUnmountMounts[wholeBSD] = token
+                if preparation.retainBarrierForForceContinuation, !existing.force {
+                    self.reserveForceContinuationOnQueue(token)
+                }
+                didJoin = true
+                log.notice("cycle \(preparation.operationID, privacy: .public) \(preparation.context, privacy: .public) DA unmount joined pending target=\(wholeBSD, privacy: .public) generation=\(expectedGeneration, privacy: .public) requestedMode=\(preparation.force ? "force" : "normal", privacy: .public) activeMode=\(existing.modeLabel, privacy: .public)")
+            }
+            if let authorizer = preparation.submissionAuthorizer {
+                switch authorizer(existing.force, joinExistingRequest) {
+                case .submitted:
+                    break
+                case let .denied(reason):
+                    return .unavailable(reason)
+                }
+            } else {
+                joinExistingRequest()
+            }
+            return didJoin
+                ? .request(existing)
+                : .unavailable("DA unmount authorizer did not join the pending request")
+        }
+
+        guard SleepMountApprovalPolicy.canBeginAutomaticUnmount(
+            hasPendingApprovedMount: pendingApprovedMounts.values.contains { pending in
+                pending.wholeDiskBSD == wholeBSD
+                    && SleepMountApprovalPolicy.pendingApprovalMatchesCapturedMedia(
+                        pendingMediaRegistryEntryID: pending.mediaRegistryEntryID,
+                        capturedMediaRegistryEntryID: expectedMediaRegistryEntryID
+                    )
+            }
+        ) else {
+            onInventoryChanged?(.safetyRefreshRequired)
+            return .unavailable(
+                "a mount was approved but is not yet visible in the protection snapshot"
+            )
+        }
+
+        // Mount approvals queued after this point are rejected on this same DA queue.
+        blockedSleepUnmountMounts[wholeBSD] = token
+        var keepMountBarrier = false
+        defer {
+            if !keepMountBarrier,
+               blockedSleepUnmountMounts[wholeBSD] == token {
+                blockedSleepUnmountMounts.removeValue(forKey: wholeBSD)
+            }
+        }
+
+        guard let mountedNow = currentMountedDiskInfosOnQueue() else {
+            return .unavailable("mounted-volume inventory could not be revalidated")
+        }
+        let currentGroup = mountedNow.values.filter {
+            $0.wholeDiskBSD == wholeBSD && $0.mountPath?.isEmpty == false
+        }
+        let currentMountedVolumeBSDs = Set(currentGroup.map(\.bsd))
+        let protectedSiblingAppeared = currentGroup.contains { info in
+            guard let path = info.mountPath else { return false }
+            return ExcludedVolumes.isExcluded(info.volumeUUID)
+                || ExternalDrive.isTimeMachineDisk(volumeURL: URL(fileURLWithPath: path))
+        }
+        guard SleepMountedSiblingPolicy.isSnapshotStillSafe(
+            expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
+            currentMountedVolumeBSDs: currentMountedVolumeBSDs,
+            allowMissingExpectedSiblings: preparation.force,
+            enforceProtectionClosure: preparation.enforceProtectionClosure,
+            hasProtectedCurrentSibling: protectedSiblingAppeared
+        ) else {
+            onInventoryChanged?(.safetyRefreshRequired)
+            let reason = currentMountedVolumeBSDs == expectedMountedVolumeBSDs
+                ? "a protected sibling is mounted on the target whole disk"
+                : "mounted sibling set changed after the protection snapshot"
+            return .unavailable(reason)
+        }
+
+        if !preparation.force {
+            guard let volumeDisk = DADiskCreateFromVolumePath(
+                kCFAllocatorDefault,
+                session,
+                URL(fileURLWithPath: preparation.volumePath) as CFURL
+            ),
+            let currentVolume = parseDescription(disk: volumeDisk),
+            currentVolume.mountPath == preparation.volumePath,
+            currentVolume.wholeDiskBSD == wholeBSD else {
+                return .unavailable("volume path no longer matches the captured whole disk")
+            }
+        }
+        guard physicalGenerations[wholeBSD] == expectedGeneration else {
+            return .unavailable("physical disk generation changed before unmount")
+        }
+        guard currentIOMediaRegistryEntryID(bsd: wholeBSD)
+                == expectedMediaRegistryEntryID else {
+            return .unavailable("physical media identity changed before unmount")
+        }
+        guard let matching = IORegistryEntryIDMatching(expectedMediaRegistryEntryID) else {
+            return .unavailable("IOMedia identity lookup unavailable for \(wholeBSD)")
+        }
+        let mediaService = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard mediaService != 0 else {
+            return .unavailable("captured physical media is no longer present")
+        }
+        defer { IOObjectRelease(mediaService) }
+        guard let disk = DADiskCreateFromIOMedia(kCFAllocatorDefault, session, mediaService),
+              let diskBSDPointer = DADiskGetBSDName(disk),
+              String(cString: diskBSDPointer) == wholeBSD,
+              mediaRegistryEntryID(for: disk) == expectedMediaRegistryEntryID else {
+            return .unavailable("captured physical media no longer matches \(wholeBSD)")
+        }
+
+        let modeLabel = preparation.force ? "force" : "normal"
+        let pending = PendingSleepDAUnmount(
+            session: session,
+            disk: disk,
+            token: token,
+            target: wholeBSD,
+            force: preparation.force,
+            modeLabel: modeLabel,
+            inventory: self
+        )
+        let base = preparation.force
+            ? kDADiskUnmountOptionForce
+            : kDADiskUnmountOptionDefault
+        let options = DADiskUnmountOptions(base | kDADiskUnmountOptionWhole)
+        var didAuthorize = false
+        let commitRequest = {
+            self.pendingSleepUnmounts[token] = pending
+            if preparation.retainBarrierForForceContinuation, !preparation.force {
+                self.reserveForceContinuationOnQueue(token)
+            }
+            let contextPointer = Unmanaged.passRetained(pending).toOpaque()
+            log.notice("cycle \(preparation.operationID, privacy: .public) \(preparation.context, privacy: .public) DA \(modeLabel, privacy: .public) unmount start target=\(wholeBSD, privacy: .public) generation=\(expectedGeneration, privacy: .public) timeout=\(String(format: "%.1f", preparation.timeout), privacy: .public)s")
+            DADiskUnmount(disk, options, { (_, dissenter, contextPointer) in
+                guard let contextPointer else { return }
+                let pending = Unmanaged<PendingSleepDAUnmount>
+                    .fromOpaque(contextPointer)
+                    .takeRetainedValue()
+                guard let inventory = pending.inventory else {
+                    _ = pending.finishOnce(.callbackFailure(
+                        .other(0),
+                        "DA inventory unavailable"
+                    ))
+                    return
+                }
+                inventory.finishSleepUnmountOnQueue(pending, dissenter: dissenter)
+            }, contextPointer)
+        }
+        let authorizeRequest = {
+            guard !didAuthorize else { return }
+            didAuthorize = true
+            keepMountBarrier = true
+            if !deferRequestSubmission {
+                commitRequest()
+            }
+        }
+        if let authorizer = preparation.submissionAuthorizer {
+            switch authorizer(preparation.force, authorizeRequest) {
+            case .submitted:
+                break
+            case let .denied(reason):
+                return .unavailable(reason)
+            }
+        } else {
+            authorizeRequest()
+        }
+        guard didAuthorize else {
+            return .unavailable("DA unmount authorizer did not submit the request")
+        }
+        guard deferRequestSubmission else { return .request(pending) }
+        let abandonRequest = {
+            if self.blockedSleepUnmountMounts[wholeBSD] == token {
+                self.blockedSleepUnmountMounts.removeValue(forKey: wholeBSD)
+            }
+        }
+        return .deferred(pending, submit: commitRequest, abandon: abandonRequest)
     }
 
     /// DADiskUnmount callback 은 inventory 와 같은 serial DA queue 에서 실행된다.
@@ -9366,12 +10014,13 @@ private final class DAInventory {
     /// Sleep protection inventory. Unlike the menu snapshot, this includes every mounted sibling
     /// (including hidden/non-browsable helper volumes) so an excluded or Time Machine sibling can
     /// protect the whole physical disk. Drive metadata and physical identity are captured together.
-    func automaticSleepVolumeSnapshot(waitUntilReady timeout: TimeInterval) -> [SleepAutomaticVolumeSnapshot]? {
+    func automaticSleepVolumeSnapshot(waitUntilReady timeout: TimeInterval) -> SleepAutomaticInventorySnapshot? {
         start()
         var snap: [String: DiskInfo] = [:]
         var generations: [String: UInt64] = [:]
         var entryIDs: [String: UInt64] = [:]
         var pendingMounts: [PendingApprovedMount] = []
+        var capturedRevision: UInt64?
         let safeTimeout = timeout.isFinite ? max(0, timeout) : 0
         let pendingWaitDeadline = DispatchTime.now() + safeTimeout
 
@@ -9381,6 +10030,7 @@ private final class DAInventory {
             generations.removeAll(keepingCapacity: true)
             entryIDs.removeAll(keepingCapacity: true)
             pendingMounts.removeAll(keepingCapacity: true)
+            capturedRevision = nil
             queue.sync {
                 if session == nil {
                     startOnQueue()
@@ -9394,6 +10044,9 @@ private final class DAInventory {
                 generations = physicalGenerations
                 entryIDs = physicalRegistryEntryIDs
                 pendingMounts = Array(pendingApprovedMounts.values)
+                lock.lock()
+                capturedRevision = inventoryRevision
+                lock.unlock()
             }
 
             let hasPendingExternalMount = pendingMounts.contains(where: \.isExternalCandidate)
@@ -9411,7 +10064,7 @@ private final class DAInventory {
             waitForPendingApprovedMountChange(after: observedSequence,
                                               timeout: remaining)
         }
-        guard !snap.isEmpty else {
+        guard !snap.isEmpty, let capturedRevision else {
             // 정상 macOS에는 root `/dev/disk*` mount가 항상 있다. Empty는 initial-enumeration
             // 누락을 "외장 없음" 성공으로 바꾸지 않도록 fail closed한다.
             log.error("DAInventory: authoritative mounted-volume snapshot was empty")
@@ -9484,7 +10137,10 @@ private final class DAInventory {
                                                            isEjectTarget: !isSystemHelper))
             }
         }
-        return result.sorted { $0.drive.url.path < $1.drive.url.path }
+        return SleepAutomaticInventorySnapshot(
+            volumes: result.sorted { $0.drive.url.path < $1.drive.url.path },
+            revision: capturedRevision
+        )
     }
 
     /// nil 반환 = 인벤토리 아직 ready 아님 → 호출자가 diskutil fallback 으로.
@@ -9600,8 +10256,9 @@ private final class DAInventory {
 
 // MARK: - Sleep Eject Toggle (UserDefaults)
 
-/// macOS가 분류한 자동 idle sleep 진입 시 자동 추출 여부.
-/// Apple 메뉴·전원 키·단축키·다른 앱/명령의 적극적 sleep 요청은 이 설정과 무관하게 통과한다.
+    /// macOS가 분류한 자동 idle sleep 진입 시 자동 추출 여부.
+    /// Apple 메뉴·전원 키·단축키·다른 앱/명령의 적극적 sleep 요청은 이 설정이 제어하지 않는다.
+    /// IOKit-confirmed forced sleep은 별도 default-off `ForcedSleepEject` 실험 정책이 담당한다.
 ///
 /// Legacy preference migration runs once at launch before either modern value is read.
 enum SleepEject {
@@ -9829,6 +10486,7 @@ final class DiskIOMonitor {
     private let readThreshold: UInt64 = 16 * 1024 * 1024   // 16 MB
 
     private let queue = DispatchQueue(label: "com.yongza.ejectdrives.io-monitor", qos: .utility)
+    private let queueKey = DispatchSpecificKey<UInt8>()
     private var timer: DispatchSourceTimer?
     /// 물리 whole-disk BSD → 직전 폴의 누적 (read, write) 바이트.
     private var lastIOByDisk: [String: (read: UInt64, write: UInt64)] = [:]
@@ -9836,8 +10494,21 @@ final class DiskIOMonitor {
     /// 현재 마운트된 볼륨을 backing 하는 물리 디스크. nil이면 매핑이 불확실하므로
     /// 기존 IORegistry 전체 감지를 보존하고, 빈 집합이면 마운트된 대상이 없다는 뜻이다.
     private var mountedPhysicalBSDs: Set<String>?
+    private var mountedInventoryRevision: UInt64?
+    /// 가장 최근 polling interval에서 read/write counter가 모두 단조 증가해 delta를
+    /// 신뢰할 수 있었던 물리 디스크. baseline·새 디스크·counter reset은 포함하지 않는다.
+    private var validDeltaSampledDisks = Set<String>()
     /// macOS buffering 으로 polling 한두 구간의 물리 I/O 가 비어도 활동 표시를 유지한다.
     private var activityState = DiskActivityState()
+    /// forced sleep은 UI 임계값보다 보수적으로, 1 byte라도 움직인 디스크를 최근 활동으로
+    /// 유지한다. 이 상태는 메뉴바 표시와 분리되어 기존 표시 정책을 바꾸지 않는다.
+    /// 1.5초 polling interval의 기존 3-poll grace와 같은 4.5초를 실제 경과 시간으로 유지한다.
+    /// 제출 authorizer가 연속 poll해도 grace가 수 ms 안에 소진되지 않는다.
+    private var forcedSleepActivityState = ForcedSleepRecentActivityState(
+        retentionNanoseconds: 4_500_000_000
+    )
+    private var forcedSleepWritingSet = Set<String>()
+    private var forcedSleepReadingSet = Set<String>()
     /// 직전에 보고한 "쓰는 중"/"읽는 중" 물리 BSD 집합 — 변화 감지용.
     private var lastWritingSet: Set<String> = []
     private var lastReadingSet: Set<String> = []
@@ -9846,21 +10517,70 @@ final class DiskIOMonitor {
     /// (writing, reading) 둘 다 빈 집합이면 비활성. 닷은 둘 중 하나라도 있으면 표시.
     var onActivityChanged: ((_ writing: Set<String>, _ reading: Set<String>) -> Void)?
 
+    private init() {
+        queue.setSpecific(key: queueKey, value: 1)
+    }
+
+    /// forced-sleep worker가 authoritative DA snapshot의 mapping/revision을 이 serial queue에
+    /// 동기 적용한 뒤 I/O counter를 한 번 더 읽는다. Same-BSD replacement 또는 UI debounce가
+    /// 있었다면 baseline을 버리므로, 새 generation의 다음 valid delta 전에는 unknown이다.
+    func refreshedForcedSleepActivitySnapshot(mountedPhysicalDisks: Set<String>,
+                                               inventoryRevision: UInt64)
+        -> ForcedSleepActivitySnapshot {
+        let snapshot = { () -> ForcedSleepActivitySnapshot in
+            self.applyMountedPhysicalDisks(
+                mountedPhysicalDisks,
+                inventoryRevision: inventoryRevision
+            )
+            self.poll()
+            return ForcedSleepActivitySnapshot(
+                inventoryRevision: self.mountedInventoryRevision,
+                mountedPhysicalDisks: self.mountedPhysicalBSDs,
+                validDeltaSampledDisks: self.validDeltaSampledDisks,
+                writing: self.forcedSleepWritingSet,
+                reading: self.forcedSleepReadingSet
+            )
+        }
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return snapshot()
+        }
+        return queue.sync(execute: snapshot)
+    }
+
     /// 최신 mount inventory를 활동 표시에 반영한다. 내부 상태와 timer가 같은 serial queue를
     /// 사용하므로 poll과 겹쳐도, 추출된 디스크만 제거하고 다른 디스크의 grace는 보존한다.
-    func updateMountedPhysicalDisks(_ disks: Set<String>?) {
+    func updateMountedPhysicalDisks(_ disks: Set<String>?, inventoryRevision: UInt64?) {
         queue.async { [weak self] in
-            guard let self, self.mountedPhysicalBSDs != disks else { return }
-            self.mountedPhysicalBSDs = disks
-            guard let disks else {
-                log.debug("DiskIOMonitor: mounted physical mapping unresolved; preserving IORegistry activity")
-                return
-            }
-
-            self.lastIOByDisk = self.lastIOByDisk.filter { disks.contains($0.key) }
-            let reconciled = self.activityState.reconcilePresentDisks(disks)
-            self.setActive(writing: reconciled.writing, reading: reconciled.reading)
+            self?.applyMountedPhysicalDisks(disks, inventoryRevision: inventoryRevision)
         }
+    }
+
+    /// Must run on `queue`.
+    private func applyMountedPhysicalDisks(_ disks: Set<String>?,
+                                           inventoryRevision: UInt64?) {
+        guard DiskActivityInventoryGenerationPolicy.shouldReset(
+            previousDisks: mountedPhysicalBSDs,
+            newDisks: disks,
+            previousRevision: mountedInventoryRevision,
+            newRevision: inventoryRevision
+        ) else { return }
+        mountedPhysicalBSDs = disks
+        mountedInventoryRevision = inventoryRevision
+        // 동일 BSD가 재사용된 unplug/replug도 DA revision으로 구분한다. 새 generation에서
+        // baseline과 delta를 다시 얻기 전까지 forced sleep은 fail closed.
+        hasBaseline = false
+        lastIOByDisk.removeAll()
+        validDeltaSampledDisks.removeAll()
+        let forcedCleared = forcedSleepActivityState.reset()
+        forcedSleepWritingSet = forcedCleared.writing
+        forcedSleepReadingSet = forcedCleared.reading
+        guard let disks else {
+            log.debug("DiskIOMonitor: mounted physical mapping unresolved; preserving IORegistry activity")
+            return
+        }
+
+        let reconciled = activityState.reconcilePresentDisks(disks)
+        setActive(writing: reconciled.writing, reading: reconciled.reading)
     }
 
     /// 대상 매체가 마운트됐을 때 호출. idempotent.
@@ -9885,7 +10605,11 @@ final class DiskIOMonitor {
             self.timer = nil
             self.hasBaseline = false
             self.lastIOByDisk = [:]
+            self.validDeltaSampledDisks.removeAll()
             let cleared = self.activityState.reset()
+            let forcedCleared = self.forcedSleepActivityState.reset()
+            self.forcedSleepWritingSet = forcedCleared.writing
+            self.forcedSleepReadingSet = forcedCleared.reading
             self.setActive(writing: cleared.writing, reading: cleared.reading)
             if wasRunning {
                 log.notice("DiskIOMonitor: stopped")
@@ -9905,13 +10629,18 @@ final class DiskIOMonitor {
         guard hasEligibleMedia, mountedPhysicalBSDs?.isEmpty != true else {
             hasBaseline = false
             lastIOByDisk = [:]
+            validDeltaSampledDisks.removeAll()
             let cleared = activityState.reset()
+            let forcedCleared = forcedSleepActivityState.reset()
+            forcedSleepWritingSet = forcedCleared.writing
+            forcedSleepReadingSet = forcedCleared.reading
             setActive(writing: cleared.writing, reading: cleared.reading)
             return
         }
         // 첫 폴은 baseline 만 기록 (직전 누적값을 모르므로 델타 계산 불가).
         guard hasBaseline else {
             lastIOByDisk = io
+            validDeltaSampledDisks.removeAll()
             hasBaseline = true
             return
         }
@@ -9919,17 +10648,24 @@ final class DiskIOMonitor {
         var detectedReading = Set<String>()
         var observedWriting = Set<String>()
         var observedReading = Set<String>()
+        var validThisPoll = Set<String>()
         for (bsd, cur) in io {
-            // 새로 꽂힌 디스크는 last == cur 로 둬 첫 폴 오탐 방지 (다음 폴부터 델타 유효).
-            let last = lastIOByDisk[bsd] ?? cur
-            let wDelta = cur.write >= last.write ? cur.write - last.write : 0
-            let rDelta = cur.read  >= last.read  ? cur.read  - last.read  : 0
+            // 새 디스크와 counter reset은 delta를 0으로 단정하지 않고 이번 generation을
+            // unknown으로 남긴다. 다음 단조 증가 interval부터 다시 certainty를 얻는다.
+            guard let delta = DiskIOCounterDeltaPolicy.validatedDelta(
+                previous: lastIOByDisk[bsd],
+                current: cur
+            ) else { continue }
+            validThisPoll.insert(bsd)
+            let wDelta = delta.write
+            let rDelta = delta.read
             if wDelta > 0 { observedWriting.insert(bsd) }
             if rDelta > 0 { observedReading.insert(bsd) }
             if wDelta >= writeThreshold { detectedWriting.insert(bsd) }
             if rDelta >= readThreshold  { detectedReading.insert(bsd) }
         }
         lastIOByDisk = io
+        validDeltaSampledDisks = validThisPoll
         let activity = activityState.update(
             detectedWriting: detectedWriting,
             detectedReading: detectedReading,
@@ -9937,6 +10673,14 @@ final class DiskIOMonitor {
             observedReading: observedReading,
             presentDisks: Set(io.keys)
         )
+        let forcedActivity = forcedSleepActivityState.update(
+            observedWriting: observedWriting,
+            observedReading: observedReading,
+            presentDisks: Set(io.keys),
+            nowNanoseconds: DispatchTime.now().uptimeNanoseconds
+        )
+        forcedSleepWritingSet = forcedActivity.writing
+        forcedSleepReadingSet = forcedActivity.reading
         setActive(writing: activity.writing, reading: activity.reading)
     }
 
@@ -9980,10 +10724,12 @@ final class DiskIOMonitor {
                 hasEligibleMedia = true
                 if let stats = IORegistryEntryCreateCFProperty(svc, "Statistics" as CFString,
                                                                kCFAllocatorDefault, 0)?
-                    .takeRetainedValue() as? [String: Any] {
-                    let w = (stats["Bytes (Write)"] as? NSNumber)?.uint64Value ?? 0
-                    let r = (stats["Bytes (Read)"] as? NSNumber)?.uint64Value ?? 0
-                    io[media.bsd] = (read: r, write: w)
+                    .takeRetainedValue() as? [String: Any],
+                   let counters = DiskIOCounterAvailabilityPolicy.counters(
+                    read: (stats["Bytes (Read)"] as? NSNumber)?.uint64Value,
+                    write: (stats["Bytes (Write)"] as? NSNumber)?.uint64Value
+                   ) {
+                    io[media.bsd] = (read: counters.read, write: counters.write)
                 }
             }
             IOObjectRelease(svc)

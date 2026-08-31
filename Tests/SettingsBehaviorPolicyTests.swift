@@ -27,6 +27,7 @@ private enum SettingsBehaviorPolicyTests {
         testShortcutUserChoiceWins()
         testShortcutStartupNormalization()
         testLegacyMigrationIsOrderIndependent()
+        testForcedSleepEjectIsExplicitOptIn()
         testLibraryLedgerWaitsForEveryExactOwner()
         testLibraryLedgerConcurrentLastOwnerDrainsOnce()
         testCancelableRegistryBoundaries()
@@ -92,6 +93,23 @@ private enum SettingsBehaviorPolicyTests {
                "modern sleep value is preserved")
         expect(defaults.bool(forKey: SleepEjectSettingsMigration.lidKey) == true,
                "modern lid value is preserved")
+    }
+
+    private static func testForcedSleepEjectIsExplicitOptIn() {
+        let suite = "com.yongza.diskout.forced-sleep.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        expect(!ForcedSleepEject.isEnabled(in: defaults),
+               "forced-sleep eject must default off on a fresh or existing unstored profile")
+        expect(defaults.object(forKey: ForcedSleepEject.defaultsKey) == nil,
+               "reading the default must not silently opt the user in")
+        ForcedSleepEject.setEnabled(true, in: defaults)
+        expect(ForcedSleepEject.isEnabled(in: defaults),
+               "the experimental path activates only after explicit opt-in")
+        ForcedSleepEject.setEnabled(false, in: defaults)
+        expect(!ForcedSleepEject.isEnabled(in: defaults),
+               "the user can explicitly disable the experimental path again")
     }
 
     private static func testLibraryLedgerWaitsForEveryExactOwner() {

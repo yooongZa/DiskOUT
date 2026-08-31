@@ -191,7 +191,7 @@ DiskOUT 的自动 (睡眠) 推出会先尝试正常 unmount,通常不会触发�
 | **快捷键冲突自动修正** | 推出 / 挂载 / 推出并睡眠的快捷键保存为相同 preset 时检测冲突 + 自动移到其他 preset + alert |
 | **权限缺失菜单提示** | Accessibility(辅助功能) / 通知权限处于未授权状态时,菜单顶部显示 ⚠ 警告 row。点击跳转到系统设置的相应页面 |
 | **通知精细控制** | 可分别设置全部通知、成功通知和失败通知，默认全部开启。若 macOS 在“系统设置”中关闭了通知，应用会显示状态并可直接打开相应设置 |
-| **多语言 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 175 个 key。遍历完整的系统首选语言列表并选择第一个受支持语言，仅在全部不受支持时回退到英语。可在设置 → 通用 → Language 中选择跟随系统或明确指定语言 |
+| **多语言 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 177 个 key。遍历完整的系统首选语言列表并选择第一个受支持语言，仅在全部不受支持时回退到英语。可在设置 → 通用 → Language 中选择跟随系统或明确指定语言 |
 | **自动更新 (Sparkle 2)** | 24 小时周期后台检查。发现新版本时不弹出对话框,只在**菜单栏图标上显示小 systemRed `●` + 菜单内"更新到 X.Y.Z…"项 (带同色红点前缀)**(gentle reminder)。用户点击后,DiskOUT 会先关闭状态菜单并启动 Sparkle 检查,然后在检查中、更新提示以及无更新/错误模态窗口阶段,以有限次数重新请求前台显示。EdDSA(Ed25519) + Apple 代码签名双重验证。appcast 托管在 GitHub Pages,DMG 托管在 GitHub Releases — 免费运营 |
 | **按盘自动推出排除** | 菜单底部*"自动推出排除的磁盘"* submenu 中按盘切换。基于 Volume UUID (即使线缆插槽改变也保持)。仅影响自动路径,显式推出不受影响。 |
 | **Time Machine 自动保护** | 自动识别 TM 备份盘 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 检查) → 首次出现时从自动推出中排除 + 1 次通知。菜单中显示时钟图标 + Time Machine 徽章 (macOS 14+,13 为括号标记) |
@@ -223,7 +223,7 @@ DiskOUT 的自动 (睡眠) 推出会先尝试正常 unmount,通常不会触发�
 diskOUT/
 ├── AppDelegate.swift            # 主逻辑 (diskutil 执行、菜单缓存、sleep/wake 处理)
 ├── LanguageRuntime.swift        # 语言协商、存储值验证和安全重启策略
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻译 (Xcode String Catalog,175 个 key)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻译 (Xcode String Catalog,177 个 key)
 ├── main.swift                   # 显式 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 自动生成)
 ├── DiskOUT.entitlements         # 空 plist。防止 project.yml 中 entitlements 明确指定的陷阱
