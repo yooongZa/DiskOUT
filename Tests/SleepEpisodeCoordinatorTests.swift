@@ -19,12 +19,17 @@ private func disk(_ bsd: String,
 private enum SleepEpisodeCoordinatorTests {
     static func main() {
         testWorkspaceWakeCannotConsumeIOKitOwnedBoundary()
+        testWakeMountWaitAndMenuPolicies()
         testSleepEjectTriggerPolicyForEveryCase()
         testSystemSleepTriggerClassification()
         testLidAttributionRequiresARecentPhysicalClose()
         testRepeatedCloseAndRealRecloseEpisodes()
         testAutomaticLibraryAppRelaunchOwnership()
         testAmphetamineLidOpenWithoutWakeSchedulesRemount()
+        testSystemSleepDarkWakeWaitsForFullWake()
+        testDisplayOnlyScreenWakeStillSchedulesRemount()
+        testDisplayAndSystemSleepOverlapWaitsForFullWake()
+        testLidOpenInsideSystemSleepWaitsForFullWake()
         testWakeWhileClosedDoesNotRemount()
         testOpenBeforeCleanCallbackSchedulesWhenTargetArrives()
         testDuplicateWakeSchedulesOnce()
@@ -38,6 +43,7 @@ private enum SleepEpisodeCoordinatorTests {
         testUnknownStaleCompletionCannotInjectTargets()
         testNewEjectInvalidatesStaleWakeRequest()
         testNewEjectDoesNotRescheduleCanceledRemountBeforeWake()
+        testNewSystemSleepInvalidatesActiveRemountWithoutLosingTarget()
         testMatchingLidSleepGetsOnlyOneFailedEpisodeRetry()
         testNewCloseGenerationJoinedToActiveWorkRequiresFreshInventory()
         testRepeatedLidJoinPreservesEpisodeForceLedger()
@@ -53,6 +59,47 @@ private enum SleepEpisodeCoordinatorTests {
         expect(SystemWakeBoundarySourcePolicy.workspaceOwnsBoundary(
             powerObserverIsActive: false
         ), "NSWorkspace must retain wake ownership when IOKit registration is unavailable")
+    }
+
+    private static func testWakeMountWaitAndMenuPolicies() {
+        expect(WakeMountWaitPolicy.action(for: .callbackSuccess) == .success,
+               "an explicit clean mount callback must complete the remount")
+        expect(WakeMountWaitPolicy.action(for: .callbackFailure) == .retryFailure,
+               "an explicit mount failure may enter the existing bounded retry flow")
+        expect(WakeMountWaitPolicy.action(for: .unavailable) == .retryFailure,
+               "an unavailable request may retry only after the next identity check")
+        expect(WakeMountWaitPolicy.action(for: .identityChangedBeforeCallback) == .userDisconnected,
+               "a changed physical identity must be handled as user disconnect")
+        expect(WakeMountWaitPolicy.action(for: .timedOutPending) == .awaitTerminalSilently,
+               "a live DA request whose waiter timed out must not become a failure alert")
+        expect(WakeMenuPresentationPolicy.shouldExposeUnmountedDisk(
+            systemSleepAwaitingWake: false,
+            physicalMediaPresent: true
+        ), "ordinary awake menus must keep the mountable-disk recovery section")
+        expect(!WakeMenuPresentationPolicy.shouldExposeUnmountedDisk(
+            systemSleepAwaitingWake: true,
+            physicalMediaPresent: true
+        ), "DarkWake menus must not expose a stale pre-sleep IOMedia object")
+        expect(!WakeMenuPresentationPolicy.shouldExposeUnmountedDisk(
+            systemSleepAwaitingWake: false,
+            physicalMediaPresent: false
+        ), "a DA row whose physical IOMedia disappeared must not remain mountable")
+        expect(WakeMenuPresentationPolicy.physicalMediaMatches(
+            expectedRegistryEntryID: 41,
+            actualRegistryEntryID: 41
+        ), "the exact cached IOMedia identity must remain mountable")
+        expect(!WakeMenuPresentationPolicy.physicalMediaMatches(
+            expectedRegistryEntryID: 41,
+            actualRegistryEntryID: 42
+        ), "a replacement media that reused diskN must not inherit the stale row")
+        expect(WakeMenuPresentationPolicy.physicalMediaMatches(
+            expectedRegistryEntryID: nil,
+            actualRegistryEntryID: 42
+        ), "a cold-start diskutil row may use a live IOMedia without a captured identity")
+        expect(!WakeMenuPresentationPolicy.physicalMediaMatches(
+            expectedRegistryEntryID: nil,
+            actualRegistryEntryID: nil
+        ), "an absent live IOMedia must never be shown as mountable")
     }
 
     private static func testSleepEjectTriggerPolicyForEveryCase() {
@@ -218,6 +265,72 @@ private enum SleepEpisodeCoordinatorTests {
         expect(work?.disks == [disk("disk7")], "lid-open work must contain the clean target")
     }
 
+    private static func testSystemSleepDarkWakeWaitsForFullWake() {
+        var state = SleepEpisodeCoordinator()
+        state.systemSleepDidStart()
+        expect(state.systemSleepAwaitingWake,
+               "system will-sleep must close the remount boundary")
+        expect(state.recordCleanUnmountTargets([disk("disk-system")],
+                                               operationID: "system",
+                                               reason: "powerSleep") == nil,
+               "a clean system-sleep target must remain pending before full wake")
+        expect(state.wakeDidOccur(source: .screen) == nil,
+               "DarkWake screen notification must not consume a system-sleep target")
+        expect(state.pendingTargets == [disk("disk-system")],
+               "the suppressed screen wake must preserve the exact target")
+
+        let schedule = state.wakeDidOccur(source: .system)
+        expect(schedule != nil,
+               "the ordered full-system wake must schedule the preserved target")
+        expect(!state.systemSleepAwaitingWake,
+               "full wake must reopen the system remount boundary")
+        expect(state.wakeDidOccur(source: .system) == nil,
+               "a duplicate full-wake notification must not create another schedule")
+        expect(schedule.flatMap { state.claimRemount($0.token) }?.disks == [disk("disk-system")],
+               "full wake must claim exactly the pre-sleep physical target")
+    }
+
+    private static func testDisplayOnlyScreenWakeStillSchedulesRemount() {
+        var state = SleepEpisodeCoordinator()
+        state.displayEjectDidStart()
+        _ = state.recordCleanUnmountTargets([disk("disk-display")],
+                                            operationID: "display",
+                                            reason: "displaySleep")
+        state.displayDidWake()
+        let schedule = state.wakeDidOccur(source: .screen)
+        expect(schedule != nil,
+               "a display-only sleep must continue to remount on screen wake")
+        expect(schedule.flatMap { state.claimRemount($0.token) }?.disks == [disk("disk-display")],
+               "screen wake must claim the display-only target")
+    }
+
+    private static func testDisplayAndSystemSleepOverlapWaitsForFullWake() {
+        var state = SleepEpisodeCoordinator()
+        state.displayEjectDidStart()
+        state.systemSleepDidStart()
+        _ = state.recordCleanUnmountTargets([disk("disk-overlap")],
+                                            operationID: "overlap",
+                                            reason: "powerSleep")
+        state.displayDidWake()
+        expect(state.wakeDidOccur(source: .screen) == nil,
+               "display wake inside a system-sleep episode must remain DarkWake")
+        expect(state.wakeDidOccur(source: .system) != nil,
+               "the overlapping episode must become eligible at full-system wake")
+    }
+
+    private static func testLidOpenInsideSystemSleepWaitsForFullWake() {
+        var state = SleepEpisodeCoordinator()
+        _ = state.lidDidClose()
+        state.systemSleepDidStart()
+        _ = state.recordCleanUnmountTargets([disk("disk-lid-system")],
+                                            operationID: "lid-system",
+                                            reason: "clamshell")
+        expect(state.lidDidOpen() == nil,
+               "lid open before the ordered powered-on edge must not mount during DarkWake")
+        expect(state.wakeDidOccur(source: .system) != nil,
+               "full wake after lid open must schedule the retained target")
+    }
+
     private static func testWakeWhileClosedDoesNotRemount() {
         var state = SleepEpisodeCoordinator()
         _ = state.lidDidClose()
@@ -237,8 +350,8 @@ private enum SleepEpisodeCoordinatorTests {
     private static func testDuplicateWakeSchedulesOnce() {
         var state = SleepEpisodeCoordinator()
         _ = state.recordCleanUnmountTargets([disk("disk4")], operationID: "display", reason: "displaySleep")
-        let first = state.wakeDidOccur()
-        let second = state.wakeDidOccur()
+        let first = state.wakeDidOccur(source: .screen)
+        let second = state.wakeDidOccur(source: .system)
         expect(first != nil && second == nil, "didWake and screensDidWake must share one scheduled token")
     }
 
@@ -393,6 +506,35 @@ private enum SleepEpisodeCoordinatorTests {
                "a new eject must keep canceled targets pending until its next wake")
         expect(state.pendingTargets == [disk("disk6")], "canceled target must remain preserved")
         expect(state.wakeDidOccur() != nil, "the next real wake must schedule the preserved target")
+    }
+
+    private static func testNewSystemSleepInvalidatesActiveRemountWithoutLosingTarget() {
+        var state = SleepEpisodeCoordinator()
+        let target = disk("disk-resleep")
+        _ = state.recordCleanUnmountTargets([target], operationID: "old", reason: "displaySleep")
+        let schedule = state.wakeDidOccur(source: .screen)!
+        let work = state.claimRemount(schedule.token)!
+
+        state.systemSleepDidStart()
+        expect(!state.isRemountAllowed(work.token),
+               "a new system sleep must cancel an active wake worker")
+        expect(state.hasAutomaticLibraryAppRelaunchOwner,
+               "an invalidated worker must retain library ownership until it requeues its target")
+        expect(state.finishRemount(work.token, canceledDisks: [target]) == nil,
+               "the canceled worker must requeue its target behind the new sleep boundary")
+        expect(state.scheduleAfterObservedWake() == nil,
+               "an old deferred callback must not clear the newer system-sleep gate")
+        expect(state.wakeDidOccur(source: .screen) == nil,
+               "DarkWake of the newer sleep must remain suppressed")
+        let nextSchedule = state.wakeDidOccur(source: .system)
+        expect(nextSchedule != nil,
+               "the newer full wake must schedule the requeued target")
+        let nextWork = nextSchedule.flatMap { state.claimRemount($0.token) }
+        expect(nextWork?.disks == [target],
+               "the newer wake must claim the exact target returned by the canceled worker")
+        _ = nextWork.flatMap { state.finishRemount($0.token, canceledDisks: []) }
+        expect(!state.hasAutomaticLibraryAppRelaunchOwner,
+               "library ownership may end only after the replacement remount finishes")
     }
 
     private static func testMatchingLidSleepGetsOnlyOneFailedEpisodeRetry() {

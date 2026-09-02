@@ -8,6 +8,64 @@ enum SystemWakeBoundarySourcePolicy {
     }
 }
 
+enum RemountWakeBoundarySource: Equatable, Sendable {
+    case system
+    case screen
+}
+
+enum WakeMountWaitEvent: Equatable, Sendable {
+    case callbackSuccess
+    case callbackFailure
+    case identityChangedBeforeCallback
+    case timedOutPending
+    case unavailable
+}
+
+enum WakeMountWaitAction: Equatable, Sendable {
+    case success
+    case retryFailure
+    case userDisconnected
+    case awaitTerminalSilently
+}
+
+enum WakeMountWaitPolicy {
+    /// A waiter timeout is not a Disk Arbitration terminal. The public request remains tracked by
+    /// DAInventory, so reporting a mount failure or submitting an overlapping retry would both lie
+    /// about the current OS state.
+    static func action(for event: WakeMountWaitEvent) -> WakeMountWaitAction {
+        switch event {
+        case .callbackSuccess:
+            return .success
+        case .callbackFailure, .unavailable:
+            return .retryFailure
+        case .identityChangedBeforeCallback:
+            return .userDisconnected
+        case .timedOutPending:
+            return .awaitTerminalSilently
+        }
+    }
+}
+
+enum WakeMenuPresentationPolicy {
+    /// During DarkWake the OS can still expose a removed disk's pre-sleep IOMedia object. Do not
+    /// offer that stale unmounted object as a user mount action until the ordered full-wake edge.
+    /// Even after full wake, DA's disappeared callback can trail IORegistry briefly, so require
+    /// current physical presence for each row as well.
+    static func shouldExposeUnmountedDisk(systemSleepAwaitingWake: Bool,
+                                          physicalMediaPresent: Bool) -> Bool {
+        !systemSleepAwaitingWake && physicalMediaPresent
+    }
+
+    /// DA-backed rows carry an exact IOMedia ID so a replacement that reused diskN cannot inherit
+    /// an old name/action. Cold-start diskutil rows have no captured ID and require live presence.
+    static func physicalMediaMatches(expectedRegistryEntryID: UInt64?,
+                                     actualRegistryEntryID: UInt64?) -> Bool {
+        guard let actualRegistryEntryID else { return false }
+        guard let expectedRegistryEntryID else { return true }
+        return actualRegistryEntryID == expectedRegistryEntryID
+    }
+}
+
 /// Typed provenance for an automatic or explicit sleep-eject request.
 ///
 /// Force fallback is authorized only by a trigger whose intent is known. Unknown system sleep
@@ -231,6 +289,10 @@ struct SleepEpisodeCoordinator: Sendable {
     /// its matching open/wake edge. A failed manual Eject and Sleep must not drain that ledger.
     private(set) var lidEjectEpisodeActive = false
     private(set) var displayEjectEpisodeActive = false
+    /// Set at the ordered system-will-sleep edge and cleared only by the matching full wake.
+    /// WillNotSleep belongs to a prior CanSystemSleep attempt and must not clear this state. Screen
+    /// wake during this interval is DarkWake UI, not permission to consume remount targets.
+    private(set) var systemSleepAwaitingWake = false
 
     private var remountRequested = false
     private var nextRemountNonce: UInt64 = 0
@@ -273,6 +335,16 @@ struct SleepEpisodeCoordinator: Sendable {
         return makeScheduleIfNeeded()
     }
 
+    mutating func systemSleepDidStart() {
+        systemSleepAwaitingWake = true
+        remountRequested = false
+        scheduledRemount = nil
+        if let activeRemount {
+            invalidatedActiveRemounts.insert(activeRemount)
+        }
+        activeRemount = nil
+    }
+
     mutating func lidEjectDidStart() {
         guard isLidClosed else { return }
         lidEjectEpisodeActive = true
@@ -294,6 +366,7 @@ struct SleepEpisodeCoordinator: Sendable {
             || !pendingTargets.isEmpty
             || scheduledRemount != nil
             || activeRemount != nil
+            || !invalidatedActiveRemounts.isEmpty
     }
 
     /// 새 automatic eject가 시작되면 이전 wake 요청/timer를 무효화한다. 이미 clean-unmounted인
@@ -338,18 +411,32 @@ struct SleepEpisodeCoordinator: Sendable {
         nextWakeOperationReason = reason
     }
 
-    /// system/display wake. lid가 닫혀 있으면 Amphetamine dark-wake 등으로 보고 보류한다.
-    mutating func wakeDidOccur() -> RemountSchedule? {
+    /// Ordered full-system wake or screen-only wake. A screen notification inside an active system
+    /// sleep boundary is DarkWake and must not consume the pending target ledger.
+    mutating func wakeDidOccur(source: RemountWakeBoundarySource = .system) -> RemountSchedule? {
+        switch source {
+        case .system:
+            systemSleepAwaitingWake = false
+        case .screen:
+            guard !systemSleepAwaitingWake else { return nil }
+        }
         guard !isLidClosed else { return nil }
         activateNextWakeTargets()
         remountRequested = true
         return makeScheduleIfNeeded()
     }
 
+    /// Deferred callbacks after an already-observed wake may ask for work without consuming a new
+    /// wake boundary. This prevents an old worker from clearing a newer system-sleep gate.
+    mutating func scheduleAfterObservedWake() -> RemountSchedule? {
+        makeScheduleIfNeeded()
+    }
+
     mutating func claimRemount(_ token: RemountToken) -> RemountWork? {
         guard scheduledRemount == token,
               activeRemount == nil,
               !isLidClosed,
+              !systemSleepAwaitingWake,
               remountRequested,
               !pendingTargets.isEmpty else { return nil }
 
@@ -366,7 +453,7 @@ struct SleepEpisodeCoordinator: Sendable {
     }
 
     func isRemountAllowed(_ token: RemountToken) -> Bool {
-        activeRemount == token && !isLidClosed
+        activeRemount == token && !isLidClosed && !systemSleepAwaitingWake
     }
 
     /// lid가 다시 닫혀 중단한 disk만 requeue한다. 성공/사용자 분리/mount 실패는 기존처럼 종료한다.
@@ -401,6 +488,7 @@ struct SleepEpisodeCoordinator: Sendable {
     private mutating func makeScheduleIfNeeded() -> RemountSchedule? {
         guard remountRequested,
               !isLidClosed,
+              !systemSleepAwaitingWake,
               !pendingTargets.isEmpty,
               scheduledRemount == nil,
               activeRemount == nil else { return nil }
