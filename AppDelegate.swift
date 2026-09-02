@@ -1654,11 +1654,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
-    /// 메뉴바 아이콘을 영구 변경 (메뉴 열 때 또는 다음 추출 시작 시까지 유지).
+    /// 메뉴바 아이콘을 결과 심볼로 변경.
     /// 추출 결과 표시용 — sleep 중 추출 후 wake 했을 때 사용자가 결과 확인 가능.
     /// lastResultSymbol 에도 저장 — wake 시 macOS 가 view redraw 하면서 reset 되는 것 복원용.
-    /// 5분간 메뉴를 열지 않으면 자동으로 default 아이콘으로 복귀 — 결과 아이콘이 며칠씩
-    /// 메뉴바에 남아 거슬리는 것 방지.
+    /// 성공은 2초 뒤 현재 드라이브 개수로 복귀하고, 실패 계열은 기존처럼 최대 5분 또는
+    /// 메뉴를 열 때까지 유지한다.
     private func setPersistentIcon(symbol: String) {
         lastResultSymbol = symbol
         log.info("setPersistentIcon: \(symbol, privacy: .public)")
@@ -1679,7 +1679,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             )
             self.iconFlashGeneration += 1   // 진행중인 flashIcon reset 무효화
             let myGen = self.iconFlashGeneration
-            DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+            let resetDelay = StatusIconFeedbackPolicy.resetDelay(for: symbol)
+            DispatchQueue.main.asyncAfter(deadline: .now() + resetDelay) { [weak self] in
                 guard let self = self, self.iconFlashGeneration == myGen else { return }
                 self.resetIcon()
             }

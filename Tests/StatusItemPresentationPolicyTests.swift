@@ -10,6 +10,13 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
 @main
 private enum StatusItemPresentationPolicyTests {
     static func main() {
+        expect(StatusIconFeedbackPolicy.resetDelay(for: "checkmark.circle.fill") == 2,
+               "successful eject feedback must return to the live drive count after two seconds")
+        expect(StatusIconFeedbackPolicy.resetDelay(for: "xmark.circle.fill") == 300,
+               "failure feedback must preserve its existing five-minute visibility")
+        expect(StatusIconFeedbackPolicy.resetDelay(for: "exclamationmark.circle.fill") == 300,
+               "partial failure feedback must preserve its existing five-minute visibility")
+
         expect(PremiumRuntimeMode.hasPresentationAccess(verifiedBillingAccess: true),
                "a verified signed lease opens the Premium presentation in every build")
 #if DISKOUT_PREMIUM_PREVIEW

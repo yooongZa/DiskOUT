@@ -39,6 +39,15 @@ struct StatusItemPresentation: Equatable {
     let countTitle: String
 }
 
+enum StatusIconFeedbackPolicy {
+    static let successResetDelay: TimeInterval = 2
+    static let otherResultResetDelay: TimeInterval = 300
+
+    static func resetDelay(for symbol: String) -> TimeInterval {
+        symbol == "checkmark.circle.fill" ? successResetDelay : otherResultResetDelay
+    }
+}
+
 enum StatusItemPresentationPolicy {
     static let characterCountRange = 0...12
 
