@@ -468,7 +468,9 @@ struct EjectAndSleepPolicy: Sendable {
         case (.normalPending, .forceStarted):
             return .forcePending
         case (.normalPending, .clean(.normal)),
-             (.timedOutPending(.normal), .clean(.normal)):
+             (.timedOutPending(.normal), .clean(.normal)),
+             (.forcePending, .clean(.normal)),
+             (.timedOutPending(.force), .clean(.normal)):
             return .cleanNormal
         case (.forcePending, .clean(.force)),
              (.timedOutPending(.force), .clean(.force)):
@@ -482,8 +484,8 @@ struct EjectAndSleepPolicy: Sendable {
              (.timedOutPending, .disconnected):
             return .disconnectedWithoutCleanProof
         default:
-            // Clean, failure, and disconnect evidence are terminal. Mismatched normal/force
-            // callbacks are ignored rather than upgrading an unproven request to clean.
+            // Clean, failure, and disconnect evidence are terminal. Once Force starts, either
+            // overlapping request may supply the first explicit clean callback.
             return current
         }
     }

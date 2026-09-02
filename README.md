@@ -31,7 +31,7 @@
 
 - 덮개 닫기 자동 추출을 켜두면, MacBook을 닫을 때 대상 디스크의 정상 추출을 시도합니다.
 - 설정한 유휴 잠자기 전에도 자동으로 추출합니다.
-- 잠자기 자동 추출에 성공한 디스크는 Mac이 깨어날 때 다시 마운트합니다.
+- DiskOUT이 clean 추출한 디스크는 다음 wake에도 연결되어 있으면 다시 마운트합니다.
 - 메뉴와 단축키로 개별 추출, 모두 추출, `추출하고 잠자기`를 바로 실행할 수 있습니다.
 
 > 추출 완료를 확인한 뒤 케이블을 분리하세요. 완료 전이나 추출 실패 후 분리하면 macOS 경고가 나타날 수 있습니다.
@@ -97,7 +97,7 @@ mount / eject 같은 디스크 조작은 sandbox(샌드박스) 환경에서 제�
 <details>
 <summary><b>안전한가요? 데이터 손실 위험은?</b></summary>
 
-수동 추출은 `diskutil eject` 표준 경로를 사용합니다 (Finder 의 "추출"과 동일). DiskOUT이 관리하는 자동 추출은 항상 정상 unmount 를 먼저 시도합니다. “추출하고 잠자기”와 뚜껑 닫기는 명확한 busy(사용 중) 거절이고 설정이 허용할 때만 force unmount 를 1회 시도하며, idle sleep(유휴 잠자기)과 display sleep(화면 잠자기)은 force 하지 않습니다. active/unknown으로 판정한 system sleep(시스템 잠자기)은 즉시 통과시킵니다.
+DiskOUT이 관리하는 모든 추출은 Disk Arbitration(디스크 중재)의 `kDADiskUnmountOptionWhole`로 물리 디스크 전체 normal unmount(정상 마운트 해제)를 먼저 시도합니다. 강제 마운트 해제 설정이 켜진 수동 추출·“추출하고 잠자기”·뚜껑 닫기는 busy(사용 중) 응답 또는 2초 동안 clean callback(정상 완료 응답)이 없을 때 `Whole|Force`를 1회 시도합니다. idle sleep(유휴 잠자기), display sleep(화면 잠자기), forced sleep(강제 잠자기)은 Force를 사용하지 않습니다. clean 추출된 동일 물리 디스크가 다음 wake(깨우기)에도 연결되어 있으면 재마운트를 시도합니다.
 
 단, force 단계까지 가도 추출되지 않는 디스크는 그대로 두고 알림만 띄웁니다 — 데이터 위험을 감수하면서 강제 추출하지 않습니다.
 
@@ -136,7 +136,7 @@ mount / eject 같은 디스크 조작은 sandbox(샌드박스) 환경에서 제�
 
 DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도하기 때문에 보통은 알림이 뜨지 않습니다. 그래도 뜬다면 보통 다음 경우입니다.
 
-- **사용 중인 앱이 있어 normal unmount 실패**: **강제 마운트 해제 허용**이 ON이고, 수동 추출·“추출하고 잠자기”·뚜껑 닫기 경로에서 busy 응답이 확인됐을 때만 force를 1회 시도합니다. idle/display sleep은 force하지 않고, active/unknown으로 판정한 system sleep에는 관여하지 않습니다.
+- **사용 중이거나 normal 응답이 늦음**: **강제 마운트 해제 허용**이 ON인 수동 추출·“추출하고 잠자기”·뚜껑 닫기에서 busy 응답 또는 2초 동안 clean callback이 없으면 `Whole|Force`를 1회 시도합니다. idle/display/forced sleep은 Force를 사용하지 않습니다.
 - **macOS 가 먼저 추출을 시작한 케이스**: 잠자기 직전 다른 시스템 컴포넌트가 먼저 시도.
 
 해결: 외장에 액세스하던 앱을 종료한 뒤 잠자기, 또는 환경설정에서 **강제 마운트 해제 허용**을 끄세요.
@@ -148,10 +148,10 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 ## 알려진 제한
 
 - **클램쉘 모드 (외장 모니터 + 전원 + 뚜껑 닫음)**: macOS가 잠들지 않더라도 raw lid-close(뚜껑 닫힘) 신호에서 자동 추출은 시작됩니다. 계속 작업할 예정이면 뚜껑 닫기 자동 추출을 꺼야 합니다.
-- **잠자기 원인 판별**: macOS public IOKit 알림은 Apple 메뉴·전원키·앱/명령 같은 정확한 요청자를 알려주지 않습니다. DiskOUT은 직전 idle 신호 또는 최근 15초 안의 뚜껑 닫힘 신호가 없는 요청을 active/unknown으로 판정해 통과시킵니다. 그 신호와 겹치는 드문 직접 잠자기는 idle/lid 경로로 분류될 수 있습니다.
-- **사용 중 드라이브**: 뚜껑 닫기·“추출하고 잠자기”는 busy 응답 뒤 force unmount(강제 마운트 해제) 를 1회 시도할 수 있어, 진행 중인 작업이 끊길 위험이 있습니다. idle/display sleep은 normal unmount만 시도하고, active/unknown으로 판정된 system sleep에는 관여하지 않습니다.
+- **잠자기 원인 판별**: macOS public IOKit 알림은 Apple 메뉴·전원키·앱/명령 같은 정확한 요청자를 알려주지 않습니다. 원인을 active/unknown으로 판정해도 Whole normal은 실행하며, 원인 판별은 Force 허용 여부에만 사용합니다.
+- **사용 중 드라이브**: 수동 추출·뚜껑 닫기·“추출하고 잠자기”는 busy 응답 또는 2초 무응답 뒤 force unmount(강제 마운트 해제)를 1회 시도할 수 있어 진행 중인 작업이 끊길 위험이 있습니다. idle/display/forced sleep은 normal Whole만 사용합니다.
 - **잠자기 직후 케이블 분리**: 자동 추출의 clean callback(정상 완료 응답)이 오기 전에 케이블을 뽑거나 추출이 실패한 디스크를 뽑으면 macOS 비정상 추출 경고가 나타날 수 있습니다. 성공 알림을 확인한 뒤 분리해야 합니다.
-- **재마운트 신뢰도**: 자동 추출에 성공한 디스크만 wake 후 재마운트합니다. 물리적으로 이미 빠진 디스크는 앱이 다시 마운트할 수 없습니다.
+- **재마운트 신뢰도**: DiskOUT이 clean 추출한 정확한 동일 디스크만 다음 wake 후 재마운트합니다. 물리적으로 이미 빠진 디스크는 앱이 다시 마운트할 수 없습니다.
 
 자세한 기술적 제한 사항은 [릴리스 노트](https://github.com/yooongZa/DiskOUT/releases) 참고.
 
@@ -169,21 +169,21 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | **읽기/쓰기 활동 표시** | 외장에 읽기·쓰기 I/O 가 진행 중이면 메뉴바 숫자 옆 작은 systemBlue `●` + "읽는 중 / 쓰는 중 — 분리하지 마세요" tooltip (업데이트 알림의 빨간 `●` 와 색으로 구분). 메뉴에서는 **그 디스크 항목 옆에만** 파란 `●` — 어떤 디스크가 바쁜지 바로 식별하고, tooltip 으로 읽기·쓰기·둘 다를 구분. 물리 디스크 I/O 카운터(IORegistry)를 1.5s 폴링, 볼륨→물리 매핑은 parent-walk 로 RAID·APFS 합성·직결 모두 처리. 읽기는 background 인덱싱 오탐 방지로 임계가 높음. 추출 뒤 최신 마운트 목록과 물리 매핑이 확인되면 해당 디스크의 파란 점을 제거하고, 아직 마운트된 다른 디스크의 활동 상태는 유지. 외장 있을 때만 가동 (배터리) |
 | **디스크 용량 / 사용률** | 각 디스크 메뉴 항목 2번째 줄에 *남은 용량 · 사용률* 표시 — 예 `2.9 TB free · 40% used`. 메뉴 열 때 `URLResourceValues` 로 조회 (프로세스 호출 없음) |
 | Finder 열기 / 개별 추출 | 드라이브 이름 클릭 = Finder 열기, <kbd>⌘</kbd>+클릭 = 개별 추출. 목록 맨 위에 기본 메뉴 크기의 흐린 `클릭: Finder에서 열기` / `⌘클릭: 드라이브 추출` 안내를 두 줄로 한 번 표시하고, 드라이브 행에는 이름·상태·용량만 표시 |
-| **쓰는 중 추출 확인** | 쓰는 중인 디스크를 수동 추출하거나 **“추출하고 잠자기”**를 실행하면 확인 대화상자(취소가 기본). 뚜껑 닫기 경로는 확인 없이 busy force가 가능하고, idle/display sleep은 force하지 않음 |
+| **쓰는 중 추출 확인** | 쓰는 중인 디스크를 수동 추출하거나 **“추출하고 잠자기”**를 실행하면 확인 대화상자(취소가 기본). 설정이 켜진 뚜껑 닫기는 확인 없이 busy 또는 2초 무응답 뒤 Force가 가능하고, idle/display/forced sleep은 Force하지 않음 |
 | **점유 앱 끄고 재시도** | 추출 실패 시 디스크를 잡고 있는 앱 중 *끌 수 있는 일반 앱*이 있으면 알림에 "앱 종료 후 재시도" 버튼. 누르면 graceful 종료(`forceTerminate` 안 씀) → 1회 재추출. Finder · 시스템 데몬 · 자기 자신 제외 |
 | 모두 추출 | 메뉴 항목 또는 단축키 |
-| **추출하고 잠자기** | 메뉴 항목. 물리 디스크별 whole-disk DA normal을 병렬 실행하고, busy이며 **강제 마운트 해제 허용** 설정이 켜진 경우에만 DA force를 1회 시도. 10초 안에 모두 clean 성공해야 `pmset sleepnow`를 실행. 실패·pending·`pmset` 실패 시 잠자기를 취소하고 성공분과 늦은 성공분은 추출 상태로 유지하며, 사용자가 원인을 해결한 뒤 다시 실행 |
+| **추출하고 잠자기** | 메뉴 항목. 물리 디스크별 DA Whole normal을 병렬 실행하고, **강제 마운트 해제 허용**이 켜져 있으며 busy 또는 2초 동안 clean callback이 없으면 `Whole|Force`를 1회 시도. 10초 안에 모두 clean 성공해야 `pmset sleepnow`를 실행. clean 추출 대상은 실제 wake에서 동일 물리 미디어일 때 재마운트 |
 | 전역 단축키 (추출) | 기본 <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (한/영 IME 무관, 물리 키 코드 비교). 환경설정에서 E 기반 preset(프리셋) 변경 가능 |
 | 전역 단축키 (마운트) | 기본 <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> — 마운트 안 된 외장 일괄 마운트. 환경설정에서 변경 가능 |
 | 우클릭 = 모두 추출 | 메뉴바 아이콘 우클릭 또는 ctrl+좌클릭. 환경설정 → Eject Behavior 에서 끄면 우클릭이 메뉴를 띄움 (실수 추출 방지 opt-out) |
 | **마운트 안 된 외장 마운트** | 메뉴에 "마운트 안 된 외장" 섹션 자동 노출 (후보 있을 때만). 클릭 = 마운트, <kbd>⌘</kbd>+클릭 = 마운트 + Finder 열기 |
 | **마운트/미마운트 상태 정합성** | `diskutil list -plist external` 한 snapshot(스냅샷)에서 mounted(마운트됨) / unmounted(마운트 안 됨)를 함께 계산해, 실제 마운트가 없는데 mounted 섹션에 남는 stale state(오래된 상태)를 줄임 |
 | **디스크 종류 아이콘** | `diskutil info -plist` 의 SD card 신호가 확인되면 `sdcard` 아이콘, 그 외 외장은 `externaldrive` 계열 아이콘 사용 |
-| **유휴 잠자기 시** 자동 추출 | 환경설정 → 추출 동작에서 설정. macOS가 idle sleep으로 보고한 경우에만 IOKit power notification(전원 알림)으로 잠자기를 잠깐 지연하고 whole-disk DA normal unmount를 시도. DiskOUT이 active/unknown으로 판정한 요청은 즉시 통과 |
+| **시스템 잠자기 시** 자동 추출 | 환경설정 → 추출 동작에서 설정. idle sleep·Apple 메뉴/전원키·active/unknown 판정 모두 whole-disk DA normal unmount를 시도. 원인 판별은 Force 정책만 결정 |
 | **화면 꺼질 때도 자동 추출** (옵션) | 환경설정 → 추출 동작에서 설정, default OFF. `pmset sleep=0` (자동 sleep 끈) 환경의 도킹 분리 사고 방지. whole-disk DA normal unmount만 시도하고 화면이 켜지면 성공한 디스크를 재마운트 |
-| **wake / 화면 켜질 때 자동 재마운트** | 자동 추출에 성공한 디스크만 재마운트. enumerate(열거) 안 되면 사용자가 분리한 것으로 보고 silent |
+| **wake / 화면 켜질 때 재마운트** | DiskOUT이 clean 추출한 정확한 동일 물리 디스크만 재마운트. enumerate(열거) 안 되면 사용자가 분리한 것으로 보고 silent |
 | **DMG / sparseimage 제외** | 마운트된 이미지는 `hdiutil info -plist` 1초 timeout + `diskutil info` fallback, unmounted 후보는 `BusProtocol == "Disk Image"` 로 제외 |
-| 추출 경로 | 수동 추출은 `diskutil eject <volumePath>` → 설정에 따라 `diskutil unmount force <volumePath>` fallback. lid/idle/display/“추출하고 잠자기”는 whole-disk DA normal unmount가 기본이며, trigger 정책과 **강제 마운트 해제 허용** 설정이 모두 허용하고 normal callback이 busy로 거절된 경우에만 DA force unmount를 정확히 1회 시도. timeout·물리 분리·unknown error 뒤에는 force를 겹치지 않음 |
+| 추출 경로 | 수동·lid·idle·display·forced sleep·“추출하고 잠자기” 등 DiskOUT이 실행하는 모든 추출은 DA `Whole` normal로 시작. 정책과 **강제 마운트 해제 허용**이 모두 허용한 경로는 busy 또는 2초 clean 무응답 시 `Whole|Force`를 물리 디스크·회차당 최대 1회 제출. 물리 분리·unknown error 뒤에는 Force하지 않음 |
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/!/✗ (circle 계열 심볼로 통일). 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 | **로그인 시 자동 실행** | 환경설정 → General에서 설정. `SMAppService.mainApp` 사용. `.requiresApproval`이면 혼합 상태와 “로그인 항목 허용 필요” 라벨을 표시하고 시스템 설정으로 안내 |
@@ -215,7 +215,7 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
 | 빌드 시스템 | Xcodegen + xcodebuild |
 | 진입점 | `main.swift` (명시적 `NSApplication.shared.run()`) |
-| 디스크 작업 | 수동 추출은 `/usr/sbin/diskutil` 직접 실행. 자동 sleep/display sleep/“추출하고 잠자기”는 `Disk Arbitration API` whole-disk normal이 기본이며 허용된 trigger의 busy 응답에만 force 1회 |
+| 디스크 작업 | 모든 추출은 `Disk Arbitration API`의 whole-disk normal. 허용된 경로는 busy 또는 2초 clean 무응답 시 whole-disk Force 1회. clean 추출은 정확한 BSD+연결 세대+IOMedia ID가 유지될 때 다음 wake에 whole-disk remount |
 
 ### 파일 구성
 

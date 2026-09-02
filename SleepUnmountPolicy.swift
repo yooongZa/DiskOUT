@@ -97,6 +97,21 @@ final class SleepUnmountActivityTracker: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Linearizes an idle check with a small claim operation. `begin()` uses the same lock, so a
+    /// remount token cannot be claimed in the gap between checking `activeCount` and mutating the
+    /// wake coordinator.
+    @discardableResult
+    func performIfIdle(_ action: () -> Void) -> Bool {
+        lock.lock()
+        guard count == 0 else {
+            lock.unlock()
+            return false
+        }
+        action()
+        lock.unlock()
+        return true
+    }
+
     var activeCount: Int {
         lock.lock()
         defer { lock.unlock() }
@@ -133,6 +148,18 @@ struct SleepUnmountTarget: Equatable, Sendable {
         self.mediaRegistryEntryID = mediaRegistryEntryID
         self.mountedVolumeBSDs = mountedVolumeBSDs
         self.enforceProtectionClosure = enforceProtectionClosure
+    }
+}
+
+/// A user-selected eject must not depend on stable identity for unrelated external disks. The
+/// selected physical group still includes all of its mounted siblings for Whole-disk revalidation.
+enum SleepSnapshotGroupSelectionPolicy {
+    static func shouldInspectGroup(
+        mountedVolumePaths: Set<String>,
+        selectedVolumePaths: Set<String>?
+    ) -> Bool {
+        guard let selectedVolumePaths else { return true }
+        return !mountedVolumePaths.isDisjoint(with: selectedVolumePaths)
     }
 }
 
@@ -221,102 +248,9 @@ enum SleepMountedSiblingPolicy {
     }
 }
 
-enum SleepMountApprovalDecision: Equatable, Sendable {
-    case approve
-    case approveAndTrackPending
-    case rejectBusy
-}
-
-/// Nestable automatic-sleep mount barrier. Disk Arbitration approval callbacks do not identify
-/// the requester, so a race-free snapshot/request boundary rejects new external mounts for the
-/// whole eject operation; the enclosing power token remains active from `willSleep` until the
-/// matching wake/cancel edge. Exact tokens prevent one scope from clearing another.
-struct SleepPowerMountBarrier: Equatable, Sendable {
-    private var nextToken: UInt64 = 0
-    private(set) var activeTokens = Set<UInt64>()
-
-    mutating func begin() -> UInt64 {
-        nextToken &+= 1
-        if nextToken == 0 { nextToken = 1 }
-        activeTokens.insert(nextToken)
-        return nextToken
-    }
-
-    mutating func end(token: UInt64) {
-        activeTokens.remove(token)
-    }
-
-    func blocks(isExternalCandidate: Bool) -> Bool {
-        !activeTokens.isEmpty && isExternalCandidate
-    }
-}
-
-/// Pure policy for the DA mount-approval barrier used by automatic whole-disk unmount.
-enum SleepMountApprovalPolicy {
-    static func decision(hasActiveUnmountBarrier: Bool,
-                         hasPowerSleepBarrier: Bool = false,
-                         isExternalCandidate: Bool = true,
-                         mediaContent: String? = nil,
-                         volumeAlreadyMounted: Bool) -> SleepMountApprovalDecision {
-        if hasActiveUnmountBarrier
-            || (hasPowerSleepBarrier && isExternalCandidate) {
-            return .rejectBusy
-        }
-        if volumeAlreadyMounted
-            || (isExternalCandidate && mediaContent == "EFI") {
-            return .approve
-        }
-        return .approveAndTrackPending
-    }
-
-    static func canBeginAutomaticUnmount(hasPendingApprovedMount: Bool) -> Bool {
-        !hasPendingApprovedMount
-    }
-
-    static func pendingApprovalMatchesCapturedMedia(
-        pendingMediaRegistryEntryID: UInt64?,
-        capturedMediaRegistryEntryID: UInt64
-    ) -> Bool {
-        pendingMediaRegistryEntryID == nil
-            || pendingMediaRegistryEntryID == capturedMediaRegistryEntryID
-    }
-
-    static func shouldRetainBarrierAfterNormalTerminal(
-        callbackWasDecline: Bool,
-        forceContinuationReserved: Bool
-    ) -> Bool {
-        callbackWasDecline && forceContinuationReserved
-    }
-}
-
-struct SleepForceContinuationReservationCounter: Equatable, Sendable {
-    private(set) var count = 0
-
-    var isReserved: Bool { count > 0 }
-
-    mutating func reserve() {
-        count += 1
-    }
-
-    mutating func release() {
-        guard count > 0 else { return }
-        count -= 1
-    }
-}
-
-enum SleepForceContinuationReleasePolicy {
-    /// Timeout release belongs to DAInventory because the underlying request remains pending.
-    /// A caller owns a release only after receiving an explicit dissenter callback.
-    static func callerOwnsRelease(forceContinuationReserved: Bool,
-                                  requestWasForced: Bool,
-                                  dissenterStatus: SleepUnmountDissenterStatus?) -> Bool {
-        forceContinuationReserved && !requestWasForced && dissenterStatus != nil
-    }
-}
-
 struct SleepUnmountRequest: Equatable, Sendable {
     let key: SleepUnmountGroupKey
-    /// 기존 설정 의미를 보존한다: 첫 요청은 항상 normal이고, 명시적인 decline 뒤에만 force를 허용한다.
+    /// 기존 설정 의미를 보존한다: 첫 요청은 항상 normal이고, policy가 허용할 때만 force를 이어서 요청한다.
     let allowsForceFallback: Bool
     let targets: [SleepUnmountTarget]
 
@@ -357,8 +291,8 @@ enum SleepUnmountLateSuccessRecordingPolicy: Equatable, Sendable {
     /// Existing automatic sleep flows preserve remount ownership when a clean DA callback arrives
     /// after their bounded waiter returns.
     case preserveAutomaticRemountOwnership
-    /// Forced sleep must allow the power transition after its short deadline. A later callback is
-    /// still terminal evidence for request bookkeeping, but must not create a wake-remount target.
+    /// Legacy opt-out retained for older callers. New app-managed eject routes preserve every
+    /// explicit clean Whole/Whole|Force callback for a wake remount.
     case discardAfterTimeout
 
     func shouldRecordCleanSuccess(timing: SleepUnmountCleanSuccessTiming) -> Bool {
@@ -378,7 +312,7 @@ enum ForcedSleepUnmountBatchPolicy {
     static let maximumWait: TimeInterval = 3
     static let allowsForceFallback = false
     static let lateSuccessRecordingPolicy: SleepUnmountLateSuccessRecordingPolicy =
-        .discardAfterTimeout
+        .preserveAutomaticRemountOwnership
 
     static func requests(for targets: [SleepUnmountTarget]) -> [SleepUnmountRequest] {
         SleepUnmountPolicy.requests(for: targets, forceFallback: allowsForceFallback)
@@ -387,7 +321,7 @@ enum ForcedSleepUnmountBatchPolicy {
 
 enum ForcedSleepCleanSuccessPolicy {
     /// A clean callback from a joined force request is not proof of the requested normal-only
-    /// operation, and a callback after the short deadline cannot create wake-remount ownership.
+    /// operation. A normal callback remains remount evidence even after the short power deadline.
     static func shouldRecord(callbackSucceeded: Bool,
                              requestWasForced: Bool,
                              timing: SleepUnmountCleanSuccessTiming) -> Bool {
@@ -480,9 +414,9 @@ enum SleepUnmountPolicy {
         }
     }
 
-    /// DADiskUnmount에는 request cancel API가 없다. 따라서 timeout/disconnect/unavailable 뒤에는
-    /// force 요청을 겹치지 않는다. 명시적인 normal callback 중에서도 busy/exclusive contention만
-    /// 순차 force fallback 대상이며, 다른 dissenter status는 fail-closed 처리한다.
+    /// Callback-only projection retained for callers that do not own a normal-request watchdog.
+    /// The complete normal/force lifecycle, including the two-second watchdog, is modeled by
+    /// `SleepUnmountEscalationPolicy` below.
     static func nextOperation(after event: SleepUnmountEvidenceEvent,
                               requestWasForced: Bool = false,
                               forceFallback: Bool) -> SleepUnmountOperation? {
@@ -636,6 +570,286 @@ enum SleepUnmountEvidenceReducer {
             return .failure(.disconnect)
         case .unavailable:
             return .failure(.unavailable)
+        }
+    }
+}
+
+enum SleepUnmountEscalationState: Equatable, Sendable {
+    case awaitingNormal
+    /// `normalPending` is true only after the two-second watchdog. A busy callback has already
+    /// terminated the normal request, while a watchdog timeout leaves it able to succeed later.
+    case awaitingForce(normalPending: Bool)
+    /// Force failed first, but the timed-out normal request is still allowed to provide clean proof.
+    case awaitingNormalAfterForceFailure(SleepUnmountFailure)
+    case finished
+}
+
+enum SleepUnmountEscalationEvent: Equatable, Sendable {
+    case normalCallbackSuccess
+    case normalCallbackFailure(SleepUnmountDissenterStatus)
+    case normalCallbackTimedOut
+    case normalDisconnected
+    case normalUnavailable
+    case forceRequestAlreadyPending
+    case forceCallbackSuccess
+    case forceCallbackFailure(SleepUnmountDissenterStatus)
+    case forceDisconnected
+    case forceUnavailable
+}
+
+enum SleepUnmountEscalationAction: Equatable, Sendable {
+    case none
+    case submitForce
+    case finishClean(requestWasForced: Bool)
+    case finishFailure(SleepUnmountFailure)
+}
+
+struct SleepUnmountEscalationTransition: Equatable, Sendable {
+    let state: SleepUnmountEscalationState
+    let action: SleepUnmountEscalationAction
+}
+
+/// Keeps the reducer state and the one-shot destructive submission claim in one serialized value.
+/// Its owner must still provide synchronization when callbacks can arrive concurrently.
+struct SleepUnmountEscalationRuntime: Sendable {
+    private(set) var state: SleepUnmountEscalationState = .awaitingNormal
+    private var forceSubmissionClaimed = false
+
+    mutating func consume(
+        _ event: SleepUnmountEscalationEvent,
+        allowsForceFallback: Bool
+    ) -> SleepUnmountEscalationAction {
+        let transition = SleepUnmountEscalationPolicy.transition(
+            from: state,
+            event: event,
+            allowsForceFallback: allowsForceFallback
+        )
+        state = transition.state
+        return transition.action
+    }
+
+    /// The action returned by `consume` is only a proposal. Rechecking the current state here
+    /// prevents a late normal-clean callback from being followed by a stale Force submission.
+    mutating func claimForceSubmission() -> Bool {
+        guard !forceSubmissionClaimed,
+              case .awaitingForce = state else { return false }
+        forceSubmissionClaimed = true
+        return true
+    }
+}
+
+enum SleepUnmountForceWatchdogPolicy {
+    static func normalWaitDuration(
+        remainingBudget: TimeInterval,
+        allowsForceFallback: Bool
+    ) -> TimeInterval {
+        let budget = max(0, remainingBudget)
+        guard allowsForceFallback else { return budget }
+        return min(budget, SleepUnmountEscalationPolicy.normalWholeCallbackTimeout)
+    }
+
+    /// A shorter enclosing operation deadline must never turn into an early Force request.
+    /// Busy evidence remains independently eligible for immediate Force escalation.
+    static func allowsTimeoutEscalation(
+        initialRemainingBudget: TimeInterval,
+        currentRemainingBudget: TimeInterval,
+        allowsForceFallback: Bool
+    ) -> Bool {
+        allowsForceFallback
+            && initialRemainingBudget >= SleepUnmountEscalationPolicy.normalWholeCallbackTimeout
+            && currentRemainingBudget > 0
+    }
+}
+
+/// Pure lifecycle policy for one physical Whole-disk request.
+///
+/// The owner must serialize an event and the returned state update on one queue. That atomic
+/// ownership is what makes a busy callback racing the watchdog produce exactly one force submit.
+enum SleepUnmountEscalationPolicy {
+    static let normalWholeCallbackTimeout: TimeInterval = 2
+
+    static func transition(
+        from state: SleepUnmountEscalationState,
+        event: SleepUnmountEscalationEvent,
+        allowsForceFallback: Bool
+    ) -> SleepUnmountEscalationTransition {
+        switch state {
+        case .awaitingNormal:
+            return transitionWhileAwaitingNormal(
+                event: event,
+                allowsForceFallback: allowsForceFallback
+            )
+
+        case let .awaitingForce(normalPending):
+            return transitionWhileAwaitingForce(
+                event: event,
+                normalPending: normalPending
+            )
+
+        case let .awaitingNormalAfterForceFailure(forceFailure):
+            return transitionWhileAwaitingNormalAfterForceFailure(
+                event: event,
+                forceFailure: forceFailure
+            )
+
+        case .finished:
+            return SleepUnmountEscalationTransition(state: .finished, action: .none)
+        }
+    }
+
+    private static func transitionWhileAwaitingNormal(
+        event: SleepUnmountEscalationEvent,
+        allowsForceFallback: Bool
+    ) -> SleepUnmountEscalationTransition {
+        switch event {
+        case .normalCallbackSuccess:
+            return SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishClean(requestWasForced: false)
+            )
+
+        case let .normalCallbackFailure(status):
+            if allowsForceFallback && status.isForceEligible {
+                return SleepUnmountEscalationTransition(
+                    state: .awaitingForce(normalPending: false),
+                    action: .submitForce
+                )
+            }
+            return SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishFailure(.callbackFailure(status))
+            )
+
+        case .normalCallbackTimedOut:
+            guard allowsForceFallback else {
+                return SleepUnmountEscalationTransition(
+                    state: .awaitingNormal,
+                    action: .none
+                )
+            }
+            return SleepUnmountEscalationTransition(
+                state: .awaitingForce(normalPending: true),
+                action: .submitForce
+            )
+
+        case .forceRequestAlreadyPending:
+            return SleepUnmountEscalationTransition(
+                state: .awaitingForce(normalPending: false),
+                action: .none
+            )
+
+        case .normalDisconnected:
+            return SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishFailure(.disconnect)
+            )
+
+        case .normalUnavailable:
+            return SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishFailure(.unavailable)
+            )
+
+        case .forceCallbackSuccess,
+             .forceCallbackFailure,
+             .forceDisconnected,
+             .forceUnavailable:
+            return SleepUnmountEscalationTransition(
+                state: .awaitingNormal,
+                action: .none
+            )
+        }
+    }
+
+    private static func transitionWhileAwaitingForce(
+        event: SleepUnmountEscalationEvent,
+        normalPending: Bool
+    ) -> SleepUnmountEscalationTransition {
+        switch event {
+        case .normalCallbackSuccess:
+            return SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishClean(requestWasForced: false)
+            )
+
+        case .normalCallbackFailure,
+             .normalDisconnected,
+             .normalUnavailable:
+            return SleepUnmountEscalationTransition(
+                state: .awaitingForce(normalPending: false),
+                action: .none
+            )
+
+        case .normalCallbackTimedOut,
+             .forceRequestAlreadyPending:
+            return SleepUnmountEscalationTransition(
+                state: .awaitingForce(normalPending: normalPending),
+                action: .none
+            )
+
+        case .forceCallbackSuccess:
+            return SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishClean(requestWasForced: true)
+            )
+
+        case let .forceCallbackFailure(status):
+            return forceFailureTransition(
+                .callbackFailure(status),
+                normalPending: normalPending
+            )
+
+        case .forceDisconnected:
+            return forceFailureTransition(.disconnect, normalPending: normalPending)
+
+        case .forceUnavailable:
+            return forceFailureTransition(.unavailable, normalPending: normalPending)
+        }
+    }
+
+    private static func forceFailureTransition(
+        _ failure: SleepUnmountFailure,
+        normalPending: Bool
+    ) -> SleepUnmountEscalationTransition {
+        if normalPending {
+            return SleepUnmountEscalationTransition(
+                state: .awaitingNormalAfterForceFailure(failure),
+                action: .none
+            )
+        }
+        return SleepUnmountEscalationTransition(
+            state: .finished,
+            action: .finishFailure(failure)
+        )
+    }
+
+    private static func transitionWhileAwaitingNormalAfterForceFailure(
+        event: SleepUnmountEscalationEvent,
+        forceFailure: SleepUnmountFailure
+    ) -> SleepUnmountEscalationTransition {
+        switch event {
+        case .normalCallbackSuccess:
+            return SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishClean(requestWasForced: false)
+            )
+        case .normalCallbackFailure,
+             .normalDisconnected,
+             .normalUnavailable:
+            return SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishFailure(forceFailure)
+            )
+        case .normalCallbackTimedOut,
+             .forceRequestAlreadyPending,
+             .forceCallbackSuccess,
+             .forceCallbackFailure,
+             .forceDisconnected,
+             .forceUnavailable:
+            return SleepUnmountEscalationTransition(
+                state: .awaitingNormalAfterForceFailure(forceFailure),
+                action: .none
+            )
         }
     }
 }

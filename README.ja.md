@@ -31,7 +31,7 @@
 
 - 蓋を閉じたときの自動取り出しを有効にすると、MacBookを閉じた際に正常な取り出しを試みます。
 - 設定したアイドルスリープの前にも自動で取り出せます。
-- スリープの自動取り出しに成功したドライブは、Macの復帰時に再マウントします。
+- DiskOUTがcleanに取り出したディスクは、次のwakeでも接続されていれば再マウントします。
 - メニューやショートカットから、個別取り出し・すべて取り出し・`取り出してスリープ`を実行できます。
 
 > 取り出し完了を確認してからケーブルを外してください。完了前や失敗後に外すと、macOSの警告が表示される場合があります。
@@ -97,7 +97,7 @@ mount / eject などのディスク操作は sandbox(サンドボックス) 環�
 <details>
 <summary><b>安全ですか? データ損失の危険は?</b></summary>
 
-手動取り出しは `diskutil eject` 標準パスを使います (Finder の「取り出し」と同じ)。DiskOUTが管理する取り出しは、必ず通常のunmountを先に試します。「取り出してスリープ」と蓋を閉じた場合は、明確なbusy応答があり設定で許可されているときだけforceを1回試します。idle/display sleepではforceせず、active/unknownと判定したsystem sleepには関与しません。
+DiskOUTが管理するすべての取り出しは、Disk Arbitrationの`kDADiskUnmountOptionWhole`で物理ディスク全体のnormal unmountから開始します。設定が有効な手動取り出し・「取り出してスリープ」・蓋を閉じたときは、busy応答または2秒以内にclean callbackがない場合に`Whole|Force`を1回試します。idle/display/forced sleepではForceしません。cleanに取り出した同一物理ディスクが次のwakeでも接続されていれば再マウントします。
 
 ただし、force 段階まで進んでも取り出せないディスクはそのままにして通知だけ出します — データ危険を冒してまで強制取り出しはしません。
 
@@ -136,7 +136,7 @@ mount / eject などのディスク操作は sandbox(サンドボックス) 環�
 
 DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試すため、通常は通知が出ません。それでも出るとしたら、通常以下のケースです。
 
-- **使用中のアプリがあり通常のアンマウントに失敗**: **強制アンマウントを許可**がONで、手動取り出し・「取り出してスリープ」・蓋を閉じたときのいずれかでbusy応答を確認した場合に限り1回試行。idle/display sleepではforceせず、active/unknownと判定したsystem sleepには関与しない。
+- **ディスクがbusy、またはnormal完了が遅い**: **強制アンマウントを許可**がONの手動取り出し・「取り出してスリープ」・蓋を閉じたときは、busyまたは2秒間clean callbackがない場合に`Whole|Force`を1回試行。idle/display/forced sleepではForceしない。
 - **macOS が先に取り出しを始めたケース**: スリープ直前に他のシステムコンポーネントが先に試行。
 
 解決: 外付けにアクセスしていたアプリを終了してからスリープするか、設定で**強制アンマウントを許可**をOFFにしてください。
@@ -148,10 +148,10 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 ## 既知の制限
 
 - **クラムシェルモード (外部モニタ + 電源 + 蓋を閉じる)**: macOSがスリープしなくても、raw lid-close信号で自動取り出しは開始されます。クラムシェルモードで作業を続ける場合は、蓋を閉じたときの自動取り出しをOFFにしてください。
-- **スリープ原因の判定**: macOSの公開IOKit通知は正確な要求元を示しません。DiskOUTは直前のidle信号または過去15秒以内の蓋閉じ信号がない要求をactive/unknownとして通過させます。これらの信号と重なるまれな直接要求はidle/lid経路に分類される場合があります。
-- **使用中ドライブ**: 「取り出してスリープ」と蓋を閉じた場合は、明確なbusy応答後に設定に応じてforce unmountを1回試すため、進行中の作業が中断される可能性があります。idle/display sleepではforceせず、active/unknownと判定したsystem sleepには関与しません。
+- **スリープ原因の判定**: macOSの公開IOKit通知は正確な要求元を示しません。active/unknown判定でもWhole normalを実行し、原因判定はForceを許可するかどうかだけに使用します。
+- **使用中ドライブ**: 手動取り出し・「取り出してスリープ」・蓋を閉じたときは、busyまたは2秒のclean callback timeout後にforce unmountを1回試すことがあり、進行中の作業が中断される可能性があります。idle/display/forced sleepはnormal Wholeのみです。
 - **正常完了前のケーブル切断**: clean callback前または取り出し失敗後にケーブルを抜くと、macOSの不正取り出し警告が出る場合があります。成功を確認してから取り外してください。
-- **再マウントの信頼性**: 自動取り出しに成功したディスクだけ wake 後に再マウントします。物理的にすでに抜けたディスクはアプリで再マウントできません。
+- **再マウントの信頼性**: DiskOUTがcleanに取り出した正確に同一の物理ディスクだけを次のwake後に再マウントします。物理的にすでに抜けたディスクはアプリで再マウントできません。
 
 詳しい技術的制限は [リリースノート](https://github.com/yooongZa/DiskOUT/releases) を参照してください。
 
@@ -169,21 +169,21 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 | **読み書きアクティビティ表示** | 外付けに読み込み・書き込み I/O が進行中なら、メニューバーの数字の横に小さな systemBlue `●` +「読み込み中 / 書き込み中 — 取り外さないでください」tooltip (アップデート通知の赤い `●` と色で区別)。メニューでは**その busy なディスク項目の横にだけ**青い `●` — tooltip で読み込み・書き込み・両方を区別。物理ディスクの I/O カウンタ (IORegistry) を 1.5s ポーリング、ボリューム→物理マッピングは parent-walk で RAID · APFS 合成 · 直結すべて処理。読み込みは background インデックスの誤検出防止のため閾値が高め。取り出し後、最新のマウント一覧と物理マッピングを確認できると、そのディスクの青い点を削除し、引き続きマウント中のほかのディスクの状態は維持。外付けがある時だけ稼働 (バッテリー) |
 | **ディスク容量 / 使用率** | 各ディスクのメニュー項目の 2 行目に*空き容量 · 使用率* を表示 — 例 `2.9 TB 空き · 40% 使用`。メニューを開く時に `URLResourceValues` で取得 (プロセス起動なし) |
 | Finder で開く / 個別取り出し | ドライブ名クリック = Finder で開く、<kbd>⌘</kbd>+クリック = 個別取り出し。一覧の上に標準メニューサイズの薄い `クリック：Finderで開く` / `⌘クリック：取り出す` ガイドを2行で1回だけ表示し、ドライブ行には名前・状態・容量のみを表示 |
-| **書き込み中の取り出し確認** | 書き込み中のディスクを手動で取り出す場合、または **「取り出してスリープ」**を選んだ場合は、キャンセルを既定とする警告を表示。蓋を閉じたときは busy 応答後に1回だけ force でき、idle/display sleep では force しない |
+| **書き込み中の取り出し確認** | 書き込み中のディスクを手動で取り出す場合、または **「取り出してスリープ」**を選んだ場合は、キャンセルを既定とする警告を表示。設定が有効な蓋閉じはbusyまたは2秒のclean callback timeout後にForceを1回実行でき、idle/display/forced sleepではForceしない |
 | **占有アプリ終了して再試行** | 取り出し失敗時、ディスクを掴んでいる*終了可能な一般アプリ*があれば通知に「アプリを終了して再試行」ボタン。押すと graceful 終了 (`forceTerminate` は使わない) → 1 回再取り出し。Finder · システムデーモン · 自分自身は除外 |
 | 全て取り出し | メニュー項目またはショートカット |
-| **取り出してスリープ** | 物理ディスクごとに whole-disk DA normal を並列実行し、busy callback かつ**強制アンマウントを許可**がONの場合に限りforceを1回。10秒以内に全て clean 成功した場合だけ `pmset sleepnow` を実行。失敗・pending・`pmset` 失敗時はスリープを中止し、成功分と遅い成功分は取り出した状態のまま明示的な再試行を待つ |
+| **取り出してスリープ** | 物理ディスクごとにDA Whole normalを並列実行し、**強制アンマウントを許可**がONでbusyまたは2秒間clean callbackがなければ`Whole|Force`を1回。10秒以内に全てclean成功した場合だけ`pmset sleepnow`を実行し、同一物理メディアを実際のwakeで再マウント |
 | グローバルホットキー (取り出し) | デフォルト <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> (日 / 英 IME 無関係、物理キーコード比較)。環境設定で E ベースの preset(プリセット) 変更可能 |
 | グローバルホットキー (マウント) | デフォルト <kbd>⌃</kbd><kbd>⌘</kbd><kbd>E</kbd> — マウントされていない外付けを一括マウント。環境設定で変更可能 |
 | 右クリック = 全て取り出し | メニューバーアイコン右クリックまたは ctrl+左クリック。環境設定 → Eject Behavior で OFF にすると右クリックがメニューを開く (誤取り出し防止 opt-out) |
 | **マウントされていない外付けのマウント** | メニューに「マウントされていない外付け」セクション自動表示 (候補がある時のみ)。クリック = マウント、<kbd>⌘</kbd>+クリック = マウント + Finder で開く |
 | **マウント / 未マウント状態の整合性** | `diskutil list -plist external` 1 つの snapshot(スナップショット) で mounted(マウント済み) / unmounted(マウントされていない) を一緒に計算し、実際にマウントがないのに mounted セクションに残る stale state(古い状態) を減らす |
 | **ディスク種類アイコン** | `diskutil info -plist` の SD card 信号が確認されれば `sdcard` アイコン、その他外付けは `externaldrive` 系アイコンを使用 |
-| **アイドルスリープ時**の自動取り出し | 設定 → 取り出しの動作で設定。macOSがidle sleepとして通知した場合のみ少し待機してwhole-disk DA normalを実行。DiskOUTがactive/unknownと判定した要求は直ちに通過 |
+| **システムスリープ時**の自動取り出し | 設定 → 取り出しの動作で設定。idle sleep、Appleメニュー/電源キー、active/unknown判定のすべてでwhole-disk DA normalを試行。原因判定はForce policyだけを決定 |
 | **画面が消える時も自動取り出し** (オプション) | 設定 → 取り出しの動作で設定、default OFF。`pmset sleep=0` 環境向け。whole-disk DA normal のみで、成功したディスクは画面復帰時に再マウント |
-| **wake / 画面オン時自動再マウント** | 自動取り出しに成功したディスクだけ再マウント。enumerate(列挙) されなければユーザーが分離したと見なして silent |
+| **wake / 画面オン時再マウント** | DiskOUTがcleanに取り出した正確に同一の物理ディスクだけ再マウント。enumerate(列挙) されなければユーザーが分離したと見なして silent |
 | **DMG / sparseimage 除外** | マウント済みイメージは `hdiutil info -plist` 1 秒 timeout + `diskutil info` fallback、unmounted 候補は `BusProtocol == "Disk Image"` で除外 |
-| 取り出しパス | 手動は `diskutil` と**強制アンマウントを許可**設定を使用。lid/idle/display sleep/「取り出してスリープ」はwhole-disk DA normalが基本で、triggerと設定が許可しcallbackがbusyの場合のみDA forceを1回。timeout・物理切断・unknown error後はforceしない |
+| 取り出しパス | 手動・lid・idle・display・forced sleep・「取り出してスリープ」を含むDiskOUTの全取り出しはDA Whole normalから開始。policyと設定が許可する経路はbusyまたは2秒のclean無応答で物理ディスク・episodeごとにWhole Forceを最大1回。切断・unknown errorではForceしない |
 | 結果通知 | **無音** バナー + メニューバーアイコン ✓ / ! / ✗ (circle 系シンボルに統一)。不在中発生または negative 結果 (失敗 · 再マウント失敗 · sleep 取り出し失敗) のみ**通知センターに保管**、本人 trigger + 成功はバナーのみ短時間表示 |
 | 並列取り出し | `DispatchGroup` で N 個のドライブを同時取り出し |
 | **ログイン時自動起動** | 設定 → 一般で設定。`SMAppService.mainApp` を使用し、`.requiresApproval` は混合状態と「承認が必要」ラベルで表示してシステム設定へ案内 |
@@ -215,7 +215,7 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 | App Sandbox | **NO** (`ENABLE_APP_SANDBOX = NO`) |
 | ビルドシステム | Xcodegen + xcodebuild |
 | エントリポイント | `main.swift` (明示的 `NSApplication.shared.run()`) |
-| ディスク操作 | 手動は `/usr/sbin/diskutil`。自動 sleep/display sleep/「取り出してスリープ」は whole-disk Disk Arbitration normal が基本で、policy が許可した busy force は最大1回 |
+| ディスク操作 | 全取り出しはwhole-disk Disk Arbitration normal。許可された経路はbusyまたは2秒のclean timeout後にwhole-disk Forceを1回。同一BSD+接続世代+IOMedia IDのみ次のwakeで再マウント |
 
 ### ファイル構成
 

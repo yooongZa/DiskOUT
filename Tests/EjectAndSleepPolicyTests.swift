@@ -38,7 +38,7 @@ private enum EjectAndSleepPolicyTests {
         testRetrySkipsStagedCleanDiskAndCommitsAllTargetsForWake()
         testPmsetFailureKeepsTargetsUnmountedForExplicitRetry()
         testExactIdentityRejectsReusedBSDCallback()
-        testForceOutcomeAndMismatchedCallbackAreTyped()
+        testForceOutcomeAcceptsFirstCleanCallbackFromEitherRequest()
         testStagedIdentityInvalidationIsExact()
         testRemountedStagedIdentityIsRetriedAfterInvalidation()
         testBatchFailureStopsEmptyAttempt()
@@ -325,7 +325,7 @@ private enum EjectAndSleepPolicyTests {
                "replacement media must never enter the old attempt's staging set")
     }
 
-    private static func testForceOutcomeAndMismatchedCallbackAreTyped() {
+    private static func testForceOutcomeAcceptsFirstCleanCallbackFromEitherRequest() {
         var policy = EjectAndSleepPolicy()
         let target = disk("disk12")
         let attempt = policy.beginAttempt(targets: [target], nowNanoseconds: 0)!
@@ -334,12 +334,29 @@ private enum EjectAndSleepPolicyTests {
                "busy-authorized force submission must have a typed pending state")
         expect(policy.outcomes(for: attempt)?[target] == .forcePending,
                "force pending must remain distinct from normal pending")
-        expect(!policy.record(.clean(.normal), for: target, attemptID: attempt),
-               "a mismatched old normal callback must not prove the force request clean")
-        expect(policy.record(.clean(.force), for: target, attemptID: attempt),
-               "the exact force callback must prove clean completion")
-        expect(policy.outcomes(for: attempt)?[target] == .cleanForced,
-               "forced clean result must remain visible for explanation")
+        expect(policy.record(.clean(.normal), for: target, attemptID: attempt),
+               "the overlapping normal request may still provide the first clean callback")
+        expect(policy.outcomes(for: attempt)?[target] == .cleanNormal,
+               "the winning normal callback must remain visible for explanation")
+        expect(!policy.record(.clean(.force), for: target, attemptID: attempt),
+               "a later force callback must not complete the same disk twice")
+
+        var timedOutPolicy = EjectAndSleepPolicy()
+        let timedOutTarget = disk("disk13")
+        let timedOutAttempt = timedOutPolicy.beginAttempt(
+            targets: [timedOutTarget],
+            nowNanoseconds: 1
+        )!
+        _ = timedOutPolicy.record(.forceStarted,
+                                  for: timedOutTarget,
+                                  attemptID: timedOutAttempt)
+        timedOutPolicy.expireAttempt(timedOutAttempt)
+        expect(timedOutPolicy.record(.clean(.normal),
+                                     for: timedOutTarget,
+                                     attemptID: timedOutAttempt),
+               "a late normal clean must remain valid after the Force waiter timed out")
+        expect(timedOutPolicy.outcomes(for: timedOutAttempt)?[timedOutTarget] == .cleanNormal,
+               "late normal clean evidence must replace timed-out Force pending state")
     }
 
     private static func testStagedIdentityInvalidationIsExact() {

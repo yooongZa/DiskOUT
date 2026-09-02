@@ -18,6 +18,7 @@ enum SleepEjectTrigger: Equatable, Sendable {
     case systemIdle
     case displaySleep
     case ejectAndSleep
+    case powerOff
     case unknownSystemSleep
 
     static func systemSleep(isIdle: Bool?, lidAttributed: Bool) -> SleepEjectTrigger {
@@ -28,24 +29,17 @@ enum SleepEjectTrigger: Equatable, Sendable {
 
     /// Whether this trigger enters DiskOUT's established automatic/manual eject flow.
     ///
-    /// A system sleep explicitly requested outside DiskOUT, or one whose cause cannot be
-    /// classified, does not enter that 24-second flow. IOKit-confirmed `systemForced` may instead
-    /// use the separate default-off short best-effort experiment. Lid close, idle sleep, the opt-in
-    /// display flow, and DiskOUT's own Eject and Sleep remain eligible here.
+    /// Every app-managed sleep boundary enters the same Whole-normal eject flow. Trigger
+    /// classification still decides whether Force is authorized; an unknown cause never grants it.
     var participatesInEjectFlow: Bool {
-        switch self {
-        case .lidClose, .systemIdle, .displaySleep, .ejectAndSleep:
-            return true
-        case .systemForced, .unknownSystemSleep:
-            return false
-        }
+        true
     }
 
     var allowsForceFallback: Bool {
         switch self {
         case .lidClose, .ejectAndSleep:
             return true
-        case .systemForced, .systemIdle, .displaySleep, .unknownSystemSleep:
+        case .systemForced, .systemIdle, .displaySleep, .powerOff, .unknownSystemSleep:
             return false
         }
     }
@@ -61,6 +55,7 @@ enum SleepEjectTrigger: Equatable, Sendable {
         case .systemIdle: return "systemIdle"
         case .displaySleep: return "displaySleep"
         case .ejectAndSleep: return "ejectAndSleep"
+        case .powerOff: return "powerOff"
         case .unknownSystemSleep: return "unknownSystemSleep"
         }
     }
@@ -73,7 +68,7 @@ enum SleepEjectTrigger: Equatable, Sendable {
         switch self {
         case .lidClose, .systemForced, .systemIdle, .unknownSystemSleep:
             return true
-        case .displaySleep, .ejectAndSleep:
+        case .displaySleep, .ejectAndSleep, .powerOff:
             return false
         }
     }
@@ -151,13 +146,13 @@ enum SleepLidInventoryPolicy {
         episodeGeneration == requestedGeneration && hasExistingLedger
     }
 
-    /// Power ACK may finish only after the current closed-lid generation has completed a fresh
-    /// inventory. An explicit mounted-media event also keeps the boundary open.
+    /// Power ACK may finish only after the current closed-lid generation has completed its fresh
+    /// inventory. A newly joined physical close generation keeps the boundary open until then.
     static func needsBoundaryRefresh(currentClosedGeneration: UInt64?,
                                      completedInventoryGeneration: UInt64?,
-                                     explicitRefreshPending: Bool) -> Bool {
+                                     generationRefreshPending: Bool) -> Bool {
         guard let currentClosedGeneration else { return false }
-        return explicitRefreshPending
+        return generationRefreshPending
             || completedInventoryGeneration != currentClosedGeneration
     }
 }
@@ -226,6 +221,10 @@ struct SleepEpisodeCoordinator: Sendable {
     private(set) var isLidClosed = false
     private(set) var lidGeneration: UInt64 = 0
     private(set) var pendingTargets = Set<SleepRemountTarget>()
+    /// User-commanded ejects are intentionally separate from the active automatic episode.
+    /// They become eligible only at the next real wake/open boundary, so a manual eject cannot
+    /// cancel an already scheduled automatic remount or remount itself immediately.
+    private(set) var nextWakeTargets = Set<SleepRemountTarget>()
     private(set) var operationID: String?
     private(set) var operationReason: String?
     /// A lid/display automatic eject episode owns the shared Music/Photos relaunch ledger until
@@ -237,6 +236,8 @@ struct SleepEpisodeCoordinator: Sendable {
     private var nextRemountNonce: UInt64 = 0
     private var scheduledRemount: RemountToken?
     private var activeRemount: RemountToken?
+    private var nextWakeOperationID: String?
+    private var nextWakeOperationReason: String?
     /// lid close/new eject가 이미 실행 중인 worker를 무효화한 경우, 그 worker의 최종 canceled
     /// 결과는 한 번만 받아 pending target으로 되돌린다. 임의의 stale token은 state를 못 바꾼다.
     private var invalidatedActiveRemounts = Set<RemountToken>()
@@ -267,6 +268,7 @@ struct SleepEpisodeCoordinator: Sendable {
     mutating func lidDidOpen() -> RemountSchedule? {
         isLidClosed = false
         lidEjectEpisodeActive = false
+        activateNextWakeTargets()
         remountRequested = true
         return makeScheduleIfNeeded()
     }
@@ -323,9 +325,23 @@ struct SleepEpisodeCoordinator: Sendable {
         return makeScheduleIfNeeded()
     }
 
+    /// Stages an ordinary app eject without mutating the currently scheduled/active automatic
+    /// remount. The staged targets are promoted atomically by the next wake/open boundary.
+    mutating func stageCleanUnmountTargetsForNextWake(
+        _ disks: Set<SleepRemountTarget>,
+        operationID: String,
+        reason: String
+    ) {
+        guard !disks.isEmpty else { return }
+        nextWakeTargets.formUnion(disks)
+        nextWakeOperationID = operationID
+        nextWakeOperationReason = reason
+    }
+
     /// system/display wake. lid가 닫혀 있으면 Amphetamine dark-wake 등으로 보고 보류한다.
     mutating func wakeDidOccur() -> RemountSchedule? {
         guard !isLidClosed else { return nil }
+        activateNextWakeTargets()
         remountRequested = true
         return makeScheduleIfNeeded()
     }
@@ -366,6 +382,20 @@ struct SleepEpisodeCoordinator: Sendable {
         guard accepted else { return nil }
         pendingTargets.formUnion(canceledDisks)
         return makeScheduleIfNeeded()
+    }
+
+    private mutating func activateNextWakeTargets() {
+        guard !nextWakeTargets.isEmpty else { return }
+        pendingTargets.formUnion(nextWakeTargets)
+        nextWakeTargets.removeAll()
+        if let nextWakeOperationID {
+            operationID = nextWakeOperationID
+        }
+        if let nextWakeOperationReason {
+            operationReason = nextWakeOperationReason
+        }
+        self.nextWakeOperationID = nil
+        nextWakeOperationReason = nil
     }
 
     private mutating func makeScheduleIfNeeded() -> RemountSchedule? {

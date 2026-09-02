@@ -39,11 +39,12 @@ private enum SleepUnmountPolicyTests {
         testSameBSDAndGenerationWithDifferentMediaIDDoesNotJoin()
         testMissingBSDNameFallsBackToStablePathGrouping()
         testDuplicateDisplayNamesUsePhysicalRequestIdentity()
+        testSelectedSnapshotGroupIsolation()
         testDissenterStatusClassification()
         testPolicyPreservesNormalThenExplicitForceFallback()
         testForcedSleepPolicyIsShortNormalOnlyOneShotBatch()
         testForcedSleepBoundaryRouteIsIOKitOnlyAndNeverRetries()
-        testForcedSleepPolicyNeverRecordsSuccessAfterTimeout()
+        testForcedSleepPolicyRecordsSuccessAfterTimeoutForWakeRemount()
         testPreparedForcedRequestStillEntersWaitAfterDeadline()
         testForcedSleepSubmissionWaveValidatesEverythingBeforeDestructiveIO()
         testForceClaimLedgerIsEpisodeScopedAndPhysicalOnly()
@@ -56,11 +57,11 @@ private enum SleepUnmountPolicyTests {
         testAutomaticActivityWaitsForEveryWorkerAndLateTerminal()
         testHiddenProtectedSiblingBlocksVisibleWholeDiskTarget()
         testRequestTimeSiblingSetRevalidationFailsClosed()
-        testMountApprovalBarrierOrdering()
-        testEFIMountApprovalTracking()
-        testPowerSleepMountBarrierCoversPostSnapshotApproval()
-        testForceContinuationReservationsAreWaiterScoped()
-        testTimeoutAndCallbackHaveDistinctForceContinuationReleaseOwners()
+        testNormalWholeEscalationPolicy()
+        testForceWatchdogRequiresTheFullTwoSeconds()
+        testBusyAndTimeoutRaceSubmitsForceOnce()
+        testForceSubmissionClaimRejectsStaleAndDuplicateRequests()
+        testLateNormalAndForceCallbacksFinishOnce()
         testUnresolvedProtectedSiblingFailsClosed()
         print("SleepUnmountPolicyTests: PASS")
     }
@@ -116,6 +117,31 @@ private enum SleepUnmountPolicyTests {
 
         let requests = SleepUnmountPolicy.requests(for: targets, forceFallback: true)
         expect(requests.count == 2, "different exact IOMedia IDs must never share an unmount request")
+    }
+
+    private static func testSelectedSnapshotGroupIsolation() {
+        let selected = Set(["/Volumes/Chosen"])
+        expect(
+            SleepSnapshotGroupSelectionPolicy.shouldInspectGroup(
+                mountedVolumePaths: ["/Volumes/Chosen", "/Volumes/Chosen Helper"],
+                selectedVolumePaths: selected
+            ),
+            "the selected physical group must retain all mounted siblings for Whole validation"
+        )
+        expect(
+            !SleepSnapshotGroupSelectionPolicy.shouldInspectGroup(
+                mountedVolumePaths: ["/Volumes/Unrelated"],
+                selectedVolumePaths: selected
+            ),
+            "an unrelated external identity failure must not block a selected manual eject"
+        )
+        expect(
+            SleepSnapshotGroupSelectionPolicy.shouldInspectGroup(
+                mountedVolumePaths: ["/Volumes/Unrelated"],
+                selectedVolumePaths: nil
+            ),
+            "automatic and eject-all snapshots must continue to inspect every mounted group"
+        )
     }
 
     private static func testMissingBSDNameFallsBackToStablePathGrouping() {
@@ -193,7 +219,7 @@ private enum SleepUnmountPolicyTests {
         expect(SleepUnmountPolicy.nextOperation(after: .callbackFailure(.other(0xC005)), forceFallback: true) == nil,
                "a non-EBUSY Unix failure must not start a force retry")
         expect(SleepUnmountPolicy.nextOperation(after: .timeout, forceFallback: true) == nil,
-               "timeout must never overlap the still-pending normal request")
+               "the callback-only projection must leave watchdog escalation to the lifecycle policy")
         expect(SleepUnmountPolicy.nextOperation(after: .disconnect, forceFallback: true) == nil,
                "disconnect must never start a fallback")
         expect(SleepUnmountPolicy.nextOperation(after: .unavailable, forceFallback: true) == nil,
@@ -304,7 +330,7 @@ private enum SleepUnmountPolicyTests {
         )
     }
 
-    private static func testForcedSleepPolicyNeverRecordsSuccessAfterTimeout() {
+    private static func testForcedSleepPolicyRecordsSuccessAfterTimeoutForWakeRemount() {
         let policy = ForcedSleepUnmountBatchPolicy.lateSuccessRecordingPolicy
 
         expect(
@@ -312,8 +338,8 @@ private enum SleepUnmountPolicyTests {
             "an explicit clean callback observed before the deadline may create a remount target"
         )
         expect(
-            !policy.shouldRecordCleanSuccess(timing: .afterTimeout),
-            "a callback arriving after the forced-sleep deadline must not create a remount target"
+            policy.shouldRecordCleanSuccess(timing: .afterTimeout),
+            "a late clean callback must still create a wake-remount target"
         )
         expect(
             ForcedSleepCleanSuccessPolicy.shouldRecord(
@@ -338,7 +364,7 @@ private enum SleepUnmountPolicyTests {
         expect(
             SleepUnmountLateSuccessRecordingPolicy.preserveAutomaticRemountOwnership
                 .shouldRecordCleanSuccess(timing: .afterTimeout),
-            "the new forced-sleep policy must not alter existing automatic late-clean ownership"
+            "all app-managed Whole requests must preserve late-clean remount ownership"
         )
     }
 
@@ -376,9 +402,15 @@ private enum SleepUnmountPolicyTests {
         lateTerminal.observe { _ in tracker.finish() }
         expect(tracker.activeCount == 1,
                "a prepared request remains active after its zero-time waiter returns")
+        var claimedWhileBusy = false
+        expect(!tracker.performIfIdle { claimedWhileBusy = true } && !claimedWhileBusy,
+               "a remount claim must not cross an active unmount boundary")
         expect(lateTerminal.finishOnce(1), "the first late DA terminal is accepted")
         expect(tracker.activeCount == 0,
                "the actual late terminal releases prepared-request ownership exactly once")
+        var claimedWhileIdle = false
+        expect(tracker.performIfIdle { claimedWhileIdle = true } && claimedWhileIdle,
+               "the remount claim may run atomically after every request is terminal")
         expect(!lateTerminal.finishOnce(2) && tracker.activeCount == 0,
                "a duplicate terminal cannot release tracking twice")
     }
@@ -664,230 +696,314 @@ private enum SleepUnmountPolicyTests {
                "unprotected targets must surface as blocked failures when closure is unknowable")
     }
 
-    private static func testMountApprovalBarrierOrdering() {
-        expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: true,
-                volumeAlreadyMounted: false
-            ) == .rejectBusy,
-            "a mount approval arriving after the unmount barrier must be rejected"
+    private static func testNormalWholeEscalationPolicy() {
+        expect(SleepUnmountEscalationPolicy.normalWholeCallbackTimeout == 2,
+               "a normal Whole request must receive exactly two seconds before escalation")
+
+        let normalSuccess = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingNormal,
+            event: .normalCallbackSuccess,
+            allowsForceFallback: true
         )
         expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: false,
-                volumeAlreadyMounted: false
-            ) == .approveAndTrackPending,
-            "an approval before the barrier must remain pending until its mounted event is visible"
-        )
-        expect(
-            !SleepMountApprovalPolicy.canBeginAutomaticUnmount(hasPendingApprovedMount: true),
-            "an already-approved but not-yet-visible mount must block the stale snapshot, even when new media has no mounted group yet"
-        )
-        expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: false,
-                volumeAlreadyMounted: true
-            ) == .approve,
-            "a redundant mount request for an already-mounted volume needs no pending topology marker"
-        )
-        expect(
-            SleepMountApprovalPolicy.canBeginAutomaticUnmount(hasPendingApprovedMount: false),
-            "automatic unmount may begin after the approved mount becomes visible"
-        )
-        expect(
-            SleepMountApprovalPolicy.pendingApprovalMatchesCapturedMedia(
-                pendingMediaRegistryEntryID: 100,
-                capturedMediaRegistryEntryID: 100
+            normalSuccess == SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishClean(requestWasForced: false)
             ),
-            "a pending approval for the exact captured media must block its snapshot"
+            "normal callback success must finish without a force request"
+        )
+
+        let forceEligibleStatuses: [SleepUnmountDissenterStatus] = [
+            .busy,
+            .exclusiveAccess,
+            .unixBusy
+        ]
+        expect(
+            forceEligibleStatuses.allSatisfy { status in
+                SleepUnmountEscalationPolicy.transition(
+                    from: .awaitingNormal,
+                    event: .normalCallbackFailure(status),
+                    allowsForceFallback: true
+                ) == SleepUnmountEscalationTransition(
+                    state: .awaitingForce(normalPending: false),
+                    action: .submitForce
+                )
+            },
+            "each contention callback must submit one force request when fallback is allowed"
+        )
+
+        let watchdog = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingNormal,
+            event: .normalCallbackTimedOut,
+            allowsForceFallback: true
         )
         expect(
-            !SleepMountApprovalPolicy.pendingApprovalMatchesCapturedMedia(
-                pendingMediaRegistryEntryID: 99,
-                capturedMediaRegistryEntryID: 100
+            watchdog == SleepUnmountEscalationTransition(
+                state: .awaitingForce(normalPending: true),
+                action: .submitForce
             ),
-            "a stale approval from a replaced media generation must not bleed into the replacement"
+            "two seconds without a normal Whole callback must submit force when allowed"
+        )
+
+        let disabledWatchdog = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingNormal,
+            event: .normalCallbackTimedOut,
+            allowsForceFallback: false
         )
         expect(
-            SleepMountApprovalPolicy.pendingApprovalMatchesCapturedMedia(
-                pendingMediaRegistryEntryID: nil,
-                capturedMediaRegistryEntryID: 100
+            disabledWatchdog == SleepUnmountEscalationTransition(
+                state: .awaitingNormal,
+                action: .none
             ),
-            "an unresolved approval identity must fail closed"
+            "the watchdog must never enable force when fallback is disabled"
+        )
+
+        let disabledBusy = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingNormal,
+            event: .normalCallbackFailure(.busy),
+            allowsForceFallback: false
         )
         expect(
-            SleepMountApprovalPolicy.shouldRetainBarrierAfterNormalTerminal(
-                callbackWasDecline: true,
-                forceContinuationReserved: true
+            disabledBusy == SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishFailure(.callbackFailure(.busy))
             ),
-            "an on-time normal decline must retain the barrier into sequential force"
+            "a busy callback must remain a terminal failure when force is disabled"
+        )
+
+        let nonContention = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingNormal,
+            event: .normalCallbackFailure(.other(0xF8DA0001)),
+            allowsForceFallback: true
         )
         expect(
-            !SleepMountApprovalPolicy.shouldRetainBarrierAfterNormalTerminal(
-                callbackWasDecline: true,
-                forceContinuationReserved: false
+            nonContention == SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishFailure(.callbackFailure(.other(0xF8DA0001)))
             ),
-            "a late decline after waiter timeout must not retain an abandoned force barrier"
+            "a non-contention callback must fail closed without force"
+        )
+
+        let disconnected = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingNormal,
+            event: .normalDisconnected,
+            allowsForceFallback: true
+        )
+        expect(
+            disconnected == SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishFailure(.disconnect)
+            ),
+            "disconnect before escalation must remain terminal"
+        )
+        let joinedForce = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingNormal,
+            event: .forceRequestAlreadyPending,
+            allowsForceFallback: true
+        )
+        expect(joinedForce == SleepUnmountEscalationTransition(
+            state: .awaitingForce(normalPending: false),
+            action: .none
+        ), "joining an already-pending Force must not invent a normal request or submit again")
+    }
+
+    private static func testBusyAndTimeoutRaceSubmitsForceOnce() {
+        let orderings: [[SleepUnmountEscalationEvent]] = [
+            [.normalCallbackFailure(.busy), .normalCallbackTimedOut],
+            [.normalCallbackTimedOut, .normalCallbackFailure(.busy)]
+        ]
+
+        for ordering in orderings {
+            var state = SleepUnmountEscalationState.awaitingNormal
+            var actions: [SleepUnmountEscalationAction] = []
+            for event in ordering {
+                let transition = SleepUnmountEscalationPolicy.transition(
+                    from: state,
+                    event: event,
+                    allowsForceFallback: true
+                )
+                state = transition.state
+                actions.append(transition.action)
+            }
+
+            expect(actions.filter { $0 == .submitForce }.count == 1,
+                   "busy/watchdog ordering must emit submitForce exactly once")
+            expect(actions.last == .some(.none),
+                   "the second racing escalation event must be a no-op")
+            expect(state == .awaitingForce(normalPending: false),
+                   "the request must wait for force evidence after the race")
+        }
+    }
+
+    private static func testForceWatchdogRequiresTheFullTwoSeconds() {
+        expect(
+            SleepUnmountForceWatchdogPolicy.normalWaitDuration(
+                remainingBudget: 1.5,
+                allowsForceFallback: true
+            ) == 1.5,
+            "a shorter enclosing deadline must cap the normal wait"
+        )
+        expect(
+            !SleepUnmountForceWatchdogPolicy.allowsTimeoutEscalation(
+                initialRemainingBudget: 1.5,
+                currentRemainingBudget: 0.1,
+                allowsForceFallback: true
+            ),
+            "a deadline under two seconds must never authorize early Force"
+        )
+        expect(
+            SleepUnmountForceWatchdogPolicy.normalWaitDuration(
+                remainingBudget: 10,
+                allowsForceFallback: true
+            ) == 2,
+            "an eligible request must wait exactly two seconds for the normal callback"
+        )
+        expect(
+            SleepUnmountForceWatchdogPolicy.allowsTimeoutEscalation(
+                initialRemainingBudget: 10,
+                currentRemainingBudget: 7.9,
+                allowsForceFallback: true
+            ),
+            "Force may start after the full watchdog when enclosing budget remains"
+        )
+        expect(
+            !SleepUnmountForceWatchdogPolicy.allowsTimeoutEscalation(
+                initialRemainingBudget: 10,
+                currentRemainingBudget: 7.9,
+                allowsForceFallback: false
+            ),
+            "the watchdog must preserve a trigger policy that disables Force"
         )
     }
 
-    private static func testEFIMountApprovalTracking() {
+    private static func testForceSubmissionClaimRejectsStaleAndDuplicateRequests() {
+        var staleRuntime = SleepUnmountEscalationRuntime()
         expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: false,
-                isExternalCandidate: true,
-                mediaContent: "EFI",
-                volumeAlreadyMounted: false
-            ) == .approve,
-            "an unmounted external EFI helper may be approved without a pending topology marker"
+            staleRuntime.consume(.normalCallbackTimedOut, allowsForceFallback: true) == .submitForce,
+            "the two-second watchdog must propose Force when policy allows it"
         )
         expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: true,
-                isExternalCandidate: true,
-                mediaContent: "EFI",
-                volumeAlreadyMounted: false
-            ) == .rejectBusy,
-            "the active unmount barrier must reject external EFI before its tracking exemption"
+            staleRuntime.consume(.normalCallbackSuccess, allowsForceFallback: true)
+                == .finishClean(requestWasForced: false),
+            "a normal clean callback may win before the proposed Force is submitted"
         )
+        expect(!staleRuntime.claimForceSubmission(),
+               "a Force proposal must become invalid after normal clean terminal evidence")
+
+        var claimedRuntime = SleepUnmountEscalationRuntime()
         expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: false,
-                hasPowerSleepBarrier: true,
-                isExternalCandidate: true,
-                mediaContent: "EFI",
-                volumeAlreadyMounted: false
-            ) == .rejectBusy,
-            "the power-sleep barrier must reject external EFI before its tracking exemption"
+            claimedRuntime.consume(.normalCallbackFailure(.busy), allowsForceFallback: true)
+                == .submitForce,
+            "a busy callback must propose Force when policy allows it"
         )
-        expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: false,
-                isExternalCandidate: false,
-                mediaContent: "EFI",
-                volumeAlreadyMounted: false
-            ) == .approveAndTrackPending,
-            "internal EFI approvals must preserve the existing pending behavior"
-        )
-        expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: false,
-                isExternalCandidate: true,
-                mediaContent: "Recovery",
-                volumeAlreadyMounted: false
-            ) == .approveAndTrackPending,
-            "unobserved helper categories must preserve the existing fail-closed pending behavior"
-        )
-        expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: false,
-                isExternalCandidate: true,
-                mediaContent: nil,
-                volumeAlreadyMounted: false
-            ) == .approveAndTrackPending,
-            "an unresolved volume must retain the fail-closed pending marker"
-        )
+        expect(claimedRuntime.claimForceSubmission(),
+               "the first live Force proposal must own submission")
+        expect(!claimedRuntime.claimForceSubmission(),
+               "a second racing Force submission claim must be rejected")
     }
 
-    private static func testForceContinuationReservationsAreWaiterScoped() {
-        var reservations = SleepForceContinuationReservationCounter()
-        reservations.reserve()
-        reservations.reserve()
-        reservations.release()
-        expect(
-            reservations.isReserved && reservations.count == 1,
-            "one waiter timeout must not cancel another waiter's force continuation"
+    private static func testLateNormalAndForceCallbacksFinishOnce() {
+        let lateNormalSuccess = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingForce(normalPending: true),
+            event: .normalCallbackSuccess,
+            allowsForceFallback: true
         )
-        reservations.release()
-        reservations.release()
         expect(
-            !reservations.isReserved && reservations.count == 0,
-            "the barrier may release only after every waiter reservation is consumed"
-        )
-    }
-
-    private static func testTimeoutAndCallbackHaveDistinctForceContinuationReleaseOwners() {
-        var reservations = SleepForceContinuationReservationCounter()
-        reservations.reserve()
-        reservations.reserve()
-
-        expect(
-            !SleepForceContinuationReleasePolicy.callerOwnsRelease(
-                forceContinuationReserved: true,
-                requestWasForced: false,
-                dissenterStatus: nil
+            lateNormalSuccess == SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishClean(requestWasForced: false)
             ),
-            "a timeout waiter must not release again in its caller after DAInventory releases it"
+            "late normal success may provide the first clean terminal evidence"
         )
-        reservations.release()
-        expect(reservations.count == 1,
-               "one callback waiter must retain its barrier reservation after its peer times out")
+        let forceAfterNormal = SleepUnmountEscalationPolicy.transition(
+            from: lateNormalSuccess.state,
+            event: .forceCallbackSuccess,
+            allowsForceFallback: true
+        )
+        expect(forceAfterNormal.action == .none,
+               "force callback after late normal success must not complete twice")
 
+        let forceFirst = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingForce(normalPending: true),
+            event: .forceCallbackSuccess,
+            allowsForceFallback: true
+        )
+        let normalAfterForce = SleepUnmountEscalationPolicy.transition(
+            from: forceFirst.state,
+            event: .normalCallbackSuccess,
+            allowsForceFallback: true
+        )
         expect(
-            SleepForceContinuationReleasePolicy.callerOwnsRelease(
-                forceContinuationReserved: true,
-                requestWasForced: false,
-                dissenterStatus: .busy
+            forceFirst.action == .finishClean(requestWasForced: true)
+                && normalAfterForce.action == .none,
+            "late normal callback after force success must not complete twice"
+        )
+
+        let busyForceFailure = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingForce(normalPending: false),
+            event: .forceCallbackFailure(.other(0xF8DA0001)),
+            allowsForceFallback: true
+        )
+        expect(
+            busyForceFailure == SleepUnmountEscalationTransition(
+                state: .finished,
+                action: .finishFailure(.callbackFailure(.other(0xF8DA0001)))
             ),
-            "an explicit dissenter callback caller must release its retained handoff reservation"
+            "force failure after a terminal busy callback must finish the operation"
         )
-        reservations.release()
-        expect(!reservations.isReserved,
-               "the callback caller release must balance the remaining reservation")
-        expect(
-            !SleepForceContinuationReleasePolicy.callerOwnsRelease(
-                forceContinuationReserved: false,
-                requestWasForced: false,
-                dissenterStatus: .busy
+
+        let timeoutForceFailure = SleepUnmountEscalationPolicy.transition(
+            from: .awaitingForce(normalPending: true),
+            event: .forceCallbackFailure(.other(0xF8DA0001)),
+            allowsForceFallback: true
+        )
+        expect(timeoutForceFailure == SleepUnmountEscalationTransition(
+            state: .awaitingNormalAfterForceFailure(
+                .callbackFailure(.other(0xF8DA0001))
             ),
-            "a normal-only trigger must never own a force continuation reservation"
+            action: .none
+        ), "Force failure must wait when the timed-out normal request is still pending")
+        let normalRecoversAfterForceFailure = SleepUnmountEscalationPolicy.transition(
+            from: timeoutForceFailure.state,
+            event: .normalCallbackSuccess,
+            allowsForceFallback: true
         )
-        expect(
-            !SleepForceContinuationReleasePolicy.callerOwnsRelease(
-                forceContinuationReserved: true,
-                requestWasForced: true,
-                dissenterStatus: .busy
-            ),
-            "a caller that joined an already-pending force request never reserved a continuation"
-        )
-    }
+        expect(normalRecoversAfterForceFailure == SleepUnmountEscalationTransition(
+            state: .finished,
+            action: .finishClean(requestWasForced: false)
+        ), "a late normal clean must recover a prior Force failure")
 
-    private static func testPowerSleepMountBarrierCoversPostSnapshotApproval() {
-        var barrier = SleepPowerMountBarrier()
-        let firstToken = barrier.begin()
-        expect(
-            barrier.blocks(isExternalCandidate: true),
-            "an external approval arriving after the final snapshot must remain blocked through sleep ACK"
+        let timeoutForceFailureThenNormalFailure = SleepUnmountEscalationPolicy.transition(
+            from: timeoutForceFailure.state,
+            event: .normalCallbackFailure(.busy),
+            allowsForceFallback: true
         )
-        expect(
-            !barrier.blocks(isExternalCandidate: false),
-            "the external-media boundary must not reject unrelated internal mounts"
-        )
-        expect(
-            SleepMountApprovalPolicy.decision(
-                hasActiveUnmountBarrier: false,
-                hasPowerSleepBarrier: true,
-                isExternalCandidate: true,
-                volumeAlreadyMounted: false
-            ) == .rejectBusy,
-            "the power boundary must reject a new external mount even without a per-disk request"
-        )
-        let workerToken = barrier.begin()
-        expect(workerToken != firstToken,
-               "a nested eject worker must own an independent barrier token")
+        expect(timeoutForceFailureThenNormalFailure == SleepUnmountEscalationTransition(
+            state: .finished,
+            action: .finishFailure(.callbackFailure(.other(0xF8DA0001)))
+        ), "the operation fails only after both overlapping requests have failed")
 
-        barrier.end(token: workerToken &+ 1)
-        expect(barrier.blocks(isExternalCandidate: true),
-               "a stale wake token must not clear the active power boundary")
-        barrier.end(token: workerToken)
-        expect(barrier.blocks(isExternalCandidate: true),
-               "ending the worker lease must not clear the enclosing power boundary")
-        barrier.end(token: firstToken)
-        expect(!barrier.blocks(isExternalCandidate: true),
-               "the matching wake edge must release the power boundary")
-
-        let secondToken = barrier.begin()
-        expect(secondToken != firstToken,
-               "a later power cycle must receive a distinct token")
+        let allCallbackEvents: [SleepUnmountEscalationEvent] = [
+            .normalCallbackSuccess,
+            .normalCallbackFailure(.busy),
+            .normalCallbackTimedOut,
+            .normalDisconnected,
+            .normalUnavailable,
+            .forceRequestAlreadyPending,
+            .forceCallbackSuccess,
+            .forceCallbackFailure(.busy),
+            .forceDisconnected,
+            .forceUnavailable
+        ]
+        expect(
+            allCallbackEvents.allSatisfy { event in
+                SleepUnmountEscalationPolicy.transition(
+                    from: busyForceFailure.state,
+                    event: event,
+                    allowsForceFallback: true
+                ) == SleepUnmountEscalationTransition(state: .finished, action: .none)
+            },
+            "every callback after a terminal force result must be a no-op"
+        )
     }
 }

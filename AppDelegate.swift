@@ -145,9 +145,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// automatic remount의 token 확인→mount command 시작과 새 lid/eject invalidation을 원자화한다.
     /// 새 eject worker는 이미 시작된 mount command가 끝난 뒤 inventory를 잡아야 한다.
     private let automaticRemountCommandGate = NSLock()
-    private let automaticRemountCommandGroup = DispatchGroup()
     /// Explicit Eject and Sleep owns a separate transaction until a real wake or canceled sleep
-    /// boundary. Clean disks are staged here and never enter the automatic wake ledger on failure.
+    /// boundary. If sleep never starts, its clean disks move to the ordinary next-wake ledger.
     private let manualEjectAndSleepLock = NSLock()
     private var manualEjectAndSleepPolicy = EjectAndSleepPolicy()
     private var manualEjectAndSleepCommandInFlight = false
@@ -159,8 +158,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var nextManualEjectAndSleepNonce: UInt64 = 0
     private var manualEjectAndSleepBoundaryState = EjectAndSleepBoundaryState()
     private var armedManualEjectAndSleep: ManualEjectAndSleepArmed?
-    /// 자동 추출 대상과 lid/remount generation 을 한 lock 아래에서 변경한다.
-    /// 수동 추출(단축키/메뉴)은 여기에 들어가지 않아 사용자 의도를 그대로 보존한다.
+    /// 자동 추출 대상과 lid/remount generation 을 한 lock 아래에서 변경한다. 수동 추출은
+    /// 현재 automatic episode와 분리된 next-wake ledger만 사용한다.
     private var sleepEpisodeCoordinator = SleepEpisodeCoordinator()
     /// Owners whose matching wake/open edge occurred. They are released only after every
     /// automatic unmount worker/DA callback is terminal and any clean targets finish remounting.
@@ -199,9 +198,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var powerSleepAckCoordinator: PowerSleepAckCoordinator?
     private let powerSleepCycleLock = NSLock()
     private var powerSleepCycleDeduplicator = PowerSleepCycleDeduplicator()
-    /// DA queue의 global external-mount barrier를 소유한 현재 power cycle token.
-    /// Main power callback 경계에서만 변경한다.
-    private var powerSleepMountBarrierToken: UInt64?
     private var clamshellRootDomain: io_service_t = 0
     private var clamshellNotifier: io_object_t = 0
     private let sleepEjectQueue = DispatchQueue(label: "com.yongza.ejectdrives.sleep.eject")
@@ -236,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// Power ACK는 이 값이 current closed generation과 같아질 때까지 refresh를 연쇄한다.
     private var lidEpisodeInventoryCompletedGeneration: UInt64?
     private var lidEpisodePowerRetryStarted = false
-    private var lidEpisodeNeedsInventoryRefresh = false
+    private var lidEpisodeNeedsGenerationRefresh = false
     /// logout/restart/shutdown 전 자동 추출은 현재 제품 가치가 낮아 기본 비활성화.
     private let powerOffAutoEjectEnabled = false
     /// logout/restart/shutdown 직전 자동 추출 상태.
@@ -326,16 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // DA 경로 사용. 그 전엔 diskutil fallback. 순서 보장 위해 start() 가 warm() 보다 먼저.
         // 메뉴바 숫자 자가 보정: DA 인벤토리 변경 시마다 재계산. start() 보다 먼저 hook 을
         // 걸어야 초기 enumeration 이벤트(기존 디스크들)도 빠짐없이 받는다.
-        DAInventory.shared.onInventoryChanged = { [weak self] change in
-            // Keep the safety state on the DA event boundary itself. Power ACK calls
-            // `flushPendingEvents()`, so a mount observed before that barrier must already have
-            // marked the required lid-closed refresh; UI count work can remain on main.
-            switch change {
-            case .mountedExternal, .safetyRefreshRequired:
-                self?.handleExternalMediaMountedWhileLidClosed()
-            case .other:
-                break
-            }
+        DAInventory.shared.onInventoryChanged = { [weak self] _ in
             DispatchQueue.main.async {
                 self?.scheduleMountedDriveCountRefresh()
             }
@@ -1987,7 +1974,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("EJECTONE start: \(name, privacy: .public) at \(path, privacy: .public)")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            let result = self.diskutilEject(volumePath: path)
+            let result = self.manualWholeDiskUnmount(volumePath: path)
             DiskMenuSnapshotCache.invalidate()
             DiskMenuSnapshotCache.warm()
             log.info("EJECTONE done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
@@ -2101,12 +2088,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         lastEjectAt = now
         let startedAtNanoseconds = DispatchTime.now().uptimeNanoseconds
         let operationDeadline = Date().addingTimeInterval(10)
-        // The nested per-batch barrier ends when ejectAllForSleep returns. This outer token closes
-        // the all-clean -> pmset race and transfers to the armed wake boundary on success.
-        let manualMountBarrierToken = DAInventory.shared.beginSleepProtectionMountBarrier()
-        LibraryAppHandler.retainRelaunchOwnership(
-            Self.manualLibraryAppOwner(mountBarrierToken: manualMountBarrierToken)
+        let manualLibraryOwner = LibraryAppRelaunchOwner(
+            rawValue: "manual-eject-and-sleep-\(UUID().uuidString)"
         )
+        LibraryAppHandler.retainRelaunchOwnership(manualLibraryOwner)
         log.info("EJECT_AND_SLEEP(\(caller, privacy: .public)) START")
         flashIcon(symbol: "moon.zzz.fill", duration: 1.0)
 
@@ -2114,7 +2099,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             guard let self = self else { return }
             if self.abortManualEjectAndSleepBeforeUnmountIfNeeded(
                 caller: caller,
-                mountBarrierToken: manualMountBarrierToken
+                libraryOwner: manualLibraryOwner
             ) {
                 return
             }
@@ -2122,7 +2107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 LibraryAppHandler.quitLibraryApps()
                 if self.abortManualEjectAndSleepBeforeUnmountIfNeeded(
                     caller: caller,
-                    mountBarrierToken: manualMountBarrierToken
+                    libraryOwner: manualLibraryOwner
                 ) {
                     return
                 }
@@ -2135,7 +2120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                trigger: .ejectAndSleep,
                                                forceClaims: SleepEpisodeForceClaimLedger(),
                                                deadline: operationDeadline,
-                                               manualAttemptStartedAtNanoseconds: startedAtNanoseconds)
+                                               manualAttemptStartedAtNanoseconds: startedAtNanoseconds,
+                                               remountDestination: .nextWake)
             // Evaluate on the worker immediately after the bounded batch returns. Main-queue UI
             // latency must not extend the exact ten-second eligibility window.
             let decision = result.manualAttemptID.map {
@@ -2148,7 +2134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 guard let attemptID = result.manualAttemptID else {
                     self.finishManualEjectAndSleepWithoutSleep(
                         attemptID: nil,
-                        mountBarrierToken: manualMountBarrierToken
+                        libraryOwner: manualLibraryOwner
                     )
                     self.presentManualEjectAndSleepFailure(result, caller: caller)
                     return
@@ -2164,7 +2150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     }
                     self.finishManualEjectAndSleepWithoutSleep(
                         attemptID: attemptID,
-                        mountBarrierToken: manualMountBarrierToken
+                        libraryOwner: manualLibraryOwner
                     )
                     self.presentManualEjectAndSleepFailure(
                         result,
@@ -2177,9 +2163,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 }
 
                 guard case let .requestSleep(wakeTargets)? = decision else {
+                    self.stageManualEjectAndSleepTargetsForNextWake(
+                        operationID: operation,
+                        reason: "ejectAndSleepDidNotSleep"
+                    )
                     self.finishManualEjectAndSleepWithoutSleep(
                         attemptID: attemptID,
-                        mountBarrierToken: manualMountBarrierToken
+                        libraryOwner: manualLibraryOwner
                     )
                     let fallbackReason = self.manualEjectAndSleepFallbackReason(
                         for: decision
@@ -2205,11 +2195,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     attemptID: attemptID,
                     targets: validWakeTargets,
                     operationID: operation,
-                    mountBarrierToken: manualMountBarrierToken
+                    libraryOwner: manualLibraryOwner
                 ) else {
+                    self.stageManualEjectAndSleepTargetsForNextWake(
+                        operationID: operation,
+                        reason: "ejectAndSleepArmFailed"
+                    )
                     self.finishManualEjectAndSleepWithoutSleep(
                         attemptID: attemptID,
-                        mountBarrierToken: manualMountBarrierToken
+                        libraryOwner: manualLibraryOwner
                     )
                     self.presentManualEjectAndSleepFailure(
                         result,
@@ -2256,19 +2250,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func reserveManualEjectAndSleepCommand() -> Bool {
-        manualEjectAndSleepLock.lock()
-        defer { manualEjectAndSleepLock.unlock() }
-        guard !manualEjectAndSleepCommandInFlight,
-              armedManualEjectAndSleep == nil,
-              manualEjectAndSleepPolicy.canBeginAttempt else { return false }
-        manualEjectAndSleepCommandInFlight = true
-        manualEjectAndSleepSupersededBySystemSleep = false
-        manualEjectAndSleepSupersedingTrigger = nil
-        guard manualEjectAndSleepUnmountGate.reserve() else {
-            manualEjectAndSleepCommandInFlight = false
+        var reserved = false
+        guard sleepUnmountActivityTracker.performIfIdle({
+            manualEjectAndSleepLock.lock()
+            defer { manualEjectAndSleepLock.unlock() }
+            guard !manualEjectAndSleepCommandInFlight,
+                  armedManualEjectAndSleep == nil,
+                  manualEjectAndSleepPolicy.canBeginAttempt else { return }
+            manualEjectAndSleepCommandInFlight = true
+            manualEjectAndSleepSupersededBySystemSleep = false
+            manualEjectAndSleepSupersedingTrigger = nil
+            guard manualEjectAndSleepUnmountGate.reserve() else {
+                manualEjectAndSleepCommandInFlight = false
+                return
+            }
+            reserved = true
+        }) else {
             return false
         }
-        return true
+        return reserved
     }
 
     private func releaseManualEjectAndSleepCommandReservation() {
@@ -2372,14 +2372,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.notice("manual Eject and Sleep dropped stale staged identities: \(targets.sorted(), privacy: .public)")
     }
 
-    private func finishManualEjectAndSleepWithoutSleep(
-        attemptID: EjectAndSleepAttemptID?,
-        mountBarrierToken: UInt64
+    /// A command that cleanly unmounted at least one disk but did not enter real sleep still owes
+    /// those exact media a remount at the next independent wake/open boundary.
+    private func stageManualEjectAndSleepTargetsForNextWake(
+        operationID: String,
+        reason: String
     ) {
         manualEjectAndSleepLock.lock()
-        let hasPendingUnmount = attemptID.map {
-            manualEjectAndSleepPolicy.hasPendingOutcome(for: $0)
-        } ?? false
+        let identities = manualEjectAndSleepPolicy.stagedCleanIdentities
+        manualEjectAndSleepLock.unlock()
+        recordNextWakeUnmountTargets(
+            Set(identities.map { Self.sleepRemountTarget(for: $0) }),
+            operationID: operationID,
+            reason: reason
+        )
+    }
+
+    private func finishManualEjectAndSleepWithoutSleep(
+        attemptID: EjectAndSleepAttemptID?,
+        libraryOwner: LibraryAppRelaunchOwner
+    ) {
+        manualEjectAndSleepLock.lock()
         if let attemptID {
             manualEjectAndSleepPolicy.stopAttempt(attemptID)
         }
@@ -2388,18 +2401,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         manualEjectAndSleepSupersedingTrigger = nil
         manualEjectAndSleepUnmountGate.reset()
         manualEjectAndSleepLock.unlock()
-        DAInventory.shared.endSleepProtectionMountBarrier(token: mountBarrierToken)
-        let owner = Self.manualLibraryAppOwner(mountBarrierToken: mountBarrierToken)
-        guard hasPendingUnmount else {
-            LibraryAppHandler.finishRelaunchOwnership(owner)
-            return
-        }
 
-        // A DA request cannot be canceled after submission. Keep Music/Photos closed until its
-        // late callback or disconnect is terminal, otherwise a relaunch could race a late clean
-        // unmount after this bounded manual command has already reported failure.
+        // Policy outcomes describe the logical command; the activity tracker describes every real,
+        // uncancelable normal/Force request. Keep library apps closed until the latter is truly idle.
         sleepUnmountActivityTracker.whenIdle {
-            LibraryAppHandler.finishRelaunchOwnership(owner)
+            LibraryAppHandler.finishRelaunchOwnership(libraryOwner)
         }
     }
 
@@ -2440,12 +2446,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private static func lidLibraryAppOwner(generation: UInt64) -> LibraryAppRelaunchOwner {
         LibraryAppRelaunchOwner(rawValue: "automatic-lid-\(generation)")
-    }
-
-    private static func manualLibraryAppOwner(
-        mountBarrierToken: UInt64
-    ) -> LibraryAppRelaunchOwner {
-        LibraryAppRelaunchOwner(rawValue: "manual-eject-and-sleep-\(mountBarrierToken)")
     }
 
     private func manualEjectAndSleepSupersedingTriggerSnapshot() -> SleepEjectTrigger? {
@@ -2507,7 +2507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// terminal evidence is retained by the normal superseded path; later submissions stay closed.
     private func abortManualEjectAndSleepBeforeUnmountIfNeeded(
         caller: String,
-        mountBarrierToken: UInt64
+        libraryOwner: LibraryAppRelaunchOwner
     ) -> Bool {
         manualEjectAndSleepLock.lock()
         let shouldAbort = manualEjectAndSleepCommandInFlight
@@ -2518,7 +2518,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         finishManualEjectAndSleepWithoutSleep(
             attemptID: nil,
-            mountBarrierToken: mountBarrierToken
+            libraryOwner: libraryOwner
         )
         let result = SleepEjectBatchResult(attempted: [],
                                            success: [],
@@ -2540,7 +2540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         attemptID: EjectAndSleepAttemptID,
         targets: Set<EjectAndSleepDiskIdentity>,
         operationID: String,
-        mountBarrierToken: UInt64
+        libraryOwner: LibraryAppRelaunchOwner
     ) -> UInt64? {
         manualEjectAndSleepLock.lock()
         guard manualEjectAndSleepCommandInFlight,
@@ -2561,7 +2561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             attemptID: attemptID,
             targets: targets,
             operationID: operationID,
-            mountBarrierToken: mountBarrierToken
+            libraryOwner: libraryOwner
         )
         manualEjectAndSleepLock.unlock()
         return nonce
@@ -2615,10 +2615,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         )
         manualEjectAndSleepLock.unlock()
 
-        DAInventory.shared.endSleepProtectionMountBarrier(token: armed.mountBarrierToken)
-        LibraryAppHandler.finishRelaunchOwnership(
-            Self.manualLibraryAppOwner(mountBarrierToken: armed.mountBarrierToken)
+        recordNextWakeUnmountTargets(
+            Set(armed.targets.map { Self.sleepRemountTarget(for: $0) }),
+            operationID: armed.operationID,
+            reason: "ejectAndSleepNoBoundary"
         )
+
+        sleepUnmountActivityTracker.whenIdle {
+            LibraryAppHandler.finishRelaunchOwnership(armed.libraryOwner)
+        }
         log.notice("manual Eject and Sleep disarmed without remount reason=\(reason, privacy: .public) nonce=\(armed.nonce, privacy: .public) targets=\(armed.targets.sorted(), privacy: .public)")
         return true
     }
@@ -2665,10 +2670,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         manualEjectAndSleepLock.unlock()
 
         guard case let .commitForWake(identities)? = result else {
-            DAInventory.shared.endSleepProtectionMountBarrier(token: armed.mountBarrierToken)
-            LibraryAppHandler.finishRelaunchOwnership(
-                Self.manualLibraryAppOwner(mountBarrierToken: armed.mountBarrierToken)
-            )
+            LibraryAppHandler.finishRelaunchOwnership(armed.libraryOwner)
             log.error("manual Eject and Sleep wake commit rejected unexpected policy state nonce=\(armed.nonce, privacy: .public); no remount target was invented")
             return nil
         }
@@ -2676,9 +2678,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         recordAutomaticUnmountTargets(targets,
                                       operationID: armed.operationID,
                                       reason: "ejectAndSleepWake")
-        DAInventory.shared.endSleepProtectionMountBarrier(token: armed.mountBarrierToken)
         log.notice("manual Eject and Sleep committed after real wake nonce=\(armed.nonce, privacy: .public) targets=\(targets.sorted(), privacy: .public)")
-        return Self.manualLibraryAppOwner(mountBarrierToken: armed.mountBarrierToken)
+        return armed.libraryOwner
     }
 
     @discardableResult
@@ -3019,16 +3020,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         case established
         case forcedBestEffort
 
-        var waitsForInFlightAutomaticRemount: Bool {
-            if case .established = self { return true }
-            return false
-        }
-
-        var waitsForPendingInventoryMount: Bool {
-            if case .established = self { return true }
-            return false
-        }
-
         var lateSuccessRecordingPolicy: SleepUnmountLateSuccessRecordingPolicy {
             switch self {
             case .established:
@@ -3037,6 +3028,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return ForcedSleepUnmountBatchPolicy.lateSuccessRecordingPolicy
             }
         }
+    }
+
+    private enum CleanUnmountRemountDestination: Sendable {
+        case currentAutomaticWake
+        case nextWake
     }
 
     private static func automaticEjectCandidates(_ drives: [ExternalDrive]) -> [AutomaticEjectCandidate] {
@@ -3076,68 +3072,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return (kept, decision.skippedTargetCount, blocked)
     }
 
-    /// 병렬 추출. background thread 에서 호출하라.
+    /// Manual/power-off whole-disk unmount. background thread 에서 호출하라.
     /// - parameter applyExcludeFilter: true 면 자동 추출 제외 규칙 적용 (filterAutoEjectExclusions —
     ///   제외/TM 볼륨이 속한 물리 디스크 전체를 whole-disk 단위로 보호).
     ///   자동 (sleep / display sleep / power-off) path 에서만 true. 사용자 명시 추출은 false (사용자 의도 우선).
     @discardableResult
     private func ejectAllSilently(applyExcludeFilter: Bool = false,
                                   operationID: String? = nil) -> (attempted: [String], success: [String], failure: [(String, String)]) {
-        let operation = operationID ?? "-"
-        let listStarted = Date()
-        var drives = ExternalDrive.list()
-        log.info("cycle \(operation, privacy: .public) ejectAll list complete count=\(drives.count, privacy: .public) elapsed=\(self.elapsedText(since: listStarted), privacy: .public)s")
-        if applyExcludeFilter {
-            let filterStarted = Date()
-            let candidates = AppDelegate.automaticEjectCandidates(drives)
-            let (kept, skipped, blocked) = AppDelegate.filterAutoEjectExclusions(candidates)
-            drives = kept.map(\.drive)
-            if skipped > 0 {
-                log.info("cycle \(operation, privacy: .public) ejectAll filtered out \(skipped, privacy: .public) excluded/protected disks elapsed=\(self.elapsedText(since: filterStarted), privacy: .public)s")
-            }
-            if !blocked.isEmpty {
-                log.error("cycle \(operation, privacy: .public) ejectAll blocked \(blocked.count, privacy: .public) automatic targets because protected-disk identity was unresolved")
-            }
-        }
-        log.info("cycle \(operation, privacy: .public) ejectAll targets count=\(drives.count, privacy: .public) names=\(drives.map { $0.name }, privacy: .public)")
-        guard !drives.isEmpty else { return ([], [], []) }
-
-        let lock = NSLock()
-        var success: [String] = []
-        var failure: [(String, String)] = []
-        let group = DispatchGroup()
-        let parallelQueue = DispatchQueue(label: "com.yongza.ejectdrives.parallel", attributes: .concurrent)
-
-        for drive in drives {
-            group.enter()
-            parallelQueue.async {
-                let started = Date()
-                log.info("cycle \(operation, privacy: .public) → eject start: \(drive.name, privacy: .public) at \(drive.url.path, privacy: .public)")
-                let result = self.diskutilEject(volumePath: drive.url.path, operationID: operationID)
-                let elapsed = Date().timeIntervalSince(started)
-                if result.success {
-                    log.info("cycle \(operation, privacy: .public) ✓ eject OK: \(drive.name, privacy: .public) elapsed=\(String(format: "%.2f", elapsed), privacy: .public)s")
-                } else {
-                    log.error("cycle \(operation, privacy: .public) ✗ eject FAIL: \(drive.name, privacy: .public) elapsed=\(String(format: "%.2f", elapsed), privacy: .public)s error=\(result.errorMessage ?? "unknown", privacy: .public)")
-                }
-                lock.lock()
-                if result.success {
-                    success.append(drive.name)
-                } else {
-                    failure.append((drive.name, result.errorMessage ?? String(localized: "Unknown error")))
-                }
-                lock.unlock()
-                group.leave()
-            }
-        }
-        let waitStarted = Date()
-        group.wait()
-        log.info("cycle \(operation, privacy: .public) ejectAll wait complete elapsed=\(self.elapsedText(since: waitStarted), privacy: .public)s success=\(success.count, privacy: .public) failure=\(failure.count, privacy: .public)")
-        let snapshotStarted = Date()
-        DiskMenuSnapshotCache.invalidate()
+        let operation = operationID ?? newOperationID(reason: "manualEject")
+        let context = applyExcludeFilter ? "powerOff" : "manualEject"
+        let trigger: SleepEjectTrigger = applyExcludeFilter ? .powerOff : .ejectAndSleep
+        let result = ejectAllForSleep(
+            operationID: operation,
+            applyExcludeFilter: applyExcludeFilter,
+            context: context,
+            trigger: trigger,
+            forceClaims: SleepEpisodeForceClaimLedger(),
+            deadline: Date().addingTimeInterval(24),
+            remountDestination: .nextWake,
+            forceFallbackOverride: trigger.effectiveForceFallback(
+                masterEnabled: SettingsStore.forceFallbackEnabled
+            )
+        )
         DiskMenuSnapshotCache.warm()
-        log.info("cycle \(operation, privacy: .public) ejectAll snapshot warm complete elapsed=\(self.elapsedText(since: snapshotStarted), privacy: .public)s")
-        return (drives.map { $0.name }, success, failure)
+        return (result.attempted, result.success, result.failure)
     }
 
     @discardableResult
@@ -3148,51 +3106,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                   forceClaims: SleepEpisodeForceClaimLedger,
                                   deadline: Date? = nil,
                                   manualAttemptStartedAtNanoseconds: UInt64? = nil,
-                                  mode: SleepEjectBatchMode = .established) -> SleepEjectBatchResult {
+                                  mode: SleepEjectBatchMode = .established,
+                                  selectedVolumePaths: Set<String>? = nil,
+                                  remountDestination: CleanUnmountRemountDestination =
+                                      .currentAutomaticWake,
+                                  forceFallbackOverride: Bool? = nil) -> SleepEjectBatchResult {
         let operationDeadline = deadline ?? Date().addingTimeInterval(24)
-        // Snapshot 이전부터 모든 whole-disk callback terminal까지 global approval lease를
-        // 유지한다. Power willSleep lease와 중첩되므로 exact token으로 각자 해제한다.
-        let mountBarrierToken = DAInventory.shared.beginSleepProtectionMountBarrier()
-        defer {
-            DAInventory.shared.endSleepProtectionMountBarrier(token: mountBarrierToken)
-        }
-        // close/new eject가 stale remount token을 먼저 무효화한다. 그 전에 이미 command gate를
-        // 통과한 mountDisk만 끝날 때까지 기다린 뒤 현재 inventory를 수집한다.
-        let inFlightRemountStarted = Date()
-        let remountWaitBudget = mode.waitsForInFlightAutomaticRemount
-            ? remainingSleepOperationBudget(
-                wallDeadline: operationDeadline,
-                manualStartedAtNanoseconds: manualAttemptStartedAtNanoseconds
-            )
-            : 0
-        guard automaticRemountCommandGroup.wait(
-            timeout: .now() + remountWaitBudget
-        ) == .success else {
-            let message = "An automatic remount request was still pending at the unmount deadline"
-            log.error("cycle \(operationID, privacy: .public) \(context, privacy: .public) \(message, privacy: .public)")
-            return SleepEjectBatchResult(attempted: ["External drives"],
-                                         success: [],
-                                         failure: [("External drives", message)],
-                                         remountTargets: [],
-                                         manualAttemptID: nil)
-        }
-        let inFlightRemountWait = Date().timeIntervalSince(inFlightRemountStarted)
-        if inFlightRemountWait >= 0.01 {
-            log.notice("cycle \(operationID, privacy: .public) \(context, privacy: .public) waited for in-flight automatic remount elapsed=\(String(format: "%.2f", inFlightRemountWait), privacy: .public)s")
-        }
-
         let listStarted = Date()
-        // Normal reconciliation is synchronous and returns immediately. The full remaining budget
-        // is used only when an external mount has been approved but is not visible yet; returning
-        // early there would let a late mount complete after the power ACK.
-        let inventoryWait = mode.waitsForPendingInventoryMount
-            ? remainingSleepOperationBudget(
-                wallDeadline: operationDeadline,
-                manualStartedAtNanoseconds: manualAttemptStartedAtNanoseconds
-            )
-            : 0
         guard let sleepSnapshot = DAInventory.shared.automaticSleepVolumeSnapshot(
-            waitUntilReady: inventoryWait
+            selectedVolumePaths: selectedVolumePaths
         ) else {
             let message = "Disk Arbitration inventory was not ready before the automatic unmount deadline"
             log.error("cycle \(operationID, privacy: .public) \(context, privacy: .public) \(message, privacy: .public)")
@@ -3206,6 +3128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             AutomaticEjectCandidate(drive: $0.drive,
                                     identity: $0.identity,
                                     isEjectTarget: $0.isEjectTarget)
+        }
+        if let selectedVolumePaths {
+            candidates = candidates.filter {
+                selectedVolumePaths.contains($0.drive.url.path)
+            }
         }
         log.info("cycle \(operationID, privacy: .public) \(context, privacy: .public) eject list complete source=DA-atomic count=\(candidates.count, privacy: .public) elapsed=\(self.elapsedText(since: listStarted), privacy: .public)s")
 
@@ -3322,9 +3249,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         var forcedBackingByRequestKey: [SleepUnmountGroupKey: Set<String>] = [:]
         switch mode {
         case .established:
-            effectiveForceFallback = trigger.effectiveForceFallback(
-                masterEnabled: SettingsStore.forceFallbackEnabled
-            )
+            effectiveForceFallback = forceFallbackOverride
+                ?? trigger.effectiveForceFallback(
+                    masterEnabled: SettingsStore.forceFallbackEnabled
+                )
             requests = SleepUnmountPolicy.requests(
                 for: targets,
                 forceFallback: effectiveForceFallback
@@ -3562,6 +3490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     .denied("forced-sleep submission authorizer was unavailable")
                 }
                 return SleepDAUnmountPreparation(
+                    requestKey: request.key,
                     volumePath: request.representativeVolumePath ?? "-",
                     wholeDiskBSDName: request.wholeDiskBSD,
                     expectedGeneration: request.physicalGeneration,
@@ -3569,7 +3498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     expectedMountedVolumeBSDs: request.mountedVolumeBSDs,
                     enforceProtectionClosure: request.enforceProtectionClosure,
                     force: false,
-                    retainBarrierForForceContinuation: false,
+                    forceClaimLedger: nil,
                     timeout: preparationTimeout,
                     submissionDeadline: operationDeadline,
                     operationID: operationID,
@@ -3663,12 +3592,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                                          identity: identity,
                                                                          attemptID: attemptID
                                                                      )
+                                                                     if case .clean = event,
+                                                                        record.accepted,
+                                                                        !record.transferredToAutomaticWake {
+                                                                         let target = Self.sleepRemountTarget(
+                                                                             for: identity
+                                                                         )
+                                                                         switch remountDestination {
+                                                                         case .currentAutomaticWake:
+                                                                             self.recordAutomaticUnmountTargets(
+                                                                                 [target],
+                                                                                 operationID: operationID,
+                                                                                 reason: "\(context)LateClean"
+                                                                             )
+                                                                         case .nextWake:
+                                                                             self.recordNextWakeUnmountTargets(
+                                                                                 [target],
+                                                                                 operationID: operationID,
+                                                                                 reason: "\(context)LateClean"
+                                                                             )
+                                                                         }
+                                                                     }
                                                                      self.presentLateManualEjectAndSleepEvent(
                                                                          event,
                                                                          names: names,
                                                                          record: record
                                                                      )
                                                                  }
+                                                             }
+                                                         },
+                                                         onLateCleanTarget: { target in
+                                                             switch remountDestination {
+                                                             case .currentAutomaticWake:
+                                                                 self.recordAutomaticUnmountTargets(
+                                                                     [target],
+                                                                     operationID: operationID,
+                                                                     reason: "\(context)LateClean"
+                                                                 )
+                                                             case .nextWake:
+                                                                 self.recordNextWakeUnmountTargets(
+                                                                     [target],
+                                                                     operationID: operationID,
+                                                                     reason: "\(context)LateClean"
+                                                                 )
                                                              }
                                                          },
                                                          onPendingRequestTerminal: {
@@ -3746,21 +3712,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     )
                 }
 
-                if finishedAfterBatchReturn,
-                   manualAttemptID == nil,
-                   mode.lateSuccessRecordingPolicy.shouldRecordCleanSuccess(timing: .afterTimeout),
-                   let cleanTarget {
-                    // A scheduler stall may outlive the caller's hard deadline even though the DA
-                    // callback itself is clean. Preserve automatic wake-remount ownership.
-                    self.recordAutomaticUnmountTargets([cleanTarget],
-                                                       operationID: operationID,
-                                                       reason: "\(context)LateWorker")
+                if let cleanTarget {
+                    switch (remountDestination, finishedAfterBatchReturn) {
+                    case (.nextWake, _):
+                        // Record before releasing activity ownership so a simultaneous wake cannot
+                        // consume an empty ledger and postpone any manual remount by another cycle.
+                        self.recordNextWakeUnmountTargets(
+                            [cleanTarget],
+                            operationID: operationID,
+                            reason: finishedAfterBatchReturn
+                                ? "\(context)LateWorker"
+                                : context
+                        )
+                    case (.currentAutomaticWake, true)
+                        where manualAttemptID == nil
+                        && mode.lateSuccessRecordingPolicy.shouldRecordCleanSuccess(
+                            timing: .afterTimeout
+                        ):
+                        // A scheduler stall may outlive the caller's hard deadline even though the
+                        // DA callback itself is clean. Preserve the automatic wake ownership.
+                        self.recordAutomaticUnmountTargets([cleanTarget],
+                                                           operationID: operationID,
+                                                           reason: "\(context)LateWorker")
+                    case (.currentAutomaticWake, _):
+                        break
+                    }
                 }
 
-                if case .timedOutPending = result.status {
-                    // The uncancelable DA request owns this activity until its late terminal
-                    // observer records a clean target or definitive failure.
-                } else {
+                if !result.awaitsPendingRequestTerminal {
                     self.sleepUnmountActivityTracker.finish()
                 }
 
@@ -3850,48 +3829,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return r
     }
 
-    /// 외장하드 추출 — `diskutil eject` 실패 시 `diskutil unmount force` fallback.
-    /// background thread 에서만 호출.
-    private func diskutilEject(volumePath: String, operationID: String? = nil) -> (success: Bool, errorMessage: String?) {
-        let operation = operationID ?? "-"
-        let eject = runDiskutil(["eject", volumePath], operationID: operationID)
-        if eject.success {
-            return eject
+    /// User-commanded individual unmount. It uses the same public Whole-disk DA path as every
+    /// sleep trigger and records an exact remount target for the next wake boundary.
+    private func manualWholeDiskUnmount(
+        volumePath: String,
+        operationID: String? = nil
+    ) -> (success: Bool, errorMessage: String?) {
+        let operation = operationID ?? newOperationID(reason: "manualEject")
+        let result = ejectAllForSleep(
+            operationID: operation,
+            applyExcludeFilter: false,
+            context: "manualEject",
+            trigger: .ejectAndSleep,
+            forceClaims: SleepEpisodeForceClaimLedger(),
+            deadline: Date().addingTimeInterval(24),
+            selectedVolumePaths: Set([volumePath]),
+            remountDestination: .nextWake,
+            forceFallbackOverride: SettingsStore.forceFallbackEnabled
+        )
+        if !result.success.isEmpty {
+            return (true, nil)
         }
-        // `diskutil eject` 는 whole-disk 동작 — 같은 물리 디스크의 다른 볼륨을 병렬 추출하면
-        // 먼저 끝난 쪽이 이 볼륨까지 분리해 진 쪽 명령이 실패로 끝난다. 볼륨이 이미 사라졌으면
-        // 성공으로 처리 (multi-partition "Eject All" 거짓 실패 알림 방지 — sleep 경로와 같은 가드).
-        if !DAInventory.shared.isVolumePresent(at: volumePath) {
-            log.notice("cycle \(operation, privacy: .public) volume already gone after eject — treat as success: \(volumePath, privacy: .public)")
+        if result.attempted.isEmpty,
+           !DAInventory.shared.isVolumePresent(at: volumePath) {
+            log.notice("cycle \(operation, privacy: .public) manual Whole target already unmounted: \(volumePath, privacy: .public)")
             return (true, nil)
         }
 
-        guard SettingsStore.forceFallbackEnabled else {
-            log.notice("cycle \(operation, privacy: .public) force fallback disabled for \(volumePath, privacy: .public)")
-            // 카테고리만 — 디스크명/경로 절대 포함 안 함.
-            ErrorReporter.report(signature: "diskutil_eject_failed_no_fallback")
-            return eject
-        }
-        log.notice("cycle \(operation, privacy: .public) diskutil eject failed for \(volumePath, privacy: .public), fallback to unmount force — \(eject.errorMessage ?? "?", privacy: .public)")
-        let force = runDiskutil(["unmount", "force", volumePath], operationID: operationID)
-        if force.success {
-            log.notice("cycle \(operation, privacy: .public) force fallback succeeded for \(volumePath, privacy: .public)")
-            return force
-        }
-        if !DAInventory.shared.isVolumePresent(at: volumePath) {
-            log.notice("cycle \(operation, privacy: .public) volume gone after force fallback — treat as success: \(volumePath, privacy: .public)")
-            return (true, nil)
-        }
-
-        // 정상 eject + force unmount 둘 다 실패 — 가장 의미 있는 실패 카테고리. 디스크 식별 정보 없음.
-        ErrorReporter.report(signature: "diskutil_force_unmount_failed")
-        let ejectMessage = eject.errorMessage ?? "diskutil eject failed"
-        let forceMessage = force.errorMessage ?? "diskutil unmount force failed"
-        var details = [ejectMessage, "force fallback: \(forceMessage)"]
+        var details = result.failure.map(\.1)
         if let blockers = LsofInspector.diagnosticMessage(forVolumePath: volumePath) {
             details.append(blockers)
         }
-        return (false, details.joined(separator: "\n"))
+        return (false, details.isEmpty
+            ? String(localized: "Unknown error")
+            : details.joined(separator: "\n"))
     }
 
     private func unmountRequestForSleep(volumePath: String,
@@ -3911,13 +3882,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                         submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer? = nil,
                                         onWaiterTimeout: ((Bool) -> Void)? = nil,
                                         onLateTerminal: ((EjectAndSleepDiskEvent) -> Void)? = nil,
+                                        onLateCleanTarget: ((SleepRemountTarget) -> Void)? = nil,
                                         onPendingRequestTerminal: (() -> Void)? = nil,
                                         lateSuccessRecordingPolicy: SleepUnmountLateSuccessRecordingPolicy =
                                             .preserveAutomaticRemountOwnership)
         -> SleepUnmountAttemptResult {
-        // 기존 설정 의미를 보존한다: normal을 먼저 시도하고, callback이 명시적으로 거절한 경우에만
-        // force를 순차 실행한다. timeout은 underlying request 취소가 아니므로 절대 force와 겹치지 않는다.
-        // IOKit ACK 25초보다 여유를 둔 하나의 total deadline 안에서 두 시도를 나눈다.
+        let operation = operationID ?? "-"
         let normalBudget = remainingSleepOperationBudget(
             wallDeadline: deadline,
             manualStartedAtNanoseconds: manualStartedAtNanoseconds
@@ -3934,125 +3904,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 status: .deadlineExpired
             )
         }
-        let normal = diskArbitrationUnmountForSleep(
-            volumePath: volumePath,
-            wholeDiskBSDName: wholeDiskBSDName,
-            expectedGeneration: expectedGeneration,
-            expectedMediaRegistryEntryID: expectedMediaRegistryEntryID,
-            expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
-            enforceProtectionClosure: enforceProtectionClosure,
-            force: false,
-            retainBarrierForForceContinuation: allowForceFallback,
-            operationID: operationID,
-            timeout: normalBudget,
-            context: context,
-            preparedRequest: preparedNormalRequest,
-            submissionAuthorizer: submissionAuthorizer,
-            onWaiterTimeout: onWaiterTimeout,
-            onLateTerminal: onLateTerminal,
-            onPendingRequestTerminal: onPendingRequestTerminal,
-            lateSuccessRecordingPolicy: lateSuccessRecordingPolicy
-        )
-        if normal.success {
-            return normal
-        }
+        let coordinator = SleepUnmountEscalationCoordinator()
+        let pendingRequests = SleepUnmountPendingRequestSet()
 
-        // Timeout already releases this waiter's reservation inside DAInventory. Only a real
-        // dissenter callback retains a continuation for the caller to release after its decision.
-        let shouldReleaseDeclineContinuation = SleepForceContinuationReleasePolicy
-            .callerOwnsRelease(forceContinuationReserved: allowForceFallback,
-                               requestWasForced: normal.requestWasForced,
-                               dissenterStatus: normal.dissenterStatus)
-        defer {
-            if shouldReleaseDeclineContinuation {
-                DAInventory.shared.releaseSleepUnmountForceContinuation(
-                    wholeDiskBSDName: wholeDiskBSDName,
-                    expectedGeneration: expectedGeneration,
-                    expectedMediaRegistryEntryID: expectedMediaRegistryEntryID
+        func rawWait(
+            force: Bool,
+            timeout: TimeInterval,
+            preparedRequest: PreparedSleepDAUnmount? = nil
+        ) -> SleepDAUnmountWaitResult {
+            if let preparedRequest {
+                return DAInventory.shared.waitForPreparedSleepUnmount(
+                    preparedRequest,
+                    timeout: timeout
                 )
             }
-        }
-
-        let next = normal.dissenterStatus.flatMap {
-            SleepUnmountPolicy.nextOperation(after: .callbackFailure($0),
-                                             requestWasForced: normal.requestWasForced,
-                                             forceFallback: allowForceFallback)
-        }
-        guard next == .wholeForce else {
-            if normal.dissenterStatus != nil {
-                ErrorReporter.report(signature: "sleep_da_unmount_declined")
+            let requestAuthorizer: SleepDAUnmountSubmissionAuthorizer?
+            if force {
+                requestAuthorizer = { requestWasForced, submission in
+                    guard requestWasForced else {
+                        return .denied("Force authorization received a normal request")
+                    }
+                    // This closure runs on DAInventory's serial queue at the join/submission
+                    // boundary. Any normal callback already ahead of it has therefore updated the
+                    // coordinator and invalidates this destructive request before it can start.
+                    guard coordinator.claimForceSubmission() else {
+                        return .denied("DA normal Whole completed before Force submission")
+                    }
+                    if let submissionAuthorizer {
+                        return submissionAuthorizer(requestWasForced, submission)
+                    }
+                    submission()
+                    return .submitted
+                }
+            } else {
+                requestAuthorizer = submissionAuthorizer
             }
-            return normal
-        }
-
-        let remaining = remainingSleepOperationBudget(
-            wallDeadline: deadline,
-            manualStartedAtNanoseconds: manualStartedAtNanoseconds
-        )
-        guard remaining > 0 else {
-            ErrorReporter.report(signature: "sleep_da_unmount_declined_no_force_budget")
-            return normal
-        }
-        guard forceClaims.claimForce(for: requestKey) else {
-            ErrorReporter.report(signature: "sleep_da_force_unmount_already_claimed")
-            log.notice("cycle \(operationID ?? "-", privacy: .public) \(context, privacy: .public) DA force fallback suppressed because this physical request already used its one episode claim")
-            return normal
-        }
-        onLateTerminal?(.forceStarted)
-        log.notice("cycle \(operationID ?? "-", privacy: .public) \(context, privacy: .public) DA normal unmount declined with force-eligible busy status; starting one sequential force fallback remaining=\(String(format: "%.2f", remaining), privacy: .public)s")
-        let forced = diskArbitrationUnmountForSleep(
-            volumePath: volumePath,
-            wholeDiskBSDName: wholeDiskBSDName,
-            expectedGeneration: expectedGeneration,
-            expectedMediaRegistryEntryID: expectedMediaRegistryEntryID,
-            expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
-            enforceProtectionClosure: enforceProtectionClosure,
-            force: true,
-            retainBarrierForForceContinuation: false,
-            operationID: operationID,
-            timeout: remaining,
-            context: context,
-            submissionAuthorizer: submissionAuthorizer,
-            onWaiterTimeout: onWaiterTimeout,
-            onLateTerminal: onLateTerminal,
-            onPendingRequestTerminal: onPendingRequestTerminal,
-            lateSuccessRecordingPolicy: lateSuccessRecordingPolicy
-        )
-        if !forced.success {
-            ErrorReporter.report(signature: "sleep_da_force_unmount_failed")
-        }
-        return forced
-    }
-
-    private func diskArbitrationUnmountForSleep(volumePath: String,
-                                                wholeDiskBSDName: String?,
-                                                expectedGeneration: UInt64?,
-                                                expectedMediaRegistryEntryID: UInt64?,
-                                                expectedMountedVolumeBSDs: Set<String>?,
-                                                enforceProtectionClosure: Bool,
-                                                force: Bool,
-                                                retainBarrierForForceContinuation: Bool,
-                                                operationID: String? = nil,
-                                                timeout: TimeInterval,
-                                                context: String = "sleep",
-                                                preparedRequest: PreparedSleepDAUnmount? = nil,
-                                                submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer? = nil,
-                                                onWaiterTimeout: ((Bool) -> Void)? = nil,
-                                                onLateTerminal: ((EjectAndSleepDiskEvent) -> Void)? = nil,
-                                                onPendingRequestTerminal: (() -> Void)? = nil,
-                                                lateSuccessRecordingPolicy: SleepUnmountLateSuccessRecordingPolicy)
-        -> SleepUnmountAttemptResult {
-        let operation = operationID ?? "-"
-        let started = Date()
-        let result: SleepDAUnmountWaitResult
-        if let preparedRequest {
-            result = DAInventory.shared.waitForPreparedSleepUnmount(
-                preparedRequest,
-                timeout: timeout,
-                retainBarrierForForceContinuation: retainBarrierForForceContinuation
-            )
-        } else {
-            result = DAInventory.shared.unmountForSleep(
+            return DAInventory.shared.unmountForSleep(
                 volumePath: volumePath,
                 wholeDiskBSDName: wholeDiskBSDName,
                 expectedGeneration: expectedGeneration,
@@ -4060,85 +3947,360 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
                 enforceProtectionClosure: enforceProtectionClosure,
                 force: force,
-                retainBarrierForForceContinuation: retainBarrierForForceContinuation,
+                requestKey: requestKey,
+                forceClaimLedger: force ? forceClaims : nil,
                 timeout: timeout,
+                submissionDeadline: deadline,
                 operationID: operation,
                 context: context,
-                submissionAuthorizer: submissionAuthorizer
+                submissionAuthorizer: requestAuthorizer
             )
         }
-        let elapsed = elapsedText(since: started)
-        switch result {
-        case let .completed(.callbackSuccess, requestWasForced):
-            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA explicit clean callback accepted target=\(wholeDiskBSDName ?? volumePath, privacy: .public) actualMode=\(requestWasForced ? "force" : "normal", privacy: .public) elapsed=\(elapsed, privacy: .public)s")
-            return SleepUnmountAttemptResult(success: true,
-                                             errorMessage: nil,
-                                             dissenterStatus: nil,
-                                             requestWasForced: requestWasForced,
-                                             status: .clean)
-        case let .completed(.callbackFailure(status, reason), requestWasForced):
-            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA unmount declined actualMode=\(requestWasForced ? "force" : "normal", privacy: .public) status=0x\(String(status.rawValue, radix: 16, uppercase: true), privacy: .public) forceEligible=\(status.isForceEligible, privacy: .public) elapsed=\(elapsed, privacy: .public)s reason=\(reason, privacy: .public)")
-            return SleepUnmountAttemptResult(success: false,
-                                             errorMessage: "DA unmount declined: \(reason)",
-                                             dissenterStatus: status,
-                                             requestWasForced: requestWasForced,
-                                             status: .declined(status))
-        case let .completed(.disconnectedBeforeCallback, requestWasForced):
-            log.error("cycle \(operation, privacy: .public) \(context, privacy: .public) media disconnected before clean callback elapsed=\(elapsed, privacy: .public)s")
-            ErrorReporter.report(signature: "sleep_media_removed_before_clean_callback")
-            return SleepUnmountAttemptResult(success: false,
-                                             errorMessage: "Media disconnected before clean unmount completed",
-                                             dissenterStatus: nil,
-                                             requestWasForced: requestWasForced,
-                                             status: .disconnected)
-        case let .timedOutPending(request):
-            let lateTarget = SleepRemountTarget(
-                wholeDiskBSD: request.token.wholeDiskBSD,
-                physicalGeneration: request.token.generation,
-                mediaRegistryEntryID: request.token.mediaRegistryEntryID
-            )
-            onWaiterTimeout?(request.force)
-            request.onLateTerminal { [weak self] evidence in
-                guard let self else { return }
-                defer { onPendingRequestTerminal?() }
-                switch evidence {
-                case .callbackSuccess:
-                    log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) late DA clean callback accepted after waiter timeout target=\(lateTarget.wholeDiskBSD, privacy: .public) generation=\(lateTarget.physicalGeneration, privacy: .public)")
-                    if let onLateTerminal {
-                        onLateTerminal(.clean(request.force ? .force : .normal))
-                    } else if lateSuccessRecordingPolicy.shouldRecordCleanSuccess(
-                        timing: .afterTimeout
-                    ) {
-                        self.recordAutomaticUnmountTargets([lateTarget],
-                                                           operationID: operation,
-                                                           reason: context)
-                    }
-                case let .callbackFailure(status, reason):
-                    onLateTerminal?(.failed(Self.manualFailure(
-                        status: status,
-                        forceWasAllowed: retainBarrierForForceContinuation || request.force,
-                        diagnostic: reason
-                    )))
-                case .disconnectedBeforeCallback:
-                    onLateTerminal?(.disconnected)
-                }
+
+        func escalationEvent(
+            for evidence: SleepDAUnmountEvidence,
+            requestWasForced: Bool
+        ) -> SleepUnmountEscalationEvent {
+            switch (requestWasForced, evidence) {
+            case (false, .callbackSuccess):
+                return .normalCallbackSuccess
+            case let (false, .callbackFailure(status, _)):
+                return .normalCallbackFailure(status)
+            case (false, .disconnectedBeforeCallback):
+                return .normalDisconnected
+            case (true, .callbackSuccess):
+                return .forceCallbackSuccess
+            case let (true, .callbackFailure(status, _)):
+                return .forceCallbackFailure(status)
+            case (true, .disconnectedBeforeCallback):
+                return .forceDisconnected
             }
-            log.error("cycle \(operation, privacy: .public) \(context, privacy: .public) DA unmount wait timed out; request remains pending and no fallback will overlap elapsed=\(elapsed, privacy: .public)s")
-            ErrorReporter.report(signature: "sleep_da_unmount_timed_out_pending")
-            return SleepUnmountAttemptResult(success: false,
-                                             errorMessage: "DA unmount timed out while the request remained pending",
-                                             dissenterStatus: nil,
-                                             requestWasForced: request.force,
-                                             status: .timedOutPending)
-        case let .unavailable(reason):
-            log.error("cycle \(operation, privacy: .public) \(context, privacy: .public) DA unmount unavailable elapsed=\(elapsed, privacy: .public)s reason=\(reason, privacy: .public)")
-            ErrorReporter.report(signature: "sleep_da_unmount_unavailable")
-            return SleepUnmountAttemptResult(success: false,
-                                             errorMessage: reason,
-                                             dissenterStatus: nil,
-                                             requestWasForced: force,
-                                             status: .unavailable)
         }
+
+        func consume(
+            _ evidence: SleepDAUnmountEvidence,
+            requestWasForced: Bool,
+            allowsForce: Bool? = nil
+        ) -> SleepUnmountEscalationAction {
+            coordinator.consume(
+                escalationEvent(for: evidence, requestWasForced: requestWasForced),
+                terminal: .evidence(evidence, requestWasForced: requestWasForced),
+                allowsForceFallback: allowsForce ?? allowForceFallback
+            )
+        }
+
+        func remountTarget() -> SleepRemountTarget? {
+            guard let wholeDiskBSDName,
+                  let expectedGeneration,
+                  let expectedMediaRegistryEntryID else { return nil }
+            return SleepRemountTarget(
+                wholeDiskBSD: wholeDiskBSDName,
+                physicalGeneration: expectedGeneration,
+                mediaRegistryEntryID: expectedMediaRegistryEntryID
+            )
+        }
+
+        func terminalIsClean(_ terminal: SleepUnmountEscalationTerminal?) -> Bool {
+            guard case .evidence(.callbackSuccess, _) = terminal else { return false }
+            return true
+        }
+
+        func observe(_ request: PendingSleepDAUnmount) {
+            pendingRequests.track(request) { evidence in
+                let action = consume(evidence, requestWasForced: request.force)
+                guard case .callbackSuccess = evidence,
+                      action == .none,
+                      !terminalIsClean(coordinator.terminalSnapshot()),
+                      let target = remountTarget() else { return }
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) clean callback arrived after the logical Force result; preserving wake remount target=\(target.wholeDiskBSD, privacy: .public)")
+                onLateCleanTarget?(target)
+            }
+        }
+
+        func attempt(
+            from terminal: SleepUnmountEscalationTerminal,
+            awaitsPending: Bool
+        ) -> SleepUnmountAttemptResult {
+            switch terminal {
+            case let .evidence(.callbackSuccess, requestWasForced):
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA explicit clean callback accepted target=\(wholeDiskBSDName ?? volumePath, privacy: .public) actualMode=\(requestWasForced ? "force" : "normal", privacy: .public)")
+                return SleepUnmountAttemptResult(
+                    success: true,
+                    errorMessage: nil,
+                    dissenterStatus: nil,
+                    requestWasForced: requestWasForced,
+                    status: .clean,
+                    awaitsPendingRequestTerminal: awaitsPending
+                )
+            case let .evidence(.callbackFailure(status, reason), requestWasForced):
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA unmount declined actualMode=\(requestWasForced ? "force" : "normal", privacy: .public) status=0x\(String(status.rawValue, radix: 16, uppercase: true), privacy: .public) reason=\(reason, privacy: .public)")
+                return SleepUnmountAttemptResult(
+                    success: false,
+                    errorMessage: "DA unmount declined: \(reason)",
+                    dissenterStatus: status,
+                    requestWasForced: requestWasForced,
+                    status: .declined(status),
+                    awaitsPendingRequestTerminal: awaitsPending
+                )
+            case let .evidence(.disconnectedBeforeCallback, requestWasForced):
+                ErrorReporter.report(signature: "sleep_media_removed_before_clean_callback")
+                return SleepUnmountAttemptResult(
+                    success: false,
+                    errorMessage: "Media disconnected before clean unmount completed",
+                    dissenterStatus: nil,
+                    requestWasForced: requestWasForced,
+                    status: .disconnected,
+                    awaitsPendingRequestTerminal: awaitsPending
+                )
+            case let .unavailable(reason, requestWasForced):
+                ErrorReporter.report(signature: "sleep_da_unmount_unavailable")
+                return SleepUnmountAttemptResult(
+                    success: false,
+                    errorMessage: reason,
+                    dissenterStatus: nil,
+                    requestWasForced: requestWasForced,
+                    status: .unavailable,
+                    awaitsPendingRequestTerminal: awaitsPending
+                )
+            }
+        }
+
+        func presentLate(_ terminal: SleepUnmountEscalationTerminal) {
+            switch terminal {
+            case let .evidence(.callbackSuccess, requestWasForced):
+                guard let target = remountTarget() else { return }
+                log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) late DA clean callback accepted after waiter timeout target=\(target.wholeDiskBSD, privacy: .public) generation=\(target.physicalGeneration, privacy: .public)")
+                if let onLateTerminal {
+                    // Manual Eject and Sleep owns both its typed outcome and wake destination. Its
+                    // callback closes over that destination so the automatic recorder must not also
+                    // write the same target.
+                    onLateTerminal(.clean(requestWasForced ? .force : .normal))
+                } else if lateSuccessRecordingPolicy.shouldRecordCleanSuccess(timing: .afterTimeout) {
+                    if let onLateCleanTarget {
+                        onLateCleanTarget(target)
+                    } else {
+                        recordAutomaticUnmountTargets(
+                            [target],
+                            operationID: operation,
+                            reason: context
+                        )
+                    }
+                }
+            case let .evidence(.callbackFailure(status, reason), requestWasForced):
+                onLateTerminal?(.failed(Self.manualFailure(
+                    status: status,
+                    forceWasAllowed: allowForceFallback || requestWasForced,
+                    diagnostic: reason
+                )))
+            case .evidence(.disconnectedBeforeCallback, _):
+                onLateTerminal?(.disconnected)
+            case let .unavailable(reason, _):
+                onLateTerminal?(.failed(EjectAndSleepFailure(
+                    .unavailable,
+                    diagnostic: reason
+                )))
+            }
+        }
+
+        let normalWait = SleepUnmountForceWatchdogPolicy.normalWaitDuration(
+            remainingBudget: normalBudget,
+            allowsForceFallback: allowForceFallback
+        )
+        let normalResult = rawWait(
+            force: false,
+            timeout: normalWait,
+            preparedRequest: preparedNormalRequest
+        )
+        var shouldSubmitForce = false
+        var forceAlreadyActive = false
+        switch normalResult {
+        case let .completed(evidence, requestWasForced):
+            if requestWasForced {
+                return attempt(
+                    from: .evidence(evidence, requestWasForced: true),
+                    awaitsPending: false
+                )
+            }
+            let forceBudget = remainingSleepOperationBudget(
+                wallDeadline: deadline,
+                manualStartedAtNanoseconds: manualStartedAtNanoseconds
+            )
+            let action = consume(
+                evidence,
+                requestWasForced: requestWasForced,
+                allowsForce: allowForceFallback && forceBudget > 0
+            )
+            if action == .submitForce {
+                shouldSubmitForce = true
+            } else if let terminal = coordinator.wait(timeout: 0) {
+                return attempt(from: terminal, awaitsPending: false)
+            }
+        case let .timedOutPending(request):
+            if request.force {
+                // Move to awaitingForce before installing an observer. If the already-active Force
+                // callback won this boundary, it must not be discarded as an awaitingNormal event.
+                _ = coordinator.consume(
+                    .forceRequestAlreadyPending,
+                    allowsForceFallback: true
+                )
+                observe(request)
+                forceAlreadyActive = true
+                break
+            }
+            let forceBudget = remainingSleepOperationBudget(
+                wallDeadline: deadline,
+                manualStartedAtNanoseconds: manualStartedAtNanoseconds
+            )
+            let action = coordinator.consume(
+                .normalCallbackTimedOut,
+                allowsForceFallback: SleepUnmountForceWatchdogPolicy.allowsTimeoutEscalation(
+                    initialRemainingBudget: normalBudget,
+                    currentRemainingBudget: forceBudget,
+                    allowsForceFallback: allowForceFallback
+                )
+            )
+            // The watchdog transition owns the 2-second boundary before the observer is installed.
+            // Sticky evidence then replays any callback that arrived in between without losing it.
+            observe(request)
+            shouldSubmitForce = action == .submitForce
+            if !shouldSubmitForce {
+                let awaitsPending = pendingRequests.seal {
+                    onPendingRequestTerminal?()
+                }
+                if let terminal = coordinator.wait(timeout: 0) {
+                    return attempt(from: terminal, awaitsPending: awaitsPending)
+                }
+                onWaiterTimeout?(false)
+                coordinator.observeTerminal(presentLate)
+                ErrorReporter.report(signature: "sleep_da_unmount_timed_out_pending")
+                return SleepUnmountAttemptResult(
+                    success: false,
+                    errorMessage: "DA normal Whole unmount timed out while the request remained pending",
+                    dissenterStatus: nil,
+                    requestWasForced: false,
+                    status: .timedOutPending,
+                    awaitsPendingRequestTerminal: awaitsPending
+                )
+            }
+        case let .unavailable(reason):
+            _ = coordinator.consume(
+                .normalUnavailable,
+                terminal: .unavailable(reason, requestWasForced: false),
+                allowsForceFallback: allowForceFallback
+            )
+            return attempt(
+                from: coordinator.wait(timeout: 0)!,
+                awaitsPending: false
+            )
+        }
+
+        guard shouldSubmitForce || forceAlreadyActive else {
+            return SleepUnmountAttemptResult(
+                success: false,
+                errorMessage: "DA normal Whole unmount did not reach a terminal result",
+                dissenterStatus: nil,
+                requestWasForced: false,
+                status: .unavailable
+            )
+        }
+
+        var remaining = remainingSleepOperationBudget(
+            wallDeadline: deadline,
+            manualStartedAtNanoseconds: manualStartedAtNanoseconds
+        )
+        var forceRequestIsActive = forceAlreadyActive
+        if shouldSubmitForce {
+            guard remaining > 0 else {
+                let awaitsPending = pendingRequests.seal {
+                    onPendingRequestTerminal?()
+                }
+                onWaiterTimeout?(false)
+                coordinator.observeTerminal(presentLate)
+                return SleepUnmountAttemptResult(
+                    success: false,
+                    errorMessage: "The unmount deadline expired before Whole|Force could start",
+                    dissenterStatus: nil,
+                    requestWasForced: false,
+                    status: .deadlineExpired,
+                    awaitsPendingRequestTerminal: awaitsPending
+                )
+            }
+            remaining = remainingSleepOperationBudget(
+                wallDeadline: deadline,
+                manualStartedAtNanoseconds: manualStartedAtNanoseconds
+            )
+            guard remaining > 0 else {
+                let awaitsPending = pendingRequests.seal {
+                    onPendingRequestTerminal?()
+                }
+                onWaiterTimeout?(false)
+                coordinator.observeTerminal(presentLate)
+                return SleepUnmountAttemptResult(
+                    success: false,
+                    errorMessage: "The unmount deadline expired before Whole|Force could start",
+                    dissenterStatus: nil,
+                    requestWasForced: false,
+                    status: .deadlineExpired,
+                    awaitsPendingRequestTerminal: awaitsPending
+                )
+            }
+            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) DA normal Whole did not complete cleanly within 2.0s or returned busy; submitting or joining one episode Whole|Force request remaining=\(String(format: "%.2f", remaining), privacy: .public)s")
+            let forceResult = rawWait(
+                force: true,
+                timeout: 0
+            )
+            switch forceResult {
+            case let .completed(evidence, requestWasForced):
+                forceRequestIsActive = true
+                onLateTerminal?(.forceStarted)
+                _ = consume(evidence, requestWasForced: requestWasForced)
+            case let .timedOutPending(request):
+                forceRequestIsActive = true
+                onLateTerminal?(.forceStarted)
+                observe(request)
+            case let .unavailable(reason):
+                _ = coordinator.consume(
+                    .forceUnavailable,
+                    terminal: .unavailable(reason, requestWasForced: true),
+                    allowsForceFallback: allowForceFallback
+                )
+            }
+        } else {
+            onLateTerminal?(.forceStarted)
+            log.notice("cycle \(operation, privacy: .public) \(context, privacy: .public) joined an existing Whole|Force request")
+        }
+
+        remaining = remainingSleepOperationBudget(
+            wallDeadline: deadline,
+            manualStartedAtNanoseconds: manualStartedAtNanoseconds
+        )
+        let terminal = coordinator.wait(timeout: remaining)
+        let awaitsPending = pendingRequests.seal {
+            onPendingRequestTerminal?()
+        }
+        if let terminal {
+            let result = attempt(from: terminal, awaitsPending: awaitsPending)
+            if !result.success, result.requestWasForced {
+                ErrorReporter.report(signature: "sleep_da_force_unmount_failed")
+            }
+            return result
+        }
+
+        onWaiterTimeout?(forceRequestIsActive)
+        coordinator.observeTerminal(presentLate)
+        ErrorReporter.report(signature: forceRequestIsActive
+            ? "sleep_da_force_unmount_timed_out_pending"
+            : "sleep_da_force_unmount_unavailable")
+        return SleepUnmountAttemptResult(
+            success: false,
+            errorMessage: forceRequestIsActive
+                ? "DA Whole|Force unmount timed out while the request remained pending"
+                : "DA Whole|Force request was unavailable",
+            dissenterStatus: nil,
+            requestWasForced: forceRequestIsActive,
+            status: forceRequestIsActive ? .timedOutPending : .unavailable,
+            awaitsPendingRequestTerminal: awaitsPending
+        )
     }
 
     /// diskutil 외부 명령 실행 helper.
@@ -4422,7 +4584,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func tearDownPowerSleepObserver() {
-        endPowerSleepMountBarrierIfNeeded()
         // ACK coordinator 가 열린 rootPort 를 마지막으로 사용한 뒤에만 observer/port 를 닫는다.
         // completion/deadline/termination 경쟁에서도 closed port 로 IOAllowPowerChange 하지 않게 한다.
         powerSleepAckCoordinator?.shutdownAndDrain()
@@ -4473,7 +4634,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             powerSleepCycleDeduplicator.advanceEpoch()
             powerSleepCycleLock.unlock()
             powerSleepAckCoordinator?.advanceEpoch()
-            endPowerSleepMountBarrierIfNeeded()
             // WillNotSleep only terminates a prior idle CanSystemSleep attempt. It has no causal
             // nonce for DiskOUT's explicit pmset request, so it must not cancel a manual transaction.
             log.notice("IOKit systemWillNotSleep received notificationID=\(notificationID, privacy: .public)")
@@ -4482,7 +4642,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             powerSleepCycleDeduplicator.advanceEpoch()
             powerSleepCycleLock.unlock()
             powerSleepAckCoordinator?.advanceEpoch()
-            endPowerSleepMountBarrierIfNeeded()
             let manualOwner = commitManualEjectAndSleepAfterWake()
             autoEjectStateLock.lock()
             if let systemOwner = currentSystemSleepLibraryAppOwner {
@@ -4533,7 +4692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             lidEpisodeForceClaims = nil
             lidEpisodeInventoryCompletedGeneration = nil
             lidEpisodePowerRetryStarted = false
-            lidEpisodeNeedsInventoryRefresh = false
+            lidEpisodeNeedsGenerationRefresh = false
             sleepEjectStateLock.unlock()
             if let remountSchedule {
                 scheduleAutomaticRemount(remountSchedule, trigger: "clamshellOpen")
@@ -4612,20 +4771,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             )
             return
         case let .inFlight(operationID):
-            if trigger.participatesInEjectFlow {
-                // Continue into the normal lid/idle path. Its authoritative snapshot joins any
-                // exact DA request the manual worker already started and owns wake remounts.
-                log.notice("IOKit systemWillSleep superseded in-flight Eject and Sleep; continuing normal trigger path notificationID=\(notificationID, privacy: .public) operation=\(operationID, privacy: .public) trigger=\(trigger.logLabel, privacy: .public)")
-                break
-            } else {
-                powerSleepAckCoordinator?.acknowledgeImmediately(
-                    messageType: ioMessageSystemWillSleep,
-                    notificationID: notificationID,
-                    operationID: "policy-pass-through"
-                )
-                log.notice("IOKit active systemWillSleep passed through while Eject and Sleep was queued notificationID=\(notificationID, privacy: .public) trigger=\(trigger.logLabel, privacy: .public)")
-            }
-            return
+            // Continue into the shared Whole-normal path. Its authoritative snapshot joins any
+            // exact DA request the manual worker already started and owns wake remounts.
+            log.notice("IOKit systemWillSleep superseded in-flight Eject and Sleep; continuing normal trigger path notificationID=\(notificationID, privacy: .public) operation=\(operationID, privacy: .public) trigger=\(trigger.logLabel, privacy: .public)")
+            break
         case .none:
             break
         }
@@ -4668,17 +4817,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return
         }
 
-        guard trigger.participatesInEjectFlow else {
-            log.notice("IOKit systemWillSleep passed through by policy notificationID=\(notificationID, privacy: .public) origin=\(origin == .idle ? "idle" : "forced", privacy: .public) trigger=\(trigger.logLabel, privacy: .public)")
-            powerSleepAckCoordinator?.acknowledgeImmediately(
-                messageType: ioMessageSystemWillSleep,
-                notificationID: notificationID,
-                operationID: "policy-pass-through"
-            )
-            return
-        }
-
-        beginPowerSleepMountBarrierIfNeeded()
         let boundaryForceClaims = lidGeneration.flatMap {
             currentLidEpisodeForceClaims(generation: $0)
         } ?? SleepEpisodeForceClaimLedger()
@@ -4725,9 +4863,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
 
-            // Drain all DA events queued before this decision. A mountedExternal event that arrived
-            // after the prior task's snapshot must become a refresh inside this ACK chain.
-            DAInventory.shared.flushPendingEvents()
             let differentActive = self.currentSleepEjectTask().flatMap {
                 $0.operationID == task.operationID ? nil : $0
             }
@@ -4741,7 +4876,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 let refreshPending = SleepLidInventoryPolicy.needsBoundaryRefresh(
                     currentClosedGeneration: currentLidGeneration,
                     completedInventoryGeneration: self.lidEpisodeInventoryCompletedGeneration,
-                    explicitRefreshPending: self.lidEpisodeNeedsInventoryRefresh
+                    generationRefreshPending: self.lidEpisodeNeedsGenerationRefresh
                 )
                 let latestOutcome: Bool?
                 if self.lidEpisodeInventoryCompletedGeneration == currentLidGeneration {
@@ -4790,7 +4925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             case .refreshInventory:
                 let next: SleepEjectTask
                 if let currentLidGeneration,
-                   let lidTask = self.startLidInventoryRefreshIfNeeded(
+                   let lidTask = self.startLidGenerationRefreshIfNeeded(
                     generation: currentLidGeneration,
                     forceRefresh: true,
                     reason: "powerSleepRefresh",
@@ -4889,22 +5024,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         reason == "powerSleep"
             || reason == "powerSleepRefresh"
             || reason == "powerSleepRetry"
-            || reason == "clamshellMediaMounted"
+            || reason == "lidGenerationRefresh"
             || reason == "workspaceSleep"
-    }
-
-    private func beginPowerSleepMountBarrierIfNeeded() {
-        guard powerSleepMountBarrierToken == nil else { return }
-        let token = DAInventory.shared.beginSleepProtectionMountBarrier()
-        powerSleepMountBarrierToken = token
-        log.notice("power sleep external-mount barrier began token=\(token, privacy: .public)")
-    }
-
-    private func endPowerSleepMountBarrierIfNeeded() {
-        guard let token = powerSleepMountBarrierToken else { return }
-        powerSleepMountBarrierToken = nil
-        DAInventory.shared.endSleepProtectionMountBarrier(token: token)
-        log.notice("power sleep external-mount barrier ended token=\(token, privacy: .public)")
     }
 
     private func startSleepEjectIfCurrentLidMatches(reason: String,
@@ -4957,8 +5078,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     /// Power and clamshell notifications can cross on the main run loop. Only a recent physical
-    /// close edge receives lid ownership. A lid that has merely remained closed cannot override the
-    /// strict pass-through policy for Apple-menu, shortcut, command, or app-requested sleep.
+    /// close edge receives lid ownership. Apple-menu, shortcut, command, and unclassified sleep use
+    /// the normal-only system-sleep policy instead of inheriting lid Force authorization.
     private func attributedSystemSleepTrigger(isIdle: Bool?) -> SleepEjectTrigger {
         let lidAttributed = SleepLidAttributionPolicy.isRecentClose(
             closedAtNanoseconds: lastClamshellCloseAtNanoseconds,
@@ -4969,48 +5090,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                              lidAttributed: lidAttributed)
     }
 
-    /// Amphetamine CDM처럼 lid가 닫힌 채 awake인 동안 새 external volume이 mount되면 기존
-    /// completed lid group을 재사용하지 않고, 현재 active cycle 직후 새 inventory cycle을 만든다.
-    private func handleExternalMediaMountedWhileLidClosed() {
-        lidTransitionGate.lock()
-        guard LidCloseEject.enabled,
-              let generation = currentClosedLidGeneration() else {
-            lidTransitionGate.unlock()
-            return
-        }
-
-        sleepEjectStateLock.lock()
-        let wasAlreadyPending = lidEpisodeNeedsInventoryRefresh
-        lidEpisodeNeedsInventoryRefresh = true
-        let activeGroup = activeSleepEjectGroup
-        sleepEjectStateLock.unlock()
-        lidTransitionGate.unlock()
-        guard !wasAlreadyPending else { return }
-
-        if let activeGroup {
-            activeGroup.notify(queue: .global(qos: .userInitiated)) { [weak self] in
-                self?.scheduleLidInventoryRefresh(generation: generation)
-            }
-        } else {
-            scheduleLidInventoryRefresh(generation: generation)
-        }
-    }
-
-    private func scheduleLidInventoryRefresh(generation: UInt64) {
-        guard let task = startLidInventoryRefreshIfNeeded(generation: generation) else { return }
+    /// A genuinely new physical close generation that joined older work still receives one fresh
+    /// snapshot. Ordinary mounts are not tracked, blocked, or converted into another eject cycle.
+    private func scheduleLidGenerationRefresh(generation: UInt64) {
+        guard let task = startLidGenerationRefreshIfNeeded(generation: generation) else { return }
         if !task.started {
             task.group.notify(queue: .global(qos: .userInitiated)) { [weak self] in
-                self?.scheduleLidInventoryRefresh(generation: generation)
+                self?.scheduleLidGenerationRefresh(generation: generation)
             }
         }
     }
 
     @discardableResult
-    private func startLidInventoryRefreshIfNeeded(generation: UInt64,
-                                                  forceRefresh: Bool = false,
-                                                  reason: String = "clamshellMediaMounted",
-                                                  forceClaims: SleepEpisodeForceClaimLedger? = nil,
-                                                  deadline: Date? = nil) -> SleepEjectTask? {
+    private func startLidGenerationRefreshIfNeeded(generation: UInt64,
+                                                   forceRefresh: Bool = false,
+                                                   reason: String = "lidGenerationRefresh",
+                                                   forceClaims: SleepEpisodeForceClaimLedger? = nil,
+                                                   deadline: Date? = nil) -> SleepEjectTask? {
         lidTransitionGate.lock()
         defer { lidTransitionGate.unlock() }
         guard LidCloseEject.enabled,
@@ -5019,7 +5115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         sleepEjectStartGate.lock()
         defer { sleepEjectStartGate.unlock() }
         sleepEjectStateLock.lock()
-        guard forceRefresh || lidEpisodeNeedsInventoryRefresh else {
+        guard forceRefresh || lidEpisodeNeedsGenerationRefresh else {
             sleepEjectStateLock.unlock()
             return nil
         }
@@ -5048,7 +5144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         } else {
             episodeForceClaims = forceClaims ?? SleepEpisodeForceClaimLedger()
         }
-        lidEpisodeNeedsInventoryRefresh = false
+        lidEpisodeNeedsGenerationRefresh = false
         lidEpisodeGeneration = generation
         lidEpisodeGroup = nil
         lidEpisodeOperationID = nil
@@ -5062,7 +5158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                     lidGeneration: generation,
                                                     forceClaims: episodeForceClaims,
                                                     deadline: deadline)
-        log.notice("cycle \(task.operationID, privacy: .public) lid-closed mounted media refresh \((task.started ? "started" : "joined"), privacy: .public) generation=\(generation, privacy: .public)")
+        log.notice("cycle \(task.operationID, privacy: .public) lid generation refresh \((task.started ? "started" : "joined"), privacy: .public) generation=\(generation, privacy: .public)")
         return task
     }
 
@@ -5081,6 +5177,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if let remountSchedule {
             scheduleAutomaticRemount(remountSchedule, trigger: "lateCleanCallback")
         }
+    }
+
+    /// Ordinary app ejects must not mutate an automatic remount that is already scheduled for the
+    /// current wake. They are promoted only by the next wake/open boundary.
+    private func recordNextWakeUnmountTargets(_ disks: Set<SleepRemountTarget>,
+                                              operationID: String,
+                                              reason: String) {
+        guard !disks.isEmpty else { return }
+        autoEjectStateLock.lock()
+        sleepEpisodeCoordinator.stageCleanUnmountTargetsForNextWake(
+            disks,
+            operationID: operationID,
+            reason: reason
+        )
+        let stagedTargets = sleepEpisodeCoordinator.nextWakeTargets
+        autoEjectStateLock.unlock()
+        log.info("cycle \(operationID, privacy: .public) clean targets staged for next wake reason=\(reason, privacy: .public) added=\(disks.sorted(), privacy: .public) staged=\(stagedTargets.sorted(), privacy: .public)")
     }
 
     private func beginAutomaticEject(operationID: String, reason: String) {
@@ -5139,7 +5252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     // A new physical close edge must not be fully consumed by an older worker
                     // that may already have taken its inventory snapshot. Join it for ordering,
                     // then run one fresh inventory cycle for this lid generation.
-                    lidEpisodeNeedsInventoryRefresh = true
+                    lidEpisodeNeedsGenerationRefresh = true
                     refreshGeneration = lidGeneration
                 }
                 self.lidEpisodeGeneration = lidGeneration
@@ -5160,7 +5273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             sleepEjectStateLock.unlock()
             if let refreshGeneration {
                 group.notify(queue: .global(qos: .userInitiated)) { [weak self] in
-                    self?.scheduleLidInventoryRefresh(generation: refreshGeneration)
+                    self?.scheduleLidGenerationRefresh(generation: refreshGeneration)
                 }
             }
             log.notice("cycle \(operationID, privacy: .public) sleep eject already active; join reason=\(reason, privacy: .public) activeReason=\(activeReason, privacy: .public)")
@@ -5245,7 +5358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }
             log.info("cycle \(operation, privacy: .public) automatic eject worker started reason=\(reason, privacy: .public) trigger=\(trigger.logLabel, privacy: .public) forceAllowed=\(trigger.effectiveForceFallback(masterEnabled: SettingsStore.forceFallbackEnabled), privacy: .public) dispatchLatency=\(self.elapsedText(since: requestedAt), privacy: .public)s")
             let attemptSucceeded: Bool
-            if trigger == .systemForced {
+            if reason == "forcedPowerSleep" {
                 attemptSucceeded = self.performForcedSleepEject(
                     operation: operation,
                     totalStarted: requestedAt,
@@ -5327,8 +5440,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             powerObserverIsActive: powerRootPort != 0
         )
         if ownsWakeBoundary {
-            // NSWorkspace fallback에는 IOKit HasPoweredOn이 없으므로 여기서 lease를 끝낸다.
-            endPowerSleepMountBarrierIfNeeded()
             let manualOwner = commitManualEjectAndSleepAfterWake()
             autoEjectStateLock.lock()
             if let systemOwner = currentSystemSleepLibraryAppOwner {
@@ -5360,8 +5471,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 결과 아이콘 표시 중이면 updateMountedDriveCount 가 알아서 defer (count 만 저장).
         scheduleMountedDriveCountRefresh(after: 1.0)
 
-        // 2) 자동 추출된 디스크 재마운트. 실제 target claim 은 2초 뒤 token 을 다시 검증해
-        // 그 사이 lid가 재차 닫힌 경우 stale timer가 mount하지 못하게 한다.
+        // 2) DiskOUT이 clean 추출한 동일 물리 디스크 재마운트. 실제 target claim 은 2초 뒤
+        // token 을 다시 검증해 그 사이 lid가 재차 닫힌 경우 stale timer가 mount하지 못하게 한다.
         if ownsWakeBoundary {
             requestAutomaticRemount(trigger: "systemDidWake")
         }
@@ -5384,23 +5495,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.notice("NSWorkspace willSleep matched armed Eject and Sleep; no additional eject operation=\(operationID, privacy: .public)")
             return
         case let .inFlight(operationID):
-            if trigger.participatesInEjectFlow {
-                log.notice("NSWorkspace willSleep superseded in-flight Eject and Sleep; continuing normal trigger path operation=\(operationID, privacy: .public) trigger=\(trigger.logLabel, privacy: .public)")
-                break
-            }
-            log.notice("NSWorkspace active willSleep passed through while Eject and Sleep was queued operation=\(operationID, privacy: .public) trigger=\(trigger.logLabel, privacy: .public)")
-            return
+            log.notice("NSWorkspace willSleep superseded in-flight Eject and Sleep; continuing normal trigger path operation=\(operationID, privacy: .public) trigger=\(trigger.logLabel, privacy: .public)")
+            break
         case .none:
             break
         }
-        guard trigger.participatesInEjectFlow else {
-            log.notice("NSWorkspace willSleep passed through by policy trigger=\(trigger.logLabel, privacy: .public)")
-            return
-        }
-
         // NSWorkspace notification 에는 async completion handshake 가 없다. Main thread 를
         // 기다리게 하면 DA approver callback 과 자기 교착하므로 작업만 시작하고 즉시 반환한다.
-        beginPowerSleepMountBarrierIfNeeded()
         let boundaryForceClaims = lidGeneration.flatMap {
             currentLidEpisodeForceClaims(generation: $0)
         } ?? SleepEpisodeForceClaimLedger()
@@ -5431,12 +5532,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                          forceClaims: SleepEpisodeForceClaimLedger,
                                          deadline: Date) -> Bool {
         log.notice("cycle \(operation, privacy: .public) willSleep handler settings source=\(reason, privacy: .public) trigger=\(trigger.logLabel, privacy: .public) sleepEject=\(SleepEject.enabled, privacy: .public) displaySleepEject=\(DisplaySleepEject.enabled, privacy: .public) forceFallback=\(SettingsStore.forceFallbackEnabled, privacy: .public) effectiveForce=\(trigger.effectiveForceFallback(masterEnabled: SettingsStore.forceFallbackEnabled), privacy: .public) libraryMgmt=\(LibraryAppManagement.enabled, privacy: .public)")
-        guard trigger.participatesInEjectFlow else {
-            log.notice("cycle \(operation, privacy: .public) EJECT(sleep) SKIPPED — trigger passed through by policy trigger=\(trigger.logLabel, privacy: .public)")
-            return true
-        }
-        // Lid close keeps its dedicated opt-in. Only classified idle sleep reaches the shared
-        // SleepEject switch; active/unknown macOS sleep requests pass through before task creation.
+        // Lid close keeps its dedicated opt-in. Every other system-sleep classification uses the
+        // shared SleepEject switch and remains normal-only; the IOKit-confirmed forced-sleep
+        // experiment may supersede this route at its earlier boundary.
         let lidCaused = trigger == .lidClose
         guard (lidCaused ? LidCloseEject.enabled : SleepEject.enabled) else {
             log.info("cycle \(operation, privacy: .public) EJECT(sleep) SKIPPED — \(lidCaused ? "LidCloseEject" : "SleepEject", privacy: .public) disabled lidCaused=\(lidCaused, privacy: .public)")
@@ -5680,6 +5778,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func requestAutomaticRemount(trigger: String) {
+        let activeUnmountCount = sleepUnmountActivityTracker.activeCount
+        if activeUnmountCount > 0 {
+            log.info("\(trigger, privacy: .public) remount deferred until every overlapping normal/Force request is terminal count=\(activeUnmountCount, privacy: .public)")
+            sleepUnmountActivityTracker.whenIdle { [weak self] in
+                DispatchQueue.main.async {
+                    self?.requestAutomaticRemount(trigger: "\(trigger)AfterPendingUnmount")
+                }
+            }
+            return
+        }
+
         autoEjectStateLock.lock()
         let schedule = sleepEpisodeCoordinator.wakeDidOccur()
         let lidClosed = sleepEpisodeCoordinator.isLidClosed
@@ -5701,9 +5810,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 }
                 return
             }
-            let activeUnmountCount = sleepUnmountActivityTracker.activeCount
-            if activeUnmountCount > 0 {
-                log.info("cycle \(operation, privacy: .public) \(trigger, privacy: .public) no target yet; defer library relaunch until overlapping sleep unmount evidence is terminal count=\(activeUnmountCount, privacy: .public)")
+            let racedUnmountCount = sleepUnmountActivityTracker.activeCount
+            if racedUnmountCount > 0 {
+                log.info("cycle \(operation, privacy: .public) \(trigger, privacy: .public) remount deferred after a racing unmount began count=\(racedUnmountCount, privacy: .public)")
                 sleepUnmountActivityTracker.whenIdle { [weak self] in
                     DispatchQueue.main.async {
                         self?.requestAutomaticRemount(trigger: "\(trigger)AfterPendingUnmount")
@@ -5737,9 +5846,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.notice("automatic remount scheduled after 2.0s trigger=\(trigger, privacy: .public) generation=\(schedule.token.lidGeneration, privacy: .public) nonce=\(schedule.token.nonce, privacy: .public)")
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self else { return }
-            self.autoEjectStateLock.lock()
-            let work = self.sleepEpisodeCoordinator.claimRemount(schedule.token)
-            self.autoEjectStateLock.unlock()
+            var work: SleepEpisodeCoordinator.RemountWork?
+            let claimedWhileIdle = self.sleepUnmountActivityTracker.performIfIdle {
+                self.autoEjectStateLock.lock()
+                work = self.sleepEpisodeCoordinator.claimRemount(schedule.token)
+                self.autoEjectStateLock.unlock()
+            }
+            guard claimedWhileIdle else {
+                let activeCount = self.sleepUnmountActivityTracker.activeCount
+                log.info("automatic remount claim deferred until every normal/Force request is terminal trigger=\(trigger, privacy: .public) count=\(activeCount, privacy: .public)")
+                self.sleepUnmountActivityTracker.whenIdle { [weak self] in
+                    self?.scheduleAutomaticRemount(
+                        schedule,
+                        trigger: "\(trigger)AfterPendingUnmount"
+                    )
+                }
+                return
+            }
             guard let work else {
                 log.info("automatic remount stale schedule ignored trigger=\(trigger, privacy: .public) generation=\(schedule.token.lidGeneration, privacy: .public) nonce=\(schedule.token.nonce, privacy: .public)")
                 return
@@ -5883,22 +6006,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             everEnumerated = true
 
             // 2) token 확인→mount command 시작을 lid close/new eject invalidation과 같은 gate로
-            // 직렬화한다. 먼저 시작한 command는 새 eject가 inventory를 잡기 전에 group으로 join한다.
+            // 직렬화한다. 이미 macOS에 제출된 mount는 별도 사전 대기 없이 DA가 후속 unmount와
+            // 순서를 결정한다.
             automaticRemountCommandGate.lock()
             guard shouldContinue() else {
                 automaticRemountCommandGate.unlock()
                 return .canceled
             }
-            automaticRemountCommandGroup.enter()
             automaticRemountCommandGate.unlock()
-            // Public DA callback이 실제 mount terminal을 증명할 때만 command barrier를 푼다.
-            // Waiter의 4초 UX timeout은 underlying request를 취소하거나 barrier를 해제하지 않는다.
-            let commandGroup = automaticRemountCommandGroup
             let mount = DAInventory.shared.mountForWake(
                 target: target,
                 timeout: 4,
                 operationID: operation,
-                onTerminal: { commandGroup.leave() }
+                onTerminal: {}
             )
 
             // command 실행 중 lid가 닫힌 경우 success로 소비하지 않는다. 새 close worker가 방금
@@ -6060,8 +6180,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             if !targets.isEmpty {
                 LibraryAppHandler.terminate(apps: targets, timeout: 3.0)
             }
-            // 재시도 1회 — 루프 금지. 재시도도 수동 gentle 경로(diskutilEject) 사용 (force 사다리 X).
-            let result = self.diskutilEject(volumePath: volumePath)
+            // 재시도 1회 — 루프 금지. 재시도도 동일한 DA Whole 경로를 사용한다.
+            let result = self.manualWholeDiskUnmount(volumePath: volumePath)
             DiskMenuSnapshotCache.invalidate()
             DiskMenuSnapshotCache.warm()
             log.info("eject retry done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
@@ -6232,6 +6352,23 @@ private struct SleepUnmountAttemptResult {
     /// failure can never be interpreted as permission to submit another force operation.
     let requestWasForced: Bool
     let status: SleepUnmountAttemptStatus
+    /// True when another uncancelable DA request from this same escalation is still active.
+    /// The batch must keep its activity ownership until `onPendingRequestTerminal` fires.
+    let awaitsPendingRequestTerminal: Bool
+
+    init(success: Bool,
+         errorMessage: String?,
+         dissenterStatus: SleepUnmountDissenterStatus?,
+         requestWasForced: Bool,
+         status: SleepUnmountAttemptStatus,
+         awaitsPendingRequestTerminal: Bool = false) {
+        self.success = success
+        self.errorMessage = errorMessage
+        self.dissenterStatus = dissenterStatus
+        self.requestWasForced = requestWasForced
+        self.status = status
+        self.awaitsPendingRequestTerminal = awaitsPendingRequestTerminal
+    }
 }
 
 private struct SleepEjectBatchResult {
@@ -6253,7 +6390,7 @@ private struct ManualEjectAndSleepArmed {
     let attemptID: EjectAndSleepAttemptID
     let targets: Set<EjectAndSleepDiskIdentity>
     let operationID: String
-    let mountBarrierToken: UInt64
+    let libraryOwner: LibraryAppRelaunchOwner
 }
 
 private struct ManualEjectAndSleepEventRecord {
@@ -6311,6 +6448,7 @@ private typealias SleepDAUnmountSubmissionAuthorizer =
      _ submission: () -> Void) -> SleepDAUnmountSubmissionAuthorization
 
 private struct SleepDAUnmountPreparation {
+    let requestKey: SleepUnmountGroupKey
     let volumePath: String
     let wholeDiskBSDName: String?
     let expectedGeneration: UInt64?
@@ -6318,7 +6456,7 @@ private struct SleepDAUnmountPreparation {
     let expectedMountedVolumeBSDs: Set<String>?
     let enforceProtectionClosure: Bool
     let force: Bool
-    let retainBarrierForForceContinuation: Bool
+    let forceClaimLedger: SleepEpisodeForceClaimLedger?
     let timeout: TimeInterval
     let submissionDeadline: Date?
     let operationID: String
@@ -6433,6 +6571,128 @@ private final class PendingSleepDAUnmount {
     /// Sleep은 clean뿐 아니라 decline/disconnect도 받아야 pending retry gate를 정확히 푼다.
     func onLateTerminal(_ handler: @escaping (SleepDAUnmountEvidence) -> Void) {
         evidenceLatch.observe(handler)
+    }
+}
+
+private enum SleepUnmountEscalationTerminal {
+    case evidence(SleepDAUnmountEvidence, requestWasForced: Bool)
+    case unavailable(String, requestWasForced: Bool)
+}
+
+/// Serializes the normal watchdog, busy callback, late normal callback, and force callback for one
+/// physical request. The pure reducer decides the transition; this box supplies atomic ownership.
+private final class SleepUnmountEscalationCoordinator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var runtime = SleepUnmountEscalationRuntime()
+    private var acceptedTerminal: SleepUnmountEscalationTerminal?
+    private let terminal = StickyAsyncEvidence<SleepUnmountEscalationTerminal>()
+
+    @discardableResult
+    func consume(
+        _ event: SleepUnmountEscalationEvent,
+        terminal terminalValue: SleepUnmountEscalationTerminal? = nil,
+        allowsForceFallback: Bool
+    ) -> SleepUnmountEscalationAction {
+        lock.lock()
+        let action = runtime.consume(
+            event,
+            allowsForceFallback: allowsForceFallback
+        )
+        let shouldFinish: Bool
+        switch action {
+        case .finishClean, .finishFailure:
+            if acceptedTerminal == nil, let terminalValue {
+                acceptedTerminal = terminalValue
+                shouldFinish = true
+            } else {
+                shouldFinish = false
+            }
+        case .none, .submitForce:
+            shouldFinish = false
+        }
+        lock.unlock()
+
+        if shouldFinish, let terminalValue {
+            _ = terminal.finishOnce(terminalValue)
+        }
+        return action
+    }
+
+    /// Claims the one local Force submission only while the serialized reducer still needs it.
+    /// A normal clean callback replayed after the watchdog changes the state to `finished` first,
+    /// making this return false and preventing a stale destructive submission.
+    func claimForceSubmission() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard acceptedTerminal == nil else { return false }
+        return runtime.claimForceSubmission()
+    }
+
+    func terminalSnapshot() -> SleepUnmountEscalationTerminal? {
+        lock.lock()
+        defer { lock.unlock() }
+        return acceptedTerminal
+    }
+
+    func wait(timeout: TimeInterval) -> SleepUnmountEscalationTerminal? {
+        terminal.wait(timeout: timeout)
+    }
+
+    func observeTerminal(_ handler: @escaping (SleepUnmountEscalationTerminal) -> Void) {
+        terminal.observe(handler)
+    }
+}
+
+/// Tracks every real DA request spawned by one logical normal-to-force escalation. A clean late
+/// normal callback may complete the logical operation before the force callback, but wake/remount
+/// must still wait until both uncancelable requests are terminal.
+private final class SleepUnmountPendingRequestSet: @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = Set<ObjectIdentifier>()
+    private var sealed = false
+    private var onAllTerminal: (() -> Void)?
+
+    func track(
+        _ request: PendingSleepDAUnmount,
+        onTerminal: @escaping (SleepDAUnmountEvidence) -> Void
+    ) {
+        let identifier = ObjectIdentifier(request)
+        lock.lock()
+        let inserted = active.insert(identifier).inserted
+        lock.unlock()
+        guard inserted else { return }
+        // Strong ownership is intentional until the uncancelable DA request terminates. Process
+        // evidence before releasing aggregate activity so remount/library work cannot overtake it.
+        request.onLateTerminal { [self] evidence in
+            onTerminal(evidence)
+            finish(identifier)
+        }
+    }
+
+    /// Seals the set after every request has been registered. Returns true only when the caller
+    /// must defer its activity release to `onAllTerminal`.
+    func seal(onAllTerminal: @escaping () -> Void) -> Bool {
+        lock.lock()
+        sealed = true
+        guard !active.isEmpty else {
+            lock.unlock()
+            return false
+        }
+        self.onAllTerminal = onAllTerminal
+        lock.unlock()
+        return true
+    }
+
+    private func finish(_ identifier: ObjectIdentifier) {
+        lock.lock()
+        active.remove(identifier)
+        guard sealed, active.isEmpty, let callback = onAllTerminal else {
+            lock.unlock()
+            return
+        }
+        onAllTerminal = nil
+        lock.unlock()
+        callback()
     }
 }
 
@@ -6857,7 +7117,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     /// 추출 동작 — 잠자기 연동 3종 + 추출 전략 + 우클릭. (이전엔 General/Eject Behavior 에
     /// 흩어져 있던 것을 "추출이 언제·어떻게 일어나는가" 기준으로 한 페인에 모음.)
     private func makeEjectPane() -> NSView {
-        sleepToggle = checkbox(title: String(localized: "Eject on idle sleep"), action: #selector(toggleSleepEject(_:)))
+        sleepToggle = checkbox(title: String(localized: "Eject on system sleep"), action: #selector(toggleSleepEject(_:)))
         lidCloseToggle = checkbox(title: String(localized: "Eject on lid close"), action: #selector(toggleLidCloseEject(_:)))
         forcedSleepToggle = checkbox(title: String(localized: "Eject on forced sleep (experimental)"), action: #selector(toggleForcedSleepEject(_:)))
         displaySleepToggle = checkbox(title: String(localized: "Eject on display sleep (experimental)"), action: #selector(toggleDisplaySleepEject(_:)))
@@ -6867,12 +7127,12 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
                                          action: #selector(toggleRightClickEject(_:)))
 
         return pane([
-            settingRow(sleepToggle, description: String(localized: "This option ejects external drives only when macOS reports idle sleep. Lid close and the forced-sleep experiment are controlled separately.")),
+            settingRow(sleepToggle, description: String(localized: "This option tries a whole-disk normal eject whenever macOS enters system sleep. Lid close and the forced-sleep experiment are controlled separately.")),
             settingRow(lidCloseToggle, description: String(localized: "Eject all external drives the moment you close the lid.")),
             settingRow(forcedSleepToggle, description: String(localized: "When enabled, this best-effort option applies to every forced sleep confirmed by IOKit. DiskOUT briefly holds sleep and requests one normal eject only for physical disks confirmed idle. Active or uncertain disks are left untouched. It never force-unmounts or retries; sleep continues when the short limit is reached.")),
             settingRow(displaySleepToggle, description: String(localized: "Also eject when only the display goes to sleep — for Macs set to never sleep.")),
             settingRow(libraryAppToggle, description: String(localized: "Auto-quit Music and Photos before sleep, relaunch on wake. Useful when libraries are on external drives.")),
-            settingRow(forceFallbackToggle, description: String(localized: "If a normal eject fails, manual eject may fall back to a force unmount. Eject and Sleep and lid close try it once only when the disk is busy. Idle, display, and forced sleep never use it.")),
+            settingRow(forceFallbackToggle, description: String(localized: "Every eject starts with a whole-disk normal unmount. When this setting is on, manual eject, Eject and Sleep, and lid close make one Force attempt if the disk is busy or no clean callback arrives within 2 seconds. Idle, display, and forced sleep never use Force.")),
             settingRow(rightClickEjectToggle, description: String(localized: "When off, right-click (and ctrl+click) opens the menu instead of ejecting all drives.")),
         ])
     }
@@ -8833,21 +9093,11 @@ struct UnmountedExternal {
 /// - `isVolumePresent(at:)` — legacy manual eject 의 중복 volume 결과 보정용 조회.
 private enum DAInventoryChange {
     case mountedExternal
-    /// Request-time authoritative reconciliation found a topology/protection change before the
-    /// normal DA callback could advertise it. Lid-closed safety must schedule a fresh inventory.
-    case safetyRefreshRequired
     case other
 }
 
 private final class DAInventory {
     static let shared = DAInventory()
-
-    private struct PendingApprovedMount {
-        let wholeDiskBSD: String
-        let mediaRegistryEntryID: UInt64?
-        let volumeRegistryEntryID: UInt64?
-        let isExternalCandidate: Bool
-    }
 
     private struct DiskInfo {
         let bsd: String
@@ -8877,22 +9127,10 @@ private final class DAInventory {
     private var nextPhysicalGeneration: UInt64 = 0
     private var physicalGenerations: [String: UInt64] = [:]
     private var physicalRegistryEntryIDs: [String: UInt64] = [:]
-    private var pendingSleepUnmounts: [SleepDAPhysicalToken: PendingSleepDAUnmount] = [:]
+    /// A force request may be submitted while its normal Whole request is still pending after the
+    /// two-second watchdog. Keep both exact requests until their real callback/disconnect terminal.
+    private var pendingSleepUnmounts: [SleepDAPhysicalToken: [PendingSleepDAUnmount]] = [:]
     private var pendingWakeMounts: [SleepDAPhysicalToken: PendingSleepDAMount] = [:]
-    /// Same normal request를 join한 waiter별 force-continuation reservation. A single waiter
-    /// timeout must not cancel another waiter's sequential force handoff.
-    private var forceContinuationReservations: [SleepDAPhysicalToken: SleepForceContinuationReservationCounter] = [:]
-    /// Automatic whole-disk unmount의 보호 snapshot과 실제 request 사이에 sibling mount가
-    /// 끼어들지 못하게 하는 DA approval barrier. Queue-confined state이다.
-    private var blockedSleepUnmountMounts: [String: SleepDAPhysicalToken] = [:]
-    /// Mount approval은 끝났지만 mounted description callback은 아직 오지 않은 볼륨.
-    /// 이 창의 snapshot은 incomplete일 수 있으므로 automatic unmount를 fail closed한다.
-    private var pendingApprovedMounts: [String: PendingApprovedMount] = [:]
-    private let pendingApprovedMountCondition = NSCondition()
-    private var pendingApprovedMountSequence: UInt64 = 0
-    /// `willSleep`부터 matching wake/cancel까지 새 external mount가 snapshot/ACK 경계를
-    /// 추월하지 못하게 한다. DA serial queue에서만 변경한다.
-    private var powerSleepMountBarrier = SleepPowerMountBarrier()
 
     /// mounted activity/count에 영향을 주는 인벤토리가 바뀔 때마다 호출.
     /// **DA 큐에서 호출됨** — consumer 가 main hop + debounce 처리할 것.
@@ -8925,24 +9163,6 @@ private final class DAInventory {
         queue.async { [weak self] in self?.startOnQueue() }
     }
 
-    func flushPendingEvents() {
-        queue.sync {}
-    }
-
-    func beginSleepProtectionMountBarrier() -> UInt64 {
-        var token: UInt64 = 0
-        queue.sync {
-            token = powerSleepMountBarrier.begin()
-        }
-        return token
-    }
-
-    func endSleepProtectionMountBarrier(token: UInt64) {
-        queue.sync {
-            powerSleepMountBarrier.end(token: token)
-        }
-    }
-
     private func startOnQueue() {
         guard session == nil else { return }
         guard let s = DASessionCreate(kCFAllocatorDefault) else {
@@ -8971,15 +9191,6 @@ private final class DAInventory {
             inv.handleAppearedOrChanged(disk: disk, kind: "changed")
         }, ctx)
 
-        DARegisterDiskMountApprovalCallback(s, nil, { (disk, ctx) -> Unmanaged<DADissenter>? in
-            guard let ctx else { return nil }
-            let inv = Unmanaged<DAInventory>.fromOpaque(ctx).takeUnretainedValue()
-            guard let dissenter = inv.handleMountApproval(disk: disk) else { return nil }
-            return Unmanaged.passRetained(dissenter)
-        }, ctx)
-
-        // Register every observer/approver before scheduling the session. Scheduling first leaves
-        // a startup window where an approval can pass without entering the pending ledger.
         DASessionSetDispatchQueue(s, queue)
 
         // DA 는 등록 직후 모든 기존 disk 에 대해 appeared 이벤트를 즉시 보낸다.
@@ -9001,14 +9212,6 @@ private final class DAInventory {
 
     private func handleAppearedOrChanged(disk: DADisk, kind: String) {
         guard let info = parseDescription(disk: disk) else { return }
-        if info.mountPath != nil {
-            if let pending = pendingApprovedMounts[info.bsd],
-               pending.volumeRegistryEntryID == nil
-                    || pending.volumeRegistryEntryID == info.mediaRegistryEntryID {
-                pendingApprovedMounts.removeValue(forKey: info.bsd)
-                signalPendingApprovedMountChange()
-            }
-        }
         let cached = cacheDiskInfo(info)
         let prevMount = cached.previous?.mountPath
         _ = bindCurrentPhysicalIdentityOnQueue(info.wholeDiskBSD)
@@ -9032,105 +9235,9 @@ private final class DAInventory {
         }
     }
 
-    /// Disk Arbitration mount approval callback. A whole-disk automatic unmount owns an exact
-    /// physical token until its real callback/disconnect terminal; while owned, a sibling mount
-    /// would invalidate the protection closure and is rejected before it can change the topology.
-    private func handleMountApproval(disk: DADisk) -> DADissenter? {
-        guard let bsdPointer = DADiskGetBSDName(disk) else { return nil }
-        let bsd = String(cString: bsdPointer)
-        let info = parseDescription(disk: disk)
-        let wholeBSD = info?.wholeDiskBSD ?? BSDName.wholeDisk(from: bsd) ?? bsd
-        let isExternalCandidate = info.map { diskInfo in
-            ExternalMediaPolicy.shouldInclude(
-                isInternal: diskInfo.isInternal,
-                busProtocol: diskInfo.busProtocol,
-                isRemovable: diskInfo.isRemovable,
-                isEjectable: diskInfo.isEjectable
-            )
-                && diskInfo.busProtocol != "Disk Image"
-                && diskInfo.busProtocol != "Virtual Interface"
-        } ?? true
-
-        // A reused diskN must not inherit the old media's barrier. Bind the current exact whole
-        // IOMedia first; replacement binding invalidates the old token and its request.
-        _ = bindCurrentPhysicalIdentityOnQueue(wholeBSD)
-
-        let blocked = blockedSleepUnmountMounts[wholeBSD]
-        let powerBlocked = info?.mountPath == nil
-            && powerSleepMountBarrier.blocks(isExternalCandidate: isExternalCandidate)
-        switch SleepMountApprovalPolicy.decision(
-            hasActiveUnmountBarrier: blocked != nil,
-            hasPowerSleepBarrier: powerBlocked,
-            isExternalCandidate: isExternalCandidate,
-            mediaContent: info?.mediaContent,
-            volumeAlreadyMounted: info?.mountPath != nil
-        ) {
-        case .rejectBusy:
-            if let blocked {
-                log.error("DAInventory: mount approval rejected during automatic unmount bsd=\(bsd, privacy: .public) whole=\(wholeBSD, privacy: .public) generation=\(blocked.generation, privacy: .public)")
-            } else {
-                log.error("DAInventory: external mount approval rejected across power-sleep boundary bsd=\(bsd, privacy: .public) whole=\(wholeBSD, privacy: .public)")
-            }
-            return DADissenterCreate(
-                kCFAllocatorDefault,
-                DAReturn(kDAReturnBusy),
-                "DiskOUT automatic sleep protection in progress" as CFString
-            )
-        case .approveAndTrackPending:
-            pendingApprovedMounts[bsd] = PendingApprovedMount(
-                wholeDiskBSD: wholeBSD,
-                mediaRegistryEntryID: currentWholeMediaRegistryEntryIDOnQueue(wholeBSD),
-                volumeRegistryEntryID: info?.mediaRegistryEntryID,
-                isExternalCandidate: isExternalCandidate
-            )
-            signalPendingApprovedMountChange()
-            if isExternalCandidate {
-                // The approval itself is the earliest topology-change edge. Waiting for the later
-                // mounted description leaves a snapshot→ACK race in Amphetamine closed-awake mode.
-                onInventoryChanged?(.safetyRefreshRequired)
-            }
-            log.debug("DAInventory: mount approval pending bsd=\(bsd, privacy: .public) whole=\(wholeBSD, privacy: .public)")
-            return nil
-        case .approve:
-            if info?.mountPath == nil,
-               isExternalCandidate,
-               info?.mediaContent == "EFI" {
-                log.info("DAInventory: mount approval approved without pending bsd=\(bsd, privacy: .public) whole=\(wholeBSD, privacy: .public) reason=external-efi")
-            }
-            // A mounted volume cannot add an unseen sibling. External EFI is already excluded from
-            // eject targets and may receive approval without a later mounted callback.
-            return nil
-        }
-    }
-
-    private func signalPendingApprovedMountChange() {
-        pendingApprovedMountCondition.lock()
-        pendingApprovedMountSequence &+= 1
-        pendingApprovedMountCondition.broadcast()
-        pendingApprovedMountCondition.unlock()
-    }
-
-    private func pendingApprovedMountSequenceSnapshot() -> UInt64 {
-        pendingApprovedMountCondition.lock()
-        defer { pendingApprovedMountCondition.unlock() }
-        return pendingApprovedMountSequence
-    }
-
-    private func waitForPendingApprovedMountChange(after sequence: UInt64,
-                                                   timeout: TimeInterval) {
-        pendingApprovedMountCondition.lock()
-        if pendingApprovedMountSequence == sequence, timeout > 0 {
-            _ = pendingApprovedMountCondition.wait(
-                until: Date().addingTimeInterval(timeout)
-            )
-        }
-        pendingApprovedMountCondition.unlock()
-    }
-
     private func handleDisappeared(disk: DADisk) {
         guard let bsdC = DADiskGetBSDName(disk) else { return }
         let bsd = String(cString: bsdC)
-        let disappearedVolumeEntryID = mediaRegistryEntryID(for: disk)
         lock.lock()
         let removed = disks.removeValue(forKey: bsd)
         if removed != nil {
@@ -9139,31 +9246,19 @@ private final class DAInventory {
         let wholeBSD = removed?.wholeDiskBSD ?? BSDName.wholeDisk(from: bsd) ?? bsd
         let physicalStillPresent = disks.values.contains { $0.wholeDiskBSD == wholeBSD }
         lock.unlock()
-        let terminalVolumeEntryID = disappearedVolumeEntryID ?? removed?.mediaRegistryEntryID
-        if let pending = pendingApprovedMounts[bsd],
-           pending.volumeRegistryEntryID == nil
-                || pending.volumeRegistryEntryID == terminalVolumeEntryID {
-            pendingApprovedMounts.removeValue(forKey: bsd)
-            signalPendingApprovedMountChange()
-        }
         if let generation = physicalGenerations[wholeBSD],
            let entryID = physicalRegistryEntryIDs[wholeBSD] {
             let token = SleepDAPhysicalToken(wholeDiskBSD: wholeBSD,
                                              generation: generation,
                                              mediaRegistryEntryID: entryID)
-            if let request = pendingSleepUnmounts[token],
-               request.finishOnce(.disconnectedBeforeCallback) {
-                forceContinuationReservations.removeValue(forKey: token)
-                log.error("DAInventory: sleep unmount physical media disappeared before callback target=\(request.target, privacy: .public) generation=\(generation, privacy: .public)")
+            for request in pendingSleepUnmounts[token] ?? []
+            where request.finishOnce(.disconnectedBeforeCallback) {
+                log.error("DAInventory: sleep unmount physical media disappeared before callback target=\(request.target, privacy: .public) generation=\(generation, privacy: .public) mode=\(request.modeLabel, privacy: .public)")
             }
             if !physicalStillPresent {
                 // DA callback context 가 request 를 retain 한다. Dictionary 에서는 제거해
                 // 재연결된 새 generation 이 이전 요청에 합류하지 않게 한다.
                 pendingSleepUnmounts.removeValue(forKey: token)
-                forceContinuationReservations.removeValue(forKey: token)
-                if blockedSleepUnmountMounts[wholeBSD] == token {
-                    blockedSleepUnmountMounts.removeValue(forKey: wholeBSD)
-                }
             }
             if !physicalStillPresent,
                let mountRequest = pendingWakeMounts[token],
@@ -9175,13 +9270,6 @@ private final class DAInventory {
         if !physicalStillPresent {
             physicalGenerations.removeValue(forKey: wholeBSD)
             physicalRegistryEntryIDs.removeValue(forKey: wholeBSD)
-            let pendingCount = pendingApprovedMounts.count
-            pendingApprovedMounts = pendingApprovedMounts.filter {
-                $0.value.wholeDiskBSD != wholeBSD
-            }
-            if pendingApprovedMounts.count != pendingCount {
-                signalPendingApprovedMountChange()
-            }
         }
         if let removed {
             log.info("DAInventory: disappeared bsd=\(bsd, privacy: .public) name=\(removed.volumeName ?? "-", privacy: .public)")
@@ -9201,13 +9289,16 @@ private final class DAInventory {
                          expectedMountedVolumeBSDs: Set<String>?,
                          enforceProtectionClosure: Bool,
                          force: Bool,
-                         retainBarrierForForceContinuation: Bool,
+                         requestKey: SleepUnmountGroupKey,
+                         forceClaimLedger: SleepEpisodeForceClaimLedger?,
                          timeout: TimeInterval,
+                         submissionDeadline: Date?,
                          operationID: String,
                          context: String,
                          submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer? = nil)
         -> SleepDAUnmountWaitResult {
         let preparation = SleepDAUnmountPreparation(
+            requestKey: requestKey,
             volumePath: volumePath,
             wholeDiskBSDName: wholeDiskBSDName,
             expectedGeneration: expectedGeneration,
@@ -9215,9 +9306,9 @@ private final class DAInventory {
             expectedMountedVolumeBSDs: expectedMountedVolumeBSDs,
             enforceProtectionClosure: enforceProtectionClosure,
             force: force,
-            retainBarrierForForceContinuation: retainBarrierForForceContinuation,
+            forceClaimLedger: forceClaimLedger,
             timeout: timeout,
-            submissionDeadline: nil,
+            submissionDeadline: submissionDeadline,
             operationID: operationID,
             context: context,
             submissionAuthorizer: submissionAuthorizer
@@ -9225,11 +9316,7 @@ private final class DAInventory {
         let prepared = queue.sync {
             prepareSleepUnmountOnQueue(preparation)
         }
-        return waitForPreparedSleepUnmount(
-            prepared,
-            timeout: timeout,
-            retainBarrierForForceContinuation: retainBarrierForForceContinuation
-        )
+        return waitForPreparedSleepUnmount(prepared, timeout: timeout)
     }
 
     /// Forced sleep validates and submits every independent normal request in one DA-queue turn.
@@ -9308,29 +9395,13 @@ private final class DAInventory {
 
     func waitForPreparedSleepUnmount(
         _ prepared: PreparedSleepDAUnmount,
-        timeout: TimeInterval,
-        retainBarrierForForceContinuation: Bool
+        timeout: TimeInterval
     ) -> SleepDAUnmountWaitResult {
         guard case let .request(request) = prepared else {
             if case let .unavailable(reason) = prepared { return .unavailable(reason) }
             return .unavailable("DA unmount request unavailable")
         }
-        let result = request.wait(timeout: timeout)
-        if case .timedOutPending = result,
-           retainBarrierForForceContinuation,
-           !request.force {
-            queue.sync {
-                releaseForceContinuationReservationOnQueue(request.token)
-                // Callback may have won immediately after the waiter timeout and retained the
-                // barrier before this queue turn. If so, no request remains to own it.
-                if pendingSleepUnmounts[request.token] !== request,
-                   forceContinuationReservations[request.token] == nil,
-                   blockedSleepUnmountMounts[request.token.wholeDiskBSD] == request.token {
-                    blockedSleepUnmountMounts.removeValue(forKey: request.token.wholeDiskBSD)
-                }
-            }
-        }
-        return result
+        return request.wait(timeout: timeout)
     }
 
     /// Must run on `queue`. This contains the complete identity/protection/submission boundary but
@@ -9361,13 +9432,14 @@ private final class DAInventory {
             mediaRegistryEntryID: expectedMediaRegistryEntryID
         )
 
-        if let existing = pendingSleepUnmounts[token] {
+        let activeRequests = pendingSleepUnmounts[token] ?? []
+        let existing: PendingSleepDAUnmount? = preparation.force
+            ? activeRequests.first(where: \.force)
+            : (activeRequests.first(where: \.force)
+                ?? activeRequests.first(where: { !$0.force }))
+        if let existing {
             var didJoin = false
             let joinExistingRequest = {
-                self.blockedSleepUnmountMounts[wholeBSD] = token
-                if preparation.retainBarrierForForceContinuation, !existing.force {
-                    self.reserveForceContinuationOnQueue(token)
-                }
                 didJoin = true
                 log.notice("cycle \(preparation.operationID, privacy: .public) \(preparation.context, privacy: .public) DA unmount joined pending target=\(wholeBSD, privacy: .public) generation=\(expectedGeneration, privacy: .public) requestedMode=\(preparation.force ? "force" : "normal", privacy: .public) activeMode=\(existing.modeLabel, privacy: .public)")
             }
@@ -9385,30 +9457,9 @@ private final class DAInventory {
                 ? .request(existing)
                 : .unavailable("DA unmount authorizer did not join the pending request")
         }
-
-        guard SleepMountApprovalPolicy.canBeginAutomaticUnmount(
-            hasPendingApprovedMount: pendingApprovedMounts.values.contains { pending in
-                pending.wholeDiskBSD == wholeBSD
-                    && SleepMountApprovalPolicy.pendingApprovalMatchesCapturedMedia(
-                        pendingMediaRegistryEntryID: pending.mediaRegistryEntryID,
-                        capturedMediaRegistryEntryID: expectedMediaRegistryEntryID
-                    )
-            }
-        ) else {
-            onInventoryChanged?(.safetyRefreshRequired)
-            return .unavailable(
-                "a mount was approved but is not yet visible in the protection snapshot"
-            )
-        }
-
-        // Mount approvals queued after this point are rejected on this same DA queue.
-        blockedSleepUnmountMounts[wholeBSD] = token
-        var keepMountBarrier = false
-        defer {
-            if !keepMountBarrier,
-               blockedSleepUnmountMounts[wholeBSD] == token {
-                blockedSleepUnmountMounts.removeValue(forKey: wholeBSD)
-            }
+        if let submissionDeadline = preparation.submissionDeadline,
+           submissionDeadline.timeIntervalSinceNow <= 0 {
+            return .unavailable("The unmount deadline expired before destructive submission")
         }
 
         guard let mountedNow = currentMountedDiskInfosOnQueue() else {
@@ -9430,7 +9481,6 @@ private final class DAInventory {
             enforceProtectionClosure: preparation.enforceProtectionClosure,
             hasProtectedCurrentSibling: protectedSiblingAppeared
         ) else {
-            onInventoryChanged?(.safetyRefreshRequired)
             let reason = currentMountedVolumeBSDs == expectedMountedVolumeBSDs
                 ? "a protected sibling is mounted on the target whole disk"
                 : "mounted sibling set changed after the protection snapshot"
@@ -9471,6 +9521,18 @@ private final class DAInventory {
             return .unavailable("captured physical media no longer matches \(wholeBSD)")
         }
 
+        if preparation.force {
+            guard let forceClaimLedger = preparation.forceClaimLedger else {
+                return .unavailable("Whole|Force request had no episode claim ledger")
+            }
+            // This executes on the same serial DA queue that checks/appends `pendingSleepUnmounts`.
+            // A concurrent contender therefore either joins the request above or observes this
+            // completed claim; it can never win the claim before the owner has submitted.
+            guard forceClaimLedger.claimForce(for: preparation.requestKey) else {
+                return .unavailable("The episode's Whole|Force request already completed; duplicate Force was suppressed")
+            }
+        }
+
         let modeLabel = preparation.force ? "force" : "normal"
         let pending = PendingSleepDAUnmount(
             session: session,
@@ -9487,10 +9549,7 @@ private final class DAInventory {
         let options = DADiskUnmountOptions(base | kDADiskUnmountOptionWhole)
         var didAuthorize = false
         let commitRequest = {
-            self.pendingSleepUnmounts[token] = pending
-            if preparation.retainBarrierForForceContinuation, !preparation.force {
-                self.reserveForceContinuationOnQueue(token)
-            }
+            self.pendingSleepUnmounts[token, default: []].append(pending)
             let contextPointer = Unmanaged.passRetained(pending).toOpaque()
             log.notice("cycle \(preparation.operationID, privacy: .public) \(preparation.context, privacy: .public) DA \(modeLabel, privacy: .public) unmount start target=\(wholeBSD, privacy: .public) generation=\(expectedGeneration, privacy: .public) timeout=\(String(format: "%.1f", preparation.timeout), privacy: .public)s")
             DADiskUnmount(disk, options, { (_, dissenter, contextPointer) in
@@ -9511,7 +9570,6 @@ private final class DAInventory {
         let authorizeRequest = {
             guard !didAuthorize else { return }
             didAuthorize = true
-            keepMountBarrier = true
             if !deferRequestSubmission {
                 commitRequest()
             }
@@ -9530,11 +9588,7 @@ private final class DAInventory {
             return .unavailable("DA unmount authorizer did not submit the request")
         }
         guard deferRequestSubmission else { return .request(pending) }
-        let abandonRequest = {
-            if self.blockedSleepUnmountMounts[wholeBSD] == token {
-                self.blockedSleepUnmountMounts.removeValue(forKey: wholeBSD)
-            }
-        }
+        let abandonRequest = {}
         return .deferred(pending, submit: commitRequest, abandon: abandonRequest)
     }
 
@@ -9562,25 +9616,13 @@ private final class DAInventory {
         }
 
         let accepted = request.finishOnce(evidence)
-        let wasCurrentRequest = pendingSleepUnmounts[request.token] === request
-        if wasCurrentRequest {
-            pendingSleepUnmounts.removeValue(forKey: request.token)
-        }
-        let retainsForForce: Bool
-        let callbackWasDecline: Bool
-        if case .callbackFailure = evidence { callbackWasDecline = true }
-        else { callbackWasDecline = false }
-        retainsForForce = accepted
-            && SleepMountApprovalPolicy.shouldRetainBarrierAfterNormalTerminal(
-                callbackWasDecline: callbackWasDecline,
-                forceContinuationReserved: forceContinuationReservations[request.token]?.isReserved == true
-            )
-        if wasCurrentRequest && (!callbackWasDecline || !accepted) {
-            forceContinuationReservations.removeValue(forKey: request.token)
-        }
-        if !retainsForForce,
-           blockedSleepUnmountMounts[request.token.wholeDiskBSD] == request.token {
-            blockedSleepUnmountMounts.removeValue(forKey: request.token.wholeDiskBSD)
+        if var activeRequests = pendingSleepUnmounts[request.token] {
+            activeRequests.removeAll { $0 === request }
+            if activeRequests.isEmpty {
+                pendingSleepUnmounts.removeValue(forKey: request.token)
+            } else {
+                pendingSleepUnmounts[request.token] = activeRequests
+            }
         }
         if accepted {
             let clean: Bool
@@ -9589,45 +9631,6 @@ private final class DAInventory {
         } else {
             log.error("DAInventory: sleep unmount late callback ignored target=\(request.target, privacy: .public) generation=\(request.token.generation, privacy: .public) mode=\(request.modeLabel, privacy: .public)")
         }
-    }
-
-    /// Normal decline가 force launch 전에 유지한 barrier를 정리한다. Force request가 실제
-    /// pending이면 callback/disconnect terminal까지 그 request가 계속 소유한다.
-    func releaseSleepUnmountForceContinuation(wholeDiskBSDName: String?,
-                                              expectedGeneration: UInt64?,
-                                              expectedMediaRegistryEntryID: UInt64?) {
-        guard let wholeDiskBSDName,
-              let expectedGeneration,
-              let expectedMediaRegistryEntryID else { return }
-        let token = SleepDAPhysicalToken(
-            wholeDiskBSD: wholeDiskBSDName,
-            generation: expectedGeneration,
-            mediaRegistryEntryID: expectedMediaRegistryEntryID
-        )
-        queue.sync {
-            releaseForceContinuationReservationOnQueue(token)
-            guard forceContinuationReservations[token] == nil,
-                  pendingSleepUnmounts[token] == nil,
-                  blockedSleepUnmountMounts[wholeDiskBSDName] == token else { return }
-            blockedSleepUnmountMounts.removeValue(forKey: wholeDiskBSDName)
-        }
-    }
-
-    private func releaseForceContinuationReservationOnQueue(_ token: SleepDAPhysicalToken) {
-        guard var counter = forceContinuationReservations[token] else { return }
-        counter.release()
-        if counter.isReserved {
-            forceContinuationReservations[token] = counter
-        } else {
-            forceContinuationReservations.removeValue(forKey: token)
-        }
-    }
-
-    private func reserveForceContinuationOnQueue(_ token: SleepDAPhysicalToken) {
-        var counter = forceContinuationReservations[token]
-            ?? SleepForceContinuationReservationCounter()
-        counter.reserve()
-        forceContinuationReservations[token] = counter
     }
 
     /// Wake remount 전용 whole-disk mount. `diskutil` process timeout과 달리 public DA callback이
@@ -9794,22 +9797,10 @@ private final class DAInventory {
                     generation: previousGeneration,
                     mediaRegistryEntryID: previousEntryID
                 )
-                if let oldRequest = pendingSleepUnmounts[oldToken] {
-                    _ = oldRequest.finishOnce(.disconnectedBeforeCallback)
-                    pendingSleepUnmounts.removeValue(forKey: oldRequest.token)
-                }
-                forceContinuationReservations.removeValue(forKey: oldToken)
-                if blockedSleepUnmountMounts[wholeBSD] == oldToken {
-                    blockedSleepUnmountMounts.removeValue(forKey: wholeBSD)
-                }
-                let pendingCount = pendingApprovedMounts.count
-                pendingApprovedMounts = pendingApprovedMounts.filter { pending in
-                    pending.value.wholeDiskBSD != wholeBSD
-                        || pending.value.mediaRegistryEntryID == nil
-                        || pending.value.mediaRegistryEntryID != previousEntryID
-                }
-                if pendingApprovedMounts.count != pendingCount {
-                    signalPendingApprovedMountChange()
+                if let oldRequests = pendingSleepUnmounts.removeValue(forKey: oldToken) {
+                    oldRequests.forEach {
+                        _ = $0.finishOnce(.disconnectedBeforeCallback)
+                    }
                 }
             }
             nextPhysicalGeneration &+= 1
@@ -9878,17 +9869,6 @@ private final class DAInventory {
         lock.unlock()
         if activityInventoryChanged {
             onInventoryChanged?(.other)
-        }
-        var resolvedPendingApproval = false
-        for info in mounted.values {
-            guard let pending = pendingApprovedMounts[info.bsd],
-                  pending.volumeRegistryEntryID == nil
-                    || pending.volumeRegistryEntryID == info.mediaRegistryEntryID else { continue }
-            pendingApprovedMounts.removeValue(forKey: info.bsd)
-            resolvedPendingApproval = true
-        }
-        if resolvedPendingApproval {
-            signalPendingApprovedMountChange()
         }
         return mounted
     }
@@ -10014,55 +9994,34 @@ private final class DAInventory {
     /// Sleep protection inventory. Unlike the menu snapshot, this includes every mounted sibling
     /// (including hidden/non-browsable helper volumes) so an excluded or Time Machine sibling can
     /// protect the whole physical disk. Drive metadata and physical identity are captured together.
-    func automaticSleepVolumeSnapshot(waitUntilReady timeout: TimeInterval) -> SleepAutomaticInventorySnapshot? {
+    func automaticSleepVolumeSnapshot(
+        selectedVolumePaths: Set<String>? = nil
+    ) -> SleepAutomaticInventorySnapshot? {
         start()
         var snap: [String: DiskInfo] = [:]
         var generations: [String: UInt64] = [:]
         var entryIDs: [String: UInt64] = [:]
-        var pendingMounts: [PendingApprovedMount] = []
         var capturedRevision: UInt64?
-        let safeTimeout = timeout.isFinite ? max(0, timeout) : 0
-        let pendingWaitDeadline = DispatchTime.now() + safeTimeout
-
-        while true {
-            let observedSequence = pendingApprovedMountSequenceSnapshot()
-            snap.removeAll(keepingCapacity: true)
-            generations.removeAll(keepingCapacity: true)
-            entryIDs.removeAll(keepingCapacity: true)
-            pendingMounts.removeAll(keepingCapacity: true)
-            capturedRevision = nil
-            queue.sync {
-                if session == nil {
-                    startOnQueue()
-                }
-                guard let mounted = currentMountedDiskInfosOnQueue() else { return }
-                snap = mounted
-                let wholeBSDs = Set(snap.values.map(\.wholeDiskBSD))
-                for wholeBSD in wholeBSDs {
-                    _ = bindCurrentPhysicalIdentityOnQueue(wholeBSD)
-                }
-                generations = physicalGenerations
-                entryIDs = physicalRegistryEntryIDs
-                pendingMounts = Array(pendingApprovedMounts.values)
-                lock.lock()
-                capturedRevision = inventoryRevision
-                lock.unlock()
+        queue.sync {
+            if session == nil {
+                startOnQueue()
             }
-
-            let hasPendingExternalMount = pendingMounts.contains(where: \.isExternalCandidate)
-            guard hasPendingExternalMount else { break }
-            let now = DispatchTime.now().uptimeNanoseconds
-            let remainingNanoseconds = pendingWaitDeadline.uptimeNanoseconds > now
-                ? pendingWaitDeadline.uptimeNanoseconds - now
-                : 0
-            let remaining = TimeInterval(remainingNanoseconds) / 1_000_000_000
-            guard remaining > 0 else {
-                log.error("DAInventory: automatic snapshot deadline reached with approved external mount still not visible")
-                return nil
+            guard let mounted = currentMountedDiskInfosOnQueue() else { return }
+            snap = mounted
+            let wholeBSDs = Set(snap.values.compactMap { info -> String? in
+                guard let selectedVolumePaths else { return info.wholeDiskBSD }
+                guard let mountPath = info.mountPath,
+                      selectedVolumePaths.contains(mountPath) else { return nil }
+                return info.wholeDiskBSD
+            })
+            for wholeBSD in wholeBSDs {
+                _ = bindCurrentPhysicalIdentityOnQueue(wholeBSD)
             }
-            log.notice("DAInventory: waiting for approved external mount terminal before automatic snapshot remaining=\(String(format: "%.2f", remaining), privacy: .public)s")
-            waitForPendingApprovedMountChange(after: observedSequence,
-                                              timeout: remaining)
+            generations = physicalGenerations
+            entryIDs = physicalRegistryEntryIDs
+            lock.lock()
+            capturedRevision = inventoryRevision
+            lock.unlock()
         }
         guard !snap.isEmpty, let capturedRevision else {
             // 정상 macOS에는 root `/dev/disk*` mount가 항상 있다. Empty는 initial-enumeration
@@ -10078,6 +10037,13 @@ private final class DAInventory {
 
         var result: [SleepAutomaticVolumeSnapshot] = []
         for (wholeBSD, group) in groups {
+            let mountedVolumePaths = Set(group.compactMap { info in
+                info.mountPath.flatMap { $0.isEmpty ? nil : $0 }
+            })
+            guard SleepSnapshotGroupSelectionPolicy.shouldInspectGroup(
+                mountedVolumePaths: mountedVolumePaths,
+                selectedVolumePaths: selectedVolumePaths
+            ) else { continue }
             let probe = group.first { $0.isWholeDisk } ?? group[0]
             guard ExternalMediaPolicy.shouldInclude(
                 isInternal: probe.isInternal,
@@ -10088,18 +10054,6 @@ private final class DAInventory {
             if let protocolName = probe.busProtocol,
                protocolName == "Disk Image" || protocolName == "Virtual Interface" {
                 continue
-            }
-            guard !pendingMounts.contains(where: { pending in
-                pending.wholeDiskBSD == wholeBSD
-                    && entryIDs[wholeBSD].map { entryID in
-                        SleepMountApprovalPolicy.pendingApprovalMatchesCapturedMedia(
-                            pendingMediaRegistryEntryID: pending.mediaRegistryEntryID,
-                            capturedMediaRegistryEntryID: entryID
-                        )
-                    } == true
-            }) else {
-                log.error("DAInventory: automatic snapshot blocked by approved mount not yet visible whole=\(wholeBSD, privacy: .public)")
-                return nil
             }
             guard let generation = generations[wholeBSD],
                   let entryID = entryIDs[wholeBSD] else {
@@ -10256,9 +10210,9 @@ private final class DAInventory {
 
 // MARK: - Sleep Eject Toggle (UserDefaults)
 
-    /// macOS가 분류한 자동 idle sleep 진입 시 자동 추출 여부.
-    /// Apple 메뉴·전원 키·단축키·다른 앱/명령의 적극적 sleep 요청은 이 설정이 제어하지 않는다.
-    /// IOKit-confirmed forced sleep은 별도 default-off `ForcedSleepEject` 실험 정책이 담당한다.
+    /// 뚜껑 닫기를 제외하고 macOS가 system sleep에 진입할 때 Whole normal 추출을 시도할지 여부.
+    /// idle/active/unknown 분류가 이 값을 공유하며, 분류는 Force 권한을 추가하지 않는다.
+    /// IOKit-confirmed forced sleep은 default-off `ForcedSleepEject`가 켜졌을 때 별도 실험 경로가 우선한다.
 ///
 /// Legacy preference migration runs once at launch before either modern value is read.
 enum SleepEject {

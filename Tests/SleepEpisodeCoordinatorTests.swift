@@ -32,6 +32,8 @@ private enum SleepEpisodeCoordinatorTests {
         testRecloseDuringActiveRemountRequeuesCanceledTargets()
         testLateTargetDuringActiveRemountSchedulesFollowUp()
         testLateTargetAfterFinishedRemountStillSchedules()
+        testManualTargetWaitsForNextWakeWithoutCancelingCurrentSchedule()
+        testFailedEjectAndSleepTargetRemountsAtNextWake()
         testPhysicalGenerationRemainsPartOfRemountIdentity()
         testUnknownStaleCompletionCannotInjectTargets()
         testNewEjectInvalidatesStaleWakeRequest()
@@ -61,11 +63,12 @@ private enum SleepEpisodeCoordinatorTests {
                      display: Bool,
                      system: Bool)] = [
             (.lidClose, true, true, "lidClose", false, true),
-            (.systemForced, false, false, "systemForced", false, true),
+            (.systemForced, true, false, "systemForced", false, true),
             (.systemIdle, true, false, "systemIdle", false, true),
             (.displaySleep, true, false, "displaySleep", true, false),
             (.ejectAndSleep, true, true, "ejectAndSleep", false, false),
-            (.unknownSystemSleep, false, false, "unknownSystemSleep", false, true),
+            (.powerOff, true, false, "powerOff", false, false),
+            (.unknownSystemSleep, true, false, "unknownSystemSleep", false, true),
         ]
 
         for item in cases {
@@ -289,6 +292,62 @@ private enum SleepEpisodeCoordinatorTests {
         expect(lateWork?.disks == [disk("diskB")], "post-finish late callback must not be stranded")
     }
 
+    private static func testManualTargetWaitsForNextWakeWithoutCancelingCurrentSchedule() {
+        var coordinator = SleepEpisodeCoordinator()
+        let automatic = disk("disk30", generation: 1)
+        let manual = disk("disk31", generation: 2)
+
+        _ = coordinator.recordCleanUnmountTargets(
+            [automatic],
+            operationID: "automatic",
+            reason: "lidClose"
+        )
+        let currentSchedule = coordinator.wakeDidOccur()
+        expect(currentSchedule != nil, "the current automatic target must schedule at wake")
+
+        coordinator.stageCleanUnmountTargetsForNextWake(
+            [manual],
+            operationID: "manual",
+            reason: "manualEject"
+        )
+        expect(coordinator.nextWakeTargets == [manual],
+               "manual eject must remain isolated in the next-wake ledger")
+        expect(coordinator.pendingTargets == [automatic],
+               "manual eject must not enter the already-open automatic wake batch")
+
+        let currentWork = coordinator.claimRemount(currentSchedule!.token)
+        expect(currentWork?.disks == [automatic],
+               "staging a manual target must not cancel or modify the current schedule")
+        expect(coordinator.finishRemount(currentSchedule!.token, canceledDisks: []) == nil,
+               "finishing the current remount must not consume the next-wake target")
+
+        let nextSchedule = coordinator.wakeDidOccur()
+        expect(nextSchedule != nil, "the following wake must promote the manual target")
+        expect(coordinator.nextWakeTargets.isEmpty,
+               "promotion must consume the next-wake ledger exactly once")
+        expect(coordinator.claimRemount(nextSchedule!.token)?.disks == [manual],
+               "the following wake must remount exactly the manually ejected target")
+    }
+
+    private static func testFailedEjectAndSleepTargetRemountsAtNextWake() {
+        var coordinator = SleepEpisodeCoordinator()
+        let cleanBeforeSleepFailure = disk("disk32", generation: 4)
+
+        coordinator.stageCleanUnmountTargetsForNextWake(
+            [cleanBeforeSleepFailure],
+            operationID: "eject-and-sleep-failed",
+            reason: "pmsetFailed"
+        )
+        expect(coordinator.pendingTargets.isEmpty,
+               "a failed sleep request must not remount its clean disk without a wake")
+
+        let schedule = coordinator.wakeDidOccur()
+        expect(schedule != nil,
+               "the next independent wake must promote a disk cleanly unmounted before sleep failed")
+        expect(coordinator.claimRemount(schedule!.token)?.disks == [cleanBeforeSleepFailure],
+               "the wake must remount the exact clean media from the failed command")
+    }
+
     private static func testPhysicalGenerationRemainsPartOfRemountIdentity() {
         var state = SleepEpisodeCoordinator()
         let original = disk("disk7", generation: 8)
@@ -403,7 +462,7 @@ private enum SleepEpisodeCoordinatorTests {
             SleepLidInventoryPolicy.needsBoundaryRefresh(
                 currentClosedGeneration: 6,
                 completedInventoryGeneration: 5,
-                explicitRefreshPending: false
+                generationRefreshPending: false
             ),
             "a newer close generation must keep the power boundary open until its inventory completes"
         )
@@ -411,7 +470,7 @@ private enum SleepEpisodeCoordinatorTests {
             !SleepLidInventoryPolicy.needsBoundaryRefresh(
                 currentClosedGeneration: 6,
                 completedInventoryGeneration: 6,
-                explicitRefreshPending: false
+                generationRefreshPending: false
             ),
             "the current close generation may finish after its own inventory completes"
         )
@@ -419,7 +478,7 @@ private enum SleepEpisodeCoordinatorTests {
             SleepLidInventoryPolicy.needsBoundaryRefresh(
                 currentClosedGeneration: 6,
                 completedInventoryGeneration: 6,
-                explicitRefreshPending: true
+                generationRefreshPending: true
             ),
             "a mounted-media event must override a completed generation"
         )
