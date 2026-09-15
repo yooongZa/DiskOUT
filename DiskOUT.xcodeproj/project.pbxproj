@@ -7,10 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C5A5202C449342659ECF8ED0 /* BasicBicycle.png in Resources */ = {isa = PBXBuildFile; fileRef = 142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */; };
+		C4E388B414CE4134947D9C1B /* HalloweenBicycleSleepingGhost.png in Resources */ = {isa = PBXBuildFile; fileRef = 19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */; };
+		1440D89BCD054D018C7D02B2 /* HalloweenBicycle.png in Resources */ = {isa = PBXBuildFile; fileRef = 21B0812231E54345B254D938 /* HalloweenBicycle.png */; };
 		00B609F60A64D6AAB26C31D5 /* StatusItemPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EC0337B0CBCDEAC755A4BE /* StatusItemPresentation.swift */; };
-		081C9BEF70C76753DE47A3C1 /* AppLifecycleTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67EC23A3BFA2A8D01E999531 /* AppLifecycleTelemetry.swift */; };
+		0CF6B079873DAB52C2442C73 /* HalloweenDeskPoses.png in Resources */ = {isa = PBXBuildFile; fileRef = B312038308A39DA484561D83 /* HalloweenDeskPoses.png */; };
 		0D90E960F2F73EA404CDF6E4 /* PremiumStatusCharacters@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 8AE3FB77ABEA83464780A0AF /* PremiumStatusCharacters@2x.png */; };
 		220C94ED7F7E150968ED2D8C /* EjectAndSleepPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D228EF8C4149426DE51A433C /* EjectAndSleepPolicy.swift */; };
+		26F788BD8B729FC1BD680625 /* HalloweenCharacters.png in Resources */ = {isa = PBXBuildFile; fileRef = 3DF0BFE9CF9FEE450100946F /* HalloweenCharacters.png */; };
+		2B86112D2208BA1D58AD3E4D /* CharacterActivityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 322A9E5D4E2030242CEAE070 /* CharacterActivityPolicy.swift */; };
 		2EED812FEDD1352A94DCCFC7 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44CDE422E8407721E3B40C1C /* main.swift */; };
 		37DBF5233342983EFE7F3CFA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C2E6BE99C3D17823694299C8 /* Assets.xcassets */; };
 		46EDE9F5A5F882091320314F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = EAA125530A0170ECA703858F /* Sparkle */; };
@@ -18,12 +23,17 @@
 		61FD966FCFA11BFD3B66FA13 /* PaddleBilling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EC0B7318D0615479CF2EFB9 /* PaddleBilling.swift */; };
 		68338131FDE242192B11D010 /* SleepEpisodeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11BF93D3BDA0DEDCABF19B9 /* SleepEpisodeCoordinator.swift */; };
 		6E991C3577A5365CDF9ACA0C /* PremiumStatusCharacters.png in Resources */ = {isa = PBXBuildFile; fileRef = ACFEC8A78861352EF16B2EEF /* PremiumStatusCharacters.png */; };
+		772BB3DE9A7F68F3F0299E83 /* CharacterSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C8A3D5233C17DB3F69005C /* CharacterSettingsView.swift */; };
 		7BAFBE8B28951CD32B87BA5A /* SleepUnmountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D544B97EEC4FF82E7DFC464 /* SleepUnmountPolicy.swift */; };
+		86F9C739D1CA12C64AC8E3FE /* CharacterCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA536A53CC88C84370A11530 /* CharacterCatalog.swift */; };
+		917731C06A63FF4DC562AD1F /* BasicCharacters.png in Resources */ = {isa = PBXBuildFile; fileRef = A3CBF64993C7F9689D9D76F5 /* BasicCharacters.png */; };
 		9B31B3BE9E40AC2A49EC4F1C /* PowerSleepAckCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90489C221196E31CB10F915 /* PowerSleepAckCoordinator.swift */; };
 		9D3769CF9AF66C58988F8680 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 41E6237D05464B7B78D4D542 /* Localizable.xcstrings */; };
+		9EE69CD109A5D4CF8F4E6BAC /* CharacterArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7392D9A22592D7CF302DA3F4 /* CharacterArtwork.swift */; };
 		A302927406AE406D0C9E3067 /* CrashReportParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E510B6BF5B75E7FF62F019C3 /* CrashReportParsing.swift */; };
 		AE82DCA47B799CDB7613A861 /* StatusCharacterAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A7EF53AE7C1F21EAA6538D /* StatusCharacterAnimator.swift */; };
 		D0C0B4A17F330B090FB4D540 /* PremiumAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E4AF25EAFBC50EE5F0265D /* PremiumAccessPolicy.swift */; };
+		D6591525BAC17B6A19B4FD58 /* AppLifecycleTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7FF054619500FCB5908BC57 /* AppLifecycleTelemetry.swift */; };
 		D661259592528392DE2ED874 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EDE56AD31EB4310C52F205F /* AppDelegate.swift */; };
 		DD2C307722C246EC48C6AFDF /* LanguageRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EB19C3D59C13AA999F0BF03 /* LanguageRuntime.swift */; };
 		F9773A4BACE2CC0964A1CE19 /* DiskClassification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA1C96727FF4307B242AB26 /* DiskClassification.swift */; };
@@ -31,25 +41,35 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicBicycle.png; sourceTree = "<group>"; };
+		19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycleSleepingGhost.png; sourceTree = "<group>"; };
+		21B0812231E54345B254D938 /* HalloweenBicycle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycle.png; sourceTree = "<group>"; };
 		0EDE56AD31EB4310C52F205F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		67EC23A3BFA2A8D01E999531 /* AppLifecycleTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleTelemetry.swift; sourceTree = "<group>"; };
 		11BA76708DDF535A724FB1ED /* DiskActivityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskActivityPolicy.swift; sourceTree = "<group>"; };
 		1EB19C3D59C13AA999F0BF03 /* LanguageRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageRuntime.swift; sourceTree = "<group>"; };
+		322A9E5D4E2030242CEAE070 /* CharacterActivityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterActivityPolicy.swift; sourceTree = "<group>"; };
 		3486D7618A8166DD700759D1 /* SettingsBehaviorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsBehaviorPolicy.swift; sourceTree = "<group>"; };
+		3DF0BFE9CF9FEE450100946F /* HalloweenCharacters.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenCharacters.png; sourceTree = "<group>"; };
 		41E6237D05464B7B78D4D542 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		44CDE422E8407721E3B40C1C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		61E4AF25EAFBC50EE5F0265D /* PremiumAccessPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumAccessPolicy.swift; sourceTree = "<group>"; };
 		62EC0337B0CBCDEAC755A4BE /* StatusItemPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemPresentation.swift; sourceTree = "<group>"; };
 		67A3A704BE87C9899BB6D10F /* DiskOUT.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DiskOUT.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6EC0B7318D0615479CF2EFB9 /* PaddleBilling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaddleBilling.swift; sourceTree = "<group>"; };
+		71C8A3D5233C17DB3F69005C /* CharacterSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSettingsView.swift; sourceTree = "<group>"; };
+		7392D9A22592D7CF302DA3F4 /* CharacterArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterArtwork.swift; sourceTree = "<group>"; };
 		7D544B97EEC4FF82E7DFC464 /* SleepUnmountPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepUnmountPolicy.swift; sourceTree = "<group>"; };
 		8AE3FB77ABEA83464780A0AF /* PremiumStatusCharacters@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "PremiumStatusCharacters@2x.png"; sourceTree = "<group>"; };
 		9FA1C96727FF4307B242AB26 /* DiskClassification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskClassification.swift; sourceTree = "<group>"; };
+		A3CBF64993C7F9689D9D76F5 /* BasicCharacters.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicCharacters.png; sourceTree = "<group>"; };
 		ACFEC8A78861352EF16B2EEF /* PremiumStatusCharacters.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PremiumStatusCharacters.png; sourceTree = "<group>"; };
+		B312038308A39DA484561D83 /* HalloweenDeskPoses.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenDeskPoses.png; sourceTree = "<group>"; };
 		C11BF93D3BDA0DEDCABF19B9 /* SleepEpisodeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepEpisodeCoordinator.swift; sourceTree = "<group>"; };
 		C2E6BE99C3D17823694299C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D228EF8C4149426DE51A433C /* EjectAndSleepPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EjectAndSleepPolicy.swift; sourceTree = "<group>"; };
+		D7FF054619500FCB5908BC57 /* AppLifecycleTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleTelemetry.swift; sourceTree = "<group>"; };
 		D90489C221196E31CB10F915 /* PowerSleepAckCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerSleepAckCoordinator.swift; sourceTree = "<group>"; };
+		DA536A53CC88C84370A11530 /* CharacterCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterCatalog.swift; sourceTree = "<group>"; };
 		E510B6BF5B75E7FF62F019C3 /* CrashReportParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReportParsing.swift; sourceTree = "<group>"; };
 		F7A7EF53AE7C1F21EAA6538D /* StatusCharacterAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCharacterAnimator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -69,6 +89,12 @@
 		57E54D20AA60E079DB29C260 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				A3CBF64993C7F9689D9D76F5 /* BasicCharacters.png */,
+				142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */,
+				3DF0BFE9CF9FEE450100946F /* HalloweenCharacters.png */,
+				21B0812231E54345B254D938 /* HalloweenBicycle.png */,
+				19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */,
+				B312038308A39DA484561D83 /* HalloweenDeskPoses.png */,
 				ACFEC8A78861352EF16B2EEF /* PremiumStatusCharacters.png */,
 				8AE3FB77ABEA83464780A0AF /* PremiumStatusCharacters@2x.png */,
 			);
@@ -79,8 +105,12 @@
 			isa = PBXGroup;
 			children = (
 				0EDE56AD31EB4310C52F205F /* AppDelegate.swift */,
-				67EC23A3BFA2A8D01E999531 /* AppLifecycleTelemetry.swift */,
+				D7FF054619500FCB5908BC57 /* AppLifecycleTelemetry.swift */,
 				C2E6BE99C3D17823694299C8 /* Assets.xcassets */,
+				322A9E5D4E2030242CEAE070 /* CharacterActivityPolicy.swift */,
+				7392D9A22592D7CF302DA3F4 /* CharacterArtwork.swift */,
+				DA536A53CC88C84370A11530 /* CharacterCatalog.swift */,
+				71C8A3D5233C17DB3F69005C /* CharacterSettingsView.swift */,
 				E510B6BF5B75E7FF62F019C3 /* CrashReportParsing.swift */,
 				11BA76708DDF535A724FB1ED /* DiskActivityPolicy.swift */,
 				9FA1C96727FF4307B242AB26 /* DiskClassification.swift */,
@@ -175,6 +205,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				37DBF5233342983EFE7F3CFA /* Assets.xcassets in Resources */,
+				917731C06A63FF4DC562AD1F /* BasicCharacters.png in Resources */,
+				C5A5202C449342659ECF8ED0 /* BasicBicycle.png in Resources */,
+				26F788BD8B729FC1BD680625 /* HalloweenCharacters.png in Resources */,
+				1440D89BCD054D018C7D02B2 /* HalloweenBicycle.png in Resources */,
+				C4E388B414CE4134947D9C1B /* HalloweenBicycleSleepingGhost.png in Resources */,
+				0CF6B079873DAB52C2442C73 /* HalloweenDeskPoses.png in Resources */,
 				9D3769CF9AF66C58988F8680 /* Localizable.xcstrings in Resources */,
 				6E991C3577A5365CDF9ACA0C /* PremiumStatusCharacters.png in Resources */,
 				0D90E960F2F73EA404CDF6E4 /* PremiumStatusCharacters@2x.png in Resources */,
@@ -189,8 +225,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				D661259592528392DE2ED874 /* AppDelegate.swift in Sources */,
+				D6591525BAC17B6A19B4FD58 /* AppLifecycleTelemetry.swift in Sources */,
+				2B86112D2208BA1D58AD3E4D /* CharacterActivityPolicy.swift in Sources */,
+				9EE69CD109A5D4CF8F4E6BAC /* CharacterArtwork.swift in Sources */,
+				86F9C739D1CA12C64AC8E3FE /* CharacterCatalog.swift in Sources */,
+				772BB3DE9A7F68F3F0299E83 /* CharacterSettingsView.swift in Sources */,
 				A302927406AE406D0C9E3067 /* CrashReportParsing.swift in Sources */,
-				081C9BEF70C76753DE47A3C1 /* AppLifecycleTelemetry.swift in Sources */,
 				5DC53311F05A8A11E3894139 /* DiskActivityPolicy.swift in Sources */,
 				F9773A4BACE2CC0964A1CE19 /* DiskClassification.swift in Sources */,
 				220C94ED7F7E150968ED2D8C /* EjectAndSleepPolicy.swift in Sources */,
@@ -245,7 +285,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -266,7 +306,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.5.13;
+				MARKETING_VERSION = 0.6.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -313,7 +353,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -328,7 +368,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.5.13;
+				MARKETING_VERSION = 0.6.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

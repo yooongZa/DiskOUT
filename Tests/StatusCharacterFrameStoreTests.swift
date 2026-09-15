@@ -17,10 +17,10 @@ private enum StatusCharacterFrameStoreTests {
             exit(2)
         }
 
+        _ = NSApplication.shared
         let store = StatusCharacterFrameStore(bundle: bundle)
-        let expectedTrailingTrimAtlasPoints = [
-            2, 3, 3, 1, 0, 0, 2, 0, 0, 0, 1, 0, 1,
-        ]
+        expect(store.basicArtwork.hasCompleteCollection, "all 13 refreshed basic characters ship in the bundle")
+        expect(StatusCharacterAnimator.frameDuration == 0.14, "free loops retain their 140ms cadence")
         for count in 0...StatusCharacterFrameStore.maximumCharacterCount {
             expect(store.hasFrames(for: count), "count \(count) has all six bundled frames")
             var payloads = Set<Data>()
@@ -34,20 +34,19 @@ private enum StatusCharacterFrameStoreTests {
                 let representationSizes = Set(image.representations.map {
                     "\($0.pixelsWide)x\($0.pixelsHigh)"
                 })
-                expect(representationSizes == Set(["18x18", "36x36"]),
-                       "status image crops transparent atlas padding at 1x and 2x")
-                let expectedTrim = CGFloat(expectedTrailingTrimAtlasPoints[count]) * 21 / 18
+                expect(representationSizes == Set(["21x21", "42x42"]),
+                       "status image renders the source artwork at 1x and 2x")
                 let expectedAlignmentRect = NSRect(
                     x: 0,
                     y: 0,
-                    width: 21 - expectedTrim,
+                    width: 21,
                     height: 21
                 )
                 expect(abs(image.alignmentRect.minX - expectedAlignmentRect.minX) < 0.001 &&
                        abs(image.alignmentRect.minY - expectedAlignmentRect.minY) < 0.001 &&
                        abs(image.alignmentRect.width - expectedAlignmentRect.width) < 0.001 &&
                        abs(image.alignmentRect.height - expectedAlignmentRect.height) < 0.001,
-                       "count \(count) uses its safe character-to-number alignment trim")
+                       "count \(count) keeps the full stable status canvas")
                 alignmentRects.insert(NSStringFromRect(image.alignmentRect))
                 expect(image.isTemplate, "status image remains a light/dark template")
                 if let representation = image.tiffRepresentation {
@@ -57,9 +56,20 @@ private enum StatusCharacterFrameStoreTests {
             expect(alignmentRects.count == 1,
                    "count \(count) keeps one alignment width across all animation frames")
             expect(payloads.count == StatusCharacterFrameStore.frameCount,
-                   "count \(count) keeps six distinct animation frames after bundle processing")
+                   "count \(count) renders six distinct free animation frames")
         }
-        expect(!store.hasFrames(for: 13), "count 13 has no premium frame")
+        for count in [-1, 13] {
+            expect(!store.hasFrames(for: count), "out-of-range count uses the numeric fallback")
+            expect(store.image(for: count, frame: 0) == nil, "out-of-range count has no rendered frame")
+        }
+        expect(store.image(for: 2, frame: -1) == nil && store.image(for: 2, frame: 6) == nil,
+               "out-of-range animation frames are rejected")
+        let missing = StatusCharacterFrameStore(bundle: Bundle(for: NSView.self))
+        expect(!missing.basicArtwork.hasCompleteCollection, "missing source is reported")
+        for count in 0...StatusCharacterFrameStore.maximumCharacterCount {
+            expect(!missing.hasFrames(for: count) && missing.image(for: count, frame: 0) == nil,
+                   "missing source does not fall back to the replaced artwork")
+        }
         print("StatusCharacterFrameStoreTests: PASS")
     }
 }

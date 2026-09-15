@@ -28,11 +28,19 @@ private let log = Logger(subsystem: "com.yongza.ejectdrives", category: "app")
 /// 디자인 토큰 — UI 전반에서 공유하는 시각 상수의 단일 출처.
 /// 새 UI 를 만들 때는 여기 값을 먼저 쓰고, 없는 값이 필요하면 여기에 추가한다.
 /// 표기 컨벤션 (Title Case · "…" · 이모지 금지 등) 은 CLAUDE.md "UI 컨벤션" 참조.
-private enum UI {
+enum UI {
     // 간격
     static let spacing: CGFloat = 14          // 표준 stack 간격 (설정/온보딩 공통)
     static let rowSpacing: CGFloat = 10       // 행 내부 요소 간격
     static let windowPadding: CGFloat = 24    // 창 가장자리 콘텐츠 여백
+
+    static let compactSpacing: CGFloat = 4
+    static let cardPadding: CGFloat = 16
+    static let cardCornerRadius: CGFloat = 10
+    static let settingsPaneWidth: CGFloat = 540
+    static let settingsContentWidth = settingsPaneWidth - windowPadding * 2
+    static let characterPreviewSize: CGFloat = 64
+    static let characterOfferTextWidth: CGFloat = 280
 
     // 폰트 크기 (메뉴/메뉴바는 ofSize: 0 = 시스템 기본을 그대로 사용)
     static let titleSize: CGFloat = 16        // 창 헤더 타이틀
@@ -92,6 +100,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private var statusItem: NSStatusItem!
     private let statusCharacterAnimator = StatusCharacterAnimator()
+    private var characterSelection = CharacterSelection(defaults: .standard)
+    private var characterActivity = CharacterActivityPolicy()
+    private var previousCharacterPacks = Set<CharacterPack>()
+
+    private var currentCharacterVisual: CharacterVisual {
+        CharacterPresentationPolicy.visual(selection: characterSelection,
+            owned: billingController?.ownedCharacterPacks ?? [], count: mountedDriveCount)
+    }
+    private var currentCharacterMotion: CharacterMotionState {
+        characterActivity.current(at: ProcessInfo.processInfo.systemUptime, diskCount: mountedDriveCount)
+    }
+    private func saveCharacterSelection(_ value: CharacterSelection) {
+        characterSelection = value; value.save(to: .standard)
+        applyCountTitle(); settingsWindowController?.refreshExternalState()
+    }
+    private func characterAccessChanged() {
+        let packs = billingController?.ownedCharacterPacks ?? []
+        let lost = previousCharacterPacks.subtracting(packs)
+        if lost.contains(.halloween), characterSelection.collection == .halloween { characterSelection.collection = .basic }
+        if lost.contains(.baseMotion) { characterSelection.basicReactive = false }
+        previousCharacterPacks = packs
+        characterSelection.save(to: .standard)
+        applyCountTitle(); settingsWindowController?.refreshExternalState()
+    }
     private var billingController: PaddleBillingController?
     private let lifecycleTelemetryController = AppLifecycleTelemetryController.live()
     private var pendingPremiumRefreshCallback = false
@@ -343,6 +375,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         DAInventory.shared.start()
         // 외장 쓰기 활동 표시 — 모니터 폴링은 updateMountedDriveCount 가 외장 유무로 start/stop.
+        DiskIOMonitor.shared.onCharacterActivity = { [weak self] sample in
+            guard let self else { return }
+            _ = self.characterActivity.consume(sample)
+            self.updateAnimatedStatusCharacterFrame()
+        }
         DiskIOMonitor.shared.onActivityChanged = { [weak self] writingBSDs, readingBSDs in
             self?.setDiskActivity(writing: writingBSDs, reading: readingBSDs)
         }
@@ -488,26 +525,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             self?.isPurchaseInProgress = polling
             self?.settingsWindowController?.refreshExternalState()
         }
+        controller.onCharacterPacksChanged = { [weak self] in self?.characterAccessChanged() }
         billingController = controller
+        let hadSavedSelection = UserDefaults.standard.string(forKey: "character.display") != nil
         controller.start()
+        if !hadSavedSelection {
+            characterSelection.display = SettingsStore.onboardingCompletedVersion > 0 && !controller.hasPremiumAccess ? .numbers : .characters
+            characterSelection.save(to: .standard)
+        }
     }
 
     /// Animation may update only the image portion. The right-side count and activity/update
     /// dots are owned by applyCountTitle(), and transient/result symbols always take priority.
     private func updateAnimatedStatusCharacterFrame() {
-        guard Thread.isMainThread,
-              !isTransientStatusIconVisible,
-              lastResultSymbol == nil,
-              hasPremiumStatusPresentationAccess else { return }
-
-        let presentation = StatusItemPresentationPolicy.presentation(
-            count: mountedDriveCount,
-            premiumState: .verified,
-            hasCharacterAsset: statusCharacterAnimator.hasFrames(for:)
-        )
-        guard case .premiumCharacter(let count) = presentation.visual,
-              let image = statusCharacterAnimator.image(for: count) else { return }
-        statusItem.button?.image = image
+        guard Thread.isMainThread, !isTransientStatusIconVisible, lastResultSymbol == nil else { return }
+        statusCharacterAnimator.configure(visual: currentCharacterVisual, state: currentCharacterMotion)
+        if let image = statusCharacterAnimator.currentImage() { statusItem.button?.image = image }
     }
 
     /// `DISKOUT_PREMIUM_PREVIEW` opens only the character presentation for a local demo build.
@@ -648,6 +681,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         billingController.startPurchasePolling()
     }
 
+    private func purchaseCharacterPack(_ pack: CharacterPack) {
+        guard canPresentBillingUI, !isPurchaseInProgress, !isCheckingPurchaseStatus, !isRestoringPurchase,
+              let billingController, let url = billingController.checkoutURL(for: pack) else { return }
+        guard NSWorkspace.shared.open(url) else { showBillingBrowserError(); return }
+        billingController.startPurchasePolling(for: pack)
+    }
+
     @objc private func stopPremiumPurchaseCheck(_ sender: Any?) {
         guard canPresentBillingUI,
               isPurchaseInProgress,
@@ -786,7 +826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             if success && hasPremiumAccess {
                 alert.alertStyle = .informational
                 alert.messageText = String(localized: "Premium is active")
-                alert.informativeText = String(localized: "Animated icons are unlocked on this Mac.")
+                alert.informativeText = String(localized: "Purchased packs are available in Character settings.")
             } else if success {
                 alert.alertStyle = .informational
                 alert.messageText = String(localized: "No active purchase was found")
@@ -1384,7 +1424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                    hasPremiumAccess: billingController.hasPremiumAccess,
                                    hasInProgressAction: isPurchaseInProgress ||
                                        isCheckingPurchaseStatus || isRestoringPurchase) == .openSettings {
-            let premiumItem = NSMenuItem(title: String(localized: "Premium…"),
+            let premiumItem = NSMenuItem(title: String(localized: "Characters…"),
                                          action: #selector(showPremiumSettings(_:)),
                                          keyEquivalent: "")
             premiumItem.target = self
@@ -1453,9 +1493,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                             isCheckingStatus: self.isCheckingPurchaseStatus,
                                             isRestoring: self.isRestoringPurchase,
                                             canOpenDetails: billing.canOpenPurchaseDetails,
-                                            hasRecoveryCode: billing.recoveryCode != nil)
+                                            hasRecoveryCode: billing.recoveryCode != nil,
+                                            ownedPacks: billing.ownedCharacterPacks,
+                                            purchasablePacks: Set(CharacterPack.allCases.filter { billing.canPurchase($0) }))
             }, premiumActions: PremiumSettingsActions(
                 purchase: { [weak self] in self?.purchasePremiumStatusIcons(nil) },
+                purchasePack: { [weak self] in self?.purchaseCharacterPack($0) },
+                characterSelection: { [weak self] in self?.characterSelection ?? CharacterSelection() },
+                applyCharacterSelection: { [weak self] in self?.saveCharacterSelection($0) },
                 stopPurchaseCheck: { [weak self] in self?.stopPremiumPurchaseCheck(nil) },
                 viewDetails: { [weak self] in self?.viewPremiumPurchaseDetails(nil) },
                 copyRecoveryCode: { [weak self] in self?.copyPremiumRecoveryCode(nil) },
@@ -1735,9 +1780,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
-    /// 무료 상태는 기존 정체성 글리프(⏏)를 보존한다. 검증된 Premium 상태의 0...12는
-    /// `button.image`에 animation frame, `button.attributedTitle`에 오른쪽 숫자를 표시한다.
-    /// 13 이상, 미검증/만료, asset 누락은 모두 기존 무료 표시로 fail-closed 한다.
+    /// 무료 숫자/기본 셋과 보유 팩의 개수 매핑을 적용한다.
+    /// `button.image`에 캐릭터, `button.attributedTitle`에 정확한 실제 개수를 표시한다.
+    /// 범위를 벗어나거나 자산이 없으면 기존 추출 글리프를 사용한다.
     ///
     /// 색점(●)은 한 번에 하나만 — 읽기/쓰기 활동(systemBlue)이 미설치 업데이트(systemRed)보다
     /// 우선. 업데이트는 메뉴 안 "Update to …" 항목으로도 보이므로 메뉴바에서는 양보한다.
@@ -1750,40 +1795,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
               !isTransientStatusIconVisible else { return }
         crossfadeIconChange(button)
 
-        let premiumState: PremiumVerificationState
-        if hasPremiumStatusPresentationAccess {
-            premiumState = .verified
-        } else if billingController?.isConfigured == true {
-            premiumState = .unverified
-        } else {
-            premiumState = .free
-        }
-        let presentation = StatusItemPresentationPolicy.presentation(
-            count: mountedDriveCount,
-            premiumState: premiumState,
-            hasCharacterAsset: statusCharacterAnimator.hasFrames(for:)
-        )
-
-        switch presentation.visual {
-        case .freeGlyph:
-            statusCharacterAnimator.setActive(false)
-            button.image = Self.statusGlyph()
-        case .premiumCharacter(let count):
-            statusCharacterAnimator.setActive(true)
-            button.image = statusCharacterAnimator.image(for: count) ?? Self.statusGlyph()
-        }
+        let visual = currentCharacterVisual
+        statusCharacterAnimator.configure(visual: visual, state: currentCharacterMotion)
+        button.image = statusCharacterAnimator.currentImage() ?? Self.statusGlyph()
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
-
-        let menuBarSize = NSFont.menuBarFont(ofSize: 0).pointSize  // 0 = 시스템 기본 메뉴바 크기
-        let countFontSize: CGFloat
-        switch presentation.visual {
-        case .freeGlyph:
-            countFontSize = menuBarSize
-        case .premiumCharacter:
-            countFontSize = UI.statusCountSize
-        }
-        let countStr = presentation.countTitle
+        let countFontSize = visual == .numbers ? NSFont.menuBarFont(ofSize: 0).pointSize : UI.statusCountSize
+        let countStr = visual == .numbers && mountedDriveCount == 0 ? "" : String(mountedDriveCount)
 
         let attr = NSMutableAttributedString(
             string: countStr,
@@ -7019,10 +7037,15 @@ private struct PremiumSettingsState {
     let isRestoring: Bool
     let canOpenDetails: Bool
     let hasRecoveryCode: Bool
+    var ownedPacks = Set<CharacterPack>()
+    var purchasablePacks = Set<CharacterPack>()
 }
 
 private struct PremiumSettingsActions {
     let purchase: () -> Void
+    var purchasePack: (CharacterPack) -> Void = { _ in }
+    var characterSelection: () -> CharacterSelection = { CharacterSelection() }
+    var applyCharacterSelection: (CharacterSelection) -> Void = { _ in }
     let stopPurchaseCheck: () -> Void
     let viewDetails: () -> Void
     let copyRecoveryCode: () -> Void
@@ -7055,13 +7078,14 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private var mountHotkeyPopup: NSPopUpButton!
     private var ejectAndSleepHotkeyPopup: NSPopUpButton!
     private var languagePopup: NSPopUpButton!
+    private var characterPicker: CharacterSettingsView!
+    private var premiumManageButton: NSPopUpButton!
     private var premiumStatusLabel: NSTextField!
-    private var premiumPurchaseButton: NSButton!
     private var premiumStopButton: NSButton!
-    private var premiumDetailsButton: NSButton!
-    private var premiumRecoveryButton: NSButton!
-    private var premiumCheckButton: NSButton!
-    private var premiumRestoreButton: NSButton!
+    private var premiumDetailsItem: NSMenuItem!
+    private var premiumRecoveryItem: NSMenuItem!
+    private var premiumCheckItem: NSMenuItem!
+    private var premiumRestoreItem: NSMenuItem!
 
     /// 설정 페인 — 시스템 설정과 같은 툴바 스타일 (아이콘+라벨 탭, 페인별 높이, 창 제목 = 페인 이름).
     private enum Pane: String, CaseIterable {
@@ -7075,7 +7099,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
             case .eject: return String(localized: "Eject Behavior")
             case .notifications: return String(localized: "Notifications")
             case .hotkeys: return String(localized: "Hotkeys")
-            case .premium: return String(localized: "Premium")
+            case .premium: return String(localized: "Characters")
             case .about: return String(localized: "About")
             }
         }
@@ -7093,7 +7117,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     }
 
     /// 페인 콘텐츠 고정폭 — 설명 라벨 줄바꿈 기준이자 창 폭.
-    private static let paneWidth: CGFloat = 540
+    private static let paneWidth = UI.settingsPaneWidth
     /// 체크박스 글리프+간격 폭 — 설명 줄을 체크박스 *텍스트* 시작선에 맞추는 들여쓰기.
     private static let checkboxTextIndent: CGFloat = 18
 
@@ -7138,6 +7162,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     }
 
     func windowWillClose(_ notification: Notification) {
+        characterPicker?.setPreviewVisible(false)
         onClosed()
     }
 
@@ -7209,6 +7234,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         frame.size = contentFrame.size
 
         window.contentView = view
+        characterPicker?.setPreviewVisible(pane == .premium)
         window.setFrame(frame, display: true, animate: animated && window.isVisible)
     }
 
@@ -7321,29 +7347,46 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     }
 
     private func makePremiumPane() -> NSView {
+        characterPicker = CharacterSettingsView(
+            selection: premiumActions.characterSelection,
+            owned: { [weak self] in self?.premiumState().ownedPacks ?? [] },
+            purchasable: { [weak self] in self?.premiumState().purchasablePacks.contains($0) == true },
+            busy: { [weak self] in
+                guard let state = self?.premiumState() else { return true }
+                return state.isPurchaseInProgress || state.isRestoring || state.isCheckingStatus
+            }, apply: premiumActions.applyCharacterSelection, purchase: premiumActions.purchasePack,
+            layoutChanged: { [weak self] in self?.resizeCharacterPane() })
         premiumStatusLabel = NSTextField(wrappingLabelWithString: "")
-        premiumStatusLabel.font = .systemFont(ofSize: UI.bodySize, weight: .medium)
-        premiumPurchaseButton = actionButton(String(localized: "Unlock Animated Icons — USD 4.99 One-Time…"),
-                                             #selector(premiumPurchaseClicked))
+        premiumStatusLabel.font = .systemFont(ofSize: UI.captionSize)
+        premiumStatusLabel.textColor = .secondaryLabelColor
         premiumStopButton = actionButton(String(localized: "Stop Checking Purchase…"),
                                          #selector(premiumStopClicked))
-        premiumDetailsButton = actionButton(String(localized: "View Purchase Details…"),
-                                            #selector(premiumDetailsClicked))
-        premiumRecoveryButton = actionButton(String(localized: "Copy Recovery Code…"),
-                                             #selector(premiumRecoveryClicked))
-        premiumCheckButton = actionButton(String(localized: "Check Purchase Status…"),
-                                          #selector(premiumCheckClicked))
-        premiumRestoreButton = actionButton(String(localized: "Restore Purchase…"),
-                                            #selector(premiumRestoreClicked))
-        return pane([
-            premiumStatusLabel,
-            premiumPurchaseButton,
-            premiumStopButton,
-            premiumDetailsButton,
-            premiumRecoveryButton,
-            premiumCheckButton,
-            premiumRestoreButton,
-        ])
+        premiumManageButton = NSPopUpButton(frame: .zero, pullsDown: true)
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(withTitle: String(localized: "Manage Purchases"), action: nil, keyEquivalent: "")
+        func item(_ title: String, _ action: Selector) -> NSMenuItem {
+            let value = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            value.target = self; menu.addItem(value)
+            return value
+        }
+        premiumDetailsItem = item(String(localized: "View Purchase Details…"), #selector(premiumDetailsClicked))
+        premiumRecoveryItem = item(String(localized: "Copy Recovery Code…"), #selector(premiumRecoveryClicked))
+        premiumCheckItem = item(String(localized: "Check Purchase Status…"), #selector(premiumCheckClicked))
+        premiumRestoreItem = item(String(localized: "Restore Purchase…"), #selector(premiumRestoreClicked))
+        premiumManageButton.menu = menu
+        let divider = NSBox(); divider.boxType = .separator
+        divider.widthAnchor.constraint(equalToConstant: UI.settingsContentWidth).isActive = true
+        return pane([characterPicker, divider, premiumManageButton, premiumStatusLabel, premiumStopButton])
+    }
+
+    private func resizeCharacterPane() {
+        guard let window, window.toolbar?.selectedItemIdentifier == Pane.premium.identifier,
+              let view = paneViews[.premium] else { return }
+        view.layoutSubtreeIfNeeded()
+        let height = window.frameRect(forContentRect: NSRect(x: 0, y: 0,
+            width: Self.paneWidth, height: view.fittingSize.height)).height
+        if abs(window.frame.height - height) > 0.5 { showPane(.premium, animated: false) }
     }
 
     private func makeAboutPane() -> NSView {
@@ -7559,23 +7602,17 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     private func refreshPremiumControls() {
         let state = premiumState()
-        premiumStatusLabel.stringValue = !state.isConfigured
-            ? String(localized: "Premium is unavailable in this build")
-            : (state.hasAccess
-                ? String(localized: "Premium is active")
-                : String(localized: "No active purchase was found"))
+        characterPicker?.refresh()
         let busy = state.isPurchaseInProgress || state.isCheckingStatus || state.isRestoring
-        premiumPurchaseButton.isHidden = !state.isConfigured || state.hasAccess || state.isPurchaseInProgress
-        premiumPurchaseButton.isEnabled = !busy
+        premiumStatusLabel.stringValue = String(localized: "Checking Purchase…")
+        premiumStatusLabel.isHidden = !busy
         premiumStopButton.isHidden = !state.isPurchaseInProgress
-        premiumDetailsButton.isHidden = !state.hasAccess
-        premiumDetailsButton.isEnabled = state.canOpenDetails && !state.isOpeningDetails
-        premiumRecoveryButton.isHidden = !state.hasAccess
-        premiumRecoveryButton.isEnabled = state.hasRecoveryCode
-        premiumCheckButton.isHidden = !state.isConfigured || state.hasAccess || state.isPurchaseInProgress
-        premiumCheckButton.isEnabled = !busy
-        premiumRestoreButton.isHidden = !state.isConfigured || state.hasAccess || state.isPurchaseInProgress
-        premiumRestoreButton.isEnabled = !busy
+        premiumDetailsItem.isEnabled = state.hasAccess && state.canOpenDetails && !state.isOpeningDetails
+        premiumRecoveryItem.isEnabled = state.hasAccess && state.hasRecoveryCode
+        premiumCheckItem.isEnabled = state.isConfigured && !busy
+        premiumRestoreItem.isEnabled = state.isConfigured && !busy
+        premiumManageButton.isHidden = !state.isConfigured && !state.hasAccess
+        resizeCharacterPane()
     }
 
     @objc private func premiumPurchaseClicked() { premiumActions.purchase(); refreshPremiumControls() }
@@ -10621,6 +10658,14 @@ final class DiskIOMonitor {
     /// 쓰는 중/읽는 중 물리 whole-disk BSD 집합이 변할 때 main thread 에서 호출.
     /// (writing, reading) 둘 다 빈 집합이면 비활성. 닷은 둘 중 하나라도 있으면 표시.
     var onActivityChanged: ((_ writing: Set<String>, _ reading: Set<String>) -> Void)?
+    var onCharacterActivity: ((CharacterActivitySample) -> Void)?
+    private var characterSampleTime: TimeInterval?
+
+    private func reportCharacterActivity(rate: Double?, time: TimeInterval) {
+        let sample = CharacterActivitySample(generation: mountedInventoryRevision, time: time,
+            bytesPerSecond: rate, diskCount: mountedPhysicalBSDs?.count ?? 1)
+        DispatchQueue.main.async { [weak self] in self?.onCharacterActivity?(sample) }
+    }
 
     private init() {
         queue.setSpecific(key: queueKey, value: 1)
@@ -10723,6 +10768,16 @@ final class DiskIOMonitor {
     }
 
     private func poll() {
+        let sampleTime = ProcessInfo.processInfo.systemUptime
+        let elapsed = characterSampleTime.map { sampleTime - $0 }
+        characterSampleTime = sampleTime
+        var displayBytes = Double(0)
+        var displaySampleValid = false
+        defer {
+            let rate = displaySampleValid && elapsed.map({ $0 > 0 && $0 <= 5 }) == true
+                ? displayBytes / (elapsed ?? 1) : nil
+            reportCharacterActivity(rate: rate, time: sampleTime)
+        }
         let (rawIO, hasEligibleMedia) = Self.externalIOByDisk()
         let io: [String: (read: UInt64, write: UInt64)]
         if let mountedPhysicalBSDs {
@@ -10764,11 +10819,13 @@ final class DiskIOMonitor {
             validThisPoll.insert(bsd)
             let wDelta = delta.write
             let rDelta = delta.read
+            displayBytes += Double(wDelta) + Double(rDelta)
             if wDelta > 0 { observedWriting.insert(bsd) }
             if rDelta > 0 { observedReading.insert(bsd) }
             if wDelta >= writeThreshold { detectedWriting.insert(bsd) }
             if rDelta >= readThreshold  { detectedReading.insert(bsd) }
         }
+        displaySampleValid = mountedPhysicalBSDs.map { !$0.isEmpty && validThisPoll == $0 } ?? false
         lastIOByDisk = io
         validDeltaSampledDisks = validThisPoll
         let activity = activityState.update(

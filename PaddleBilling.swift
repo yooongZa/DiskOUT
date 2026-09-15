@@ -11,8 +11,15 @@ struct PaddleBillingConfiguration {
     let baseURL: URL?
     let oneTimePriceID: String
     let entitlementPublicKey: Data?
+    let characterPacksEnabled: Bool
+    let characterPriceIDs: [CharacterPack: String]
 
     init(infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
+        characterPacksEnabled = infoDictionary["DiskOUTCharacterPacksEnabled"] as? Bool ?? false
+        characterPriceIDs = [
+            .baseMotion: infoDictionary["DiskOUTBaseMotionPriceID"] as? String ?? "",
+            .halloween: infoDictionary["DiskOUTHalloweenPriceID"] as? String ?? "",
+        ]
         oneTimePriceID = (infoDictionary["DiskOUTPaddleOneTimePriceID"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -33,9 +40,15 @@ struct PaddleBillingConfiguration {
         baseURL != nil && Self.isValidPaddlePriceID(oneTimePriceID) && entitlementPublicKey?.count == 32
     }
 
-    func checkoutURL(installationID: String, bindingSecret: String) -> URL? {
+    func checkoutURL(installationID: String, bindingSecret: String, product: CharacterPack? = nil) -> URL? {
         guard let url = endpoint(path: "/checkout"),
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        if let product {
+            guard canPurchase(product) else { return nil }
+            components.queryItems = [URLQueryItem(name: "product", value: product.rawValue)]
+        } else if characterPacksEnabled {
+            return nil // Updated clients never sell the retired basic-artwork product.
+        }
         // URL fragments are not sent in HTTP requests or Worker request logs. Checkout JavaScript
         // removes both binding values from browser history before passing them to Paddle custom data.
         var fragment = URLComponents()
@@ -48,7 +61,14 @@ struct PaddleBillingConfiguration {
     }
 
     func entitlementURL() -> URL? {
-        endpoint(path: "/v1/entitlement")
+        endpoint(path: characterPacksEnabled ? "/v2/entitlements" : "/v1/entitlement")
+    }
+
+    func canPurchase(_ product: CharacterPack) -> Bool {
+        guard characterPacksEnabled, isConfigured,
+              let priceID = characterPriceIDs[product], Self.isValidPaddlePriceID(priceID),
+              priceID != oneTimePriceID else { return false }
+        return characterPriceIDs.filter { Self.isValidPaddlePriceID($0.value) && $0.value == priceID }.count == 1
     }
 
     func restoreURL() -> URL? {
@@ -112,6 +132,23 @@ enum PremiumRefreshCallbackPolicy {
 private struct SignedPremiumEntitlement: Codable {
     let payload: String
     let signature: String
+}
+
+private enum VerifiedBillingPayload {
+    case legacy(PremiumAccessPayload)
+    case characters(CharacterEntitlementPayload)
+    var status: PremiumEntitlementStatus {
+        switch self {
+        case .legacy(let value): return value.status
+        case .characters(let value): return value.activePacks.isEmpty ? .free : .active
+        }
+    }
+    var issuedAt: Date {
+        switch self { case .legacy(let value): return value.issuedAt; case .characters(let value): return value.issuedAt }
+    }
+    var expiresAt: Date {
+        switch self { case .legacy(let value): return value.expiresAt; case .characters(let value): return value.expiresAt }
+    }
 }
 
 private struct PaddlePortalSessionResponse: Codable {
@@ -312,6 +349,10 @@ final class PaddleBillingController {
     private(set) var hasPremiumAccess = false
     private(set) var entitlementStatus: PremiumEntitlementStatus = .free
     private(set) var isPurchasePolling = false
+    private(set) var ownedCharacterPacks = Set<CharacterPack>()
+    private(set) var purchaseTarget: CharacterPack?
+    private var lastCharacterPayload: CharacterEntitlementPayload?
+    var onCharacterPacksChanged: (() -> Void)?
 
     var onAccessChanged: ((Bool) -> Void)?
     var onPurchasePollingChanged: ((Bool) -> Void)?
@@ -370,6 +411,20 @@ final class PaddleBillingController {
         return configuration.checkoutURL(installationID: installationID, bindingSecret: bindingSecret)
     }
 
+    func canPurchase(_ product: CharacterPack) -> Bool {
+        isConfigured && configuration.canPurchase(product) && !ownedCharacterPacks.contains(product)
+    }
+
+    func checkoutURL(for product: CharacterPack) -> URL? {
+        guard canPurchase(product), let bindingSecret else { return nil }
+        return configuration.checkoutURL(installationID: installationID, bindingSecret: bindingSecret, product: product)
+    }
+
+    private var purchaseTargetGranted: Bool {
+        if let purchaseTarget { return ownedCharacterPacks.contains(purchaseTarget) }
+        return hasPremiumAccess
+    }
+
     var canOpenPurchaseDetails: Bool {
         hasPremiumAccess && isConfigured && configuration.portalURL() != nil
     }
@@ -387,9 +442,12 @@ final class PaddleBillingController {
         precondition(Thread.isMainThread)
         guard isConfigured else { return }
         isStopped = false
-        if let cached = secureStore.data(for: Self.entitlementAccount),
-           let payload = verifiedPayload(from: cached) {
-            apply(payload: payload)
+        if let cached = secureStore.data(for: Self.entitlementAccount) {
+            // Retain the signed revision watermark after lease expiry, without granting access.
+            if case .characters(let previous) = verifiedPayload(from: cached, allowExpiredMetadata: true) {
+                lastCharacterPayload = previous
+            }
+            if let payload = verifiedPayload(from: cached) { apply(payload: payload) }
         }
         refresh()
     }
@@ -434,7 +492,11 @@ final class PaddleBillingController {
                     return
                 }
 
-                if payload.status != .active,
+                let removesCharacterAccess: Bool
+                if case .characters(let value) = payload {
+                    removesCharacterAccess = !self.ownedCharacterPacks.subtracting(value.activePacks).isEmpty
+                } else { removesCharacterAccess = false }
+                if payload.status != .active || removesCharacterAccess,
                    !self.secureStore.remove(account: Self.entitlementAccount) {
                     billingLog.error("Could not remove the stale granted entitlement from Keychain")
                 }
@@ -451,9 +513,11 @@ final class PaddleBillingController {
 
     /// Called after the checkout browser opens. A canceled checkout simply exhausts this bounded
     /// polling schedule and leaves the existing access state unchanged; another click starts fresh.
-    func startPurchasePolling() {
+    func startPurchasePolling(for product: CharacterPack? = nil) {
         precondition(Thread.isMainThread)
         guard !isStopped, isConfigured else { return }
+        if let product, !configuration.canPurchase(product) { return }
+        purchaseTarget = product
         purchasePollGeneration += 1
         let generation = purchasePollGeneration
         purchasePollTask?.cancel()
@@ -697,7 +761,7 @@ final class PaddleBillingController {
                 guard let self,
                       !self.isStopped,
                       self.purchasePollGeneration == generation else { return }
-                if self.hasPremiumAccess {
+                if self.purchaseTargetGranted {
                     self.purchasePollGeneration += 1
                     self.purchasePollTask?.cancel()
                     self.purchasePollTask = nil
@@ -708,34 +772,40 @@ final class PaddleBillingController {
         }
     }
 
-    private func verifiedPayload(from envelopeData: Data) -> PremiumAccessPayload? {
+    private func verifiedPayload(from envelopeData: Data, allowExpiredMetadata: Bool = false) -> VerifiedBillingPayload? {
         guard isConfigured,
               let publicKeyData = configuration.entitlementPublicKey,
               let envelope = try? JSONDecoder().decode(SignedPremiumEntitlement.self, from: envelopeData),
               let payloadData = Data(base64Encoded: envelope.payload),
               let signatureData = Data(base64Encoded: envelope.signature),
               let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData),
-              publicKey.isValidSignature(signatureData, for: payloadData),
-              let payload = try? Self.payloadDecoder().decode(PremiumAccessPayload.self, from: payloadData),
-              PremiumAccessPolicy.acceptsLease(
-                  payload: payload,
-                  expectedInstallID: installationID,
-                  expectedPriceID: configuration.oneTimePriceID,
-                  now: scheduler.now
-              ) else {
-            return nil
+              publicKey.isValidSignature(signatureData, for: payloadData) else { return nil }
+        if configuration.characterPacksEnabled,
+           let payload = try? Self.payloadDecoder().decode(CharacterEntitlementPayload.self, from: payloadData),
+           payload.issuedAt.timeIntervalSince(scheduler.now) <= PremiumAccessPolicy.maximumFutureIssuedAtSkew,
+           payload.accepts(installID: installationID,
+               now: allowExpiredMetadata ? min(scheduler.now, payload.expiresAt.addingTimeInterval(-0.001)) : scheduler.now,
+               previous: lastCharacterPayload) {
+            return .characters(payload)
         }
-        return payload
+        guard lastCharacterPayload == nil,
+              let payload = try? Self.payloadDecoder().decode(PremiumAccessPayload.self, from: payloadData),
+              PremiumAccessPolicy.acceptsLease(payload: payload, expectedInstallID: installationID,
+                  expectedPriceID: configuration.oneTimePriceID, now: scheduler.now) else { return nil }
+        return .legacy(payload)
     }
 
-    private func apply(payload: PremiumAccessPayload) {
+    private func apply(payload: VerifiedBillingPayload) {
         entitlementStatus = payload.status
-        let granted = PremiumAccessPolicy.grantsPremium(
-            payload: payload,
-            expectedInstallID: installationID,
-            expectedPriceID: configuration.oneTimePriceID,
-            now: scheduler.now
-        )
+        let granted = payload.status == .active
+        let packs: Set<CharacterPack>
+        switch payload {
+        case .legacy: packs = [] // Legacy envelopes never grant new product IDs on the client.
+        case .characters(let value):
+            lastCharacterPayload = value
+            packs = value.activePacks
+        }
+        setCharacterPacks(packs)
         setAccess(granted)
 
         leaseGeneration += 1
@@ -755,7 +825,7 @@ final class PaddleBillingController {
         scheduleLeaseRenewal(for: payload, generation: generation)
     }
 
-    private func scheduleLeaseRenewal(for payload: PremiumAccessPayload, generation: Int) {
+    private func scheduleLeaseRenewal(for payload: VerifiedBillingPayload, generation: Int) {
         let now = scheduler.now
         let remaining = payload.expiresAt.timeIntervalSince(now)
         guard remaining > refreshSchedule.minimumRenewalDelay else { return }
@@ -855,6 +925,7 @@ final class PaddleBillingController {
         currentPremiumLeaseExpiration = nil
         leaseRenewalTask?.cancel()
         leaseRenewalTask = nil
+        setCharacterPacks([])
         setAccess(false)
         entitlementStatus = .free
 
@@ -889,7 +960,13 @@ final class PaddleBillingController {
     }
 
     private func stopPurchasePollingAfterGrant() {
-        cancelPurchasePolling()
+        if purchaseTargetGranted { cancelPurchasePolling() }
+    }
+
+    private func setCharacterPacks(_ packs: Set<CharacterPack>) {
+        guard ownedCharacterPacks != packs else { return }
+        ownedCharacterPacks = packs
+        onCharacterPacksChanged?()
     }
 
     private func cancelLeaseTasks() {

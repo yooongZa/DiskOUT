@@ -40,7 +40,7 @@ Core features are free · macOS 13+ · Apple Silicon · Apple notarized
 
 DiskOUT tries a normal unmount first. Manual eject and `Eject and Sleep` ask before proceeding when a drive is being written to, and explain what blocked an eject when it fails. Time Machine disks and drives you exclude are left out of auto-eject.
 
-Eject, mount, sleep automation, and the numeric menu-bar indicator are free. The optional USD 4.99 one-time Premium purchase only replaces the number with a menu-bar character.
+Disk operations, numbers, and all 13 basic characters with their basic loops are free. The Basic Character Premium Motion Pack is USD 1.90; Halloween includes 10 characters and motion for USD 3.90. Each is an independent one-time purchase. Preview and purchase packs in Settings → Characters.
 
 ---
 
@@ -106,7 +106,7 @@ If even force unmount fails, the disk is left alone — we won't risk data corru
 <details>
 <summary><b>Is it free?</b></summary>
 
-Yes. Eject, mount, sleep automation, and the existing numeric menu-bar display remain free. Optional Premium animated menu-bar characters cost USD 4.99 once; development builds hide the purchase menu until production billing is configured.
+Disk operations, numbers, and all 13 basic characters with their basic loops are free. The Basic Character Premium Motion Pack is USD 1.90; Halloween includes 10 characters and motion for USD 3.90. Each is an independent one-time purchase. Preview and purchase packs in Settings → Characters.
 
 </details>
 
@@ -165,7 +165,9 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | Feature | Description |
 |---|---|
 | Menu bar dropdown | Lists connected externals. Stale cache shown immediately, then background-refreshed when complete. On refresh failure, the previous cache stays + a failure row is shown. **DA event-driven inventory is the primary source** → menu stays responsive even when `storagekitd` is blocked (e.g. by SD card insertion) |
-| **Menu bar icon = ⏏ + mount count** | An eject glyph (⏏) next to the number of mounted external *devices* — instantly identifiable among other status items, and monospaced digits keep the width stable as the count changes. With 0 drives, only the glyph shows (no uninformative "0"). Multi-partition / RAID / APFS synthesized volumes count as 1. Event-driven auto-update from `DAInventory` changes (no polling). Temporary glyphs (↻ · ✓ · ✗) take over during eject progress/results, with a 0.15s crossfade (honors Reduce Motion) |
+| **Menu bar icon = character/⏏ + mount count** | Numbers, 13 basic characters and their basic loops are free choices. The basic motion pack reacts to drive activity; the bicycle for count 2 rests with floating Zzz, moves when drives are active, and moves faster with heavier activity. Halloween automatically maps counts 0–9 to numbered character shapes; 10 or more uses the exact number. Basic counts above 12 also use numbers. Eject progress/results take priority. Reduce Motion and sleep stop animation. |
+| **13 basic characters** | Counts 0–12 share consistent faces and proportions: 2 is a regular bicycle, 3 is an octopus with three pointed arms, 8 is an eight-armed octopus, and 9 is a nine-tailed fox. The free basic loops use six frames at 140ms per frame, with refreshed artwork and movement. |
+| **Halloween number characters 0–9** | 0 pumpkin · 1 one-shaped staff · 2 Halloween bicycle · 3 Cerberus · 4 walking four-legged desk · 5 star in a witch hat · 6 six-spoke web · 7 seven-shaped scythe · 8 eight-legged spider · 9 nine-tailed fox. The actual drive count selects the character automatically; counts of 10 or more appear as numbers. |
 | **Read/write activity indicator** | When read or write I/O is active on an external, a small systemBlue `●` appears next to the menu bar number + a "Reading / Writing — don't disconnect" tooltip (color-distinct from the red update dot). In the menu, the blue `●` appears **only next to the busy disk** — and the tooltip distinguishes reading / writing / both. Polls physical-disk I/O counters (IORegistry) every 1.5 s; volume→physical mapping via parent-walk handles RAID / APFS-synthesized / direct uniformly. Reads use a higher threshold to avoid background-indexing false positives. After an eject, once the updated mounted inventory and physical mapping are resolved, activity for the ejected disk is removed while the state of other mounted disks is preserved. Runs only while externals are present (battery) |
 | **Disk capacity / usage** | Each disk's menu item shows *free · usage* on a second line — e.g. `2.9 TB free · 40% used`. Read via `URLResourceValues` on menu open (no process spawn) |
 | Open in Finder / individual eject | Click drive name = open in Finder, <kbd>⌘</kbd>+click = eject. A dimmed default-menu-size guide shows `Click: Open in Finder` and `⌘-Click: Eject` on two lines once above the list, while drive rows show only the name, status, and capacity |
@@ -187,11 +189,11 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | Result notifications | **Silent** banner + menu bar icon ✓ / ! / ✗ (unified circle-family symbols). Only negative outcomes (failures, remount failures, sleep eject failures) or background events are kept in Notification Center; user-triggered successes show a brief banner only |
 | Parallel eject | `DispatchGroup` for N drives ejected concurrently |
 | **Launch at login** | Configure in Settings → General. Uses `SMAppService.mainApp`; `.requiresApproval` appears as a mixed state with a “needs approval” label and a link to System Settings |
-| **Settings window** | <kbd>⌘</kbd><kbd>,</kbd> or menu “Settings…”. System Settings-style **toolbar with 6 panes** — General (login · language · error reporting) / Eject Behavior (sleep · display sleep · Music/Photos · force unmount · right-click) / Notifications / Hotkeys / Premium (purchase · restore · status) / About (version · updates · links). Per-pane height transition, every non-obvious option gets a description line |
+| **Settings window** | <kbd>⌘</kbd><kbd>,</kbd> or menu “Settings…”. System Settings-style **toolbar with 6 panes** — General (login · language · error reporting) / Eject Behavior (sleep · display sleep · Music/Photos · force unmount · right-click) / Notifications / Hotkeys / Characters (purchase · restore · status) / About (version · updates · links). Per-pane height transition, every non-obvious option gets a description line |
 | **Hotkey conflict auto-fix** | If eject / mount / eject-and-sleep would share the same preset, the conflict is detected + one is auto-moved + alerted |
 | **Missing-permission menu hint** | If Accessibility (for global hotkeys) or notification permission is missing, a ⚠ warning row appears at the top of the menu. Click to jump to the relevant System Settings page |
 | **Fine-grained notification toggles** | Separate toggles for all / success / failure notifications. All ON by default. If macOS blocks notifications, Settings shows the status and opens the relevant System Settings page |
-| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 177 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
+| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 218 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
 | **Auto-update (Sparkle 2)** | 24h background check. On new version, no modal — just a small systemRed `●` in the menu bar + an "Update to X.Y.Z…" menu item with the same red-dot prefix (gentle reminder). On click, DiskOUT closes the status menu, starts the Sparkle check, and makes bounded foreground requests for the checking, update-presentation, and no-update/error modal stages. EdDSA(Ed25519) + Apple Code Signing double verification. Appcast on GitHub Pages, DMG on GitHub Releases — free hosting |
 | **Per-disk auto-eject exclude** | Per-disk toggles in the bottom *"Auto-Eject Excluded Disks"* submenu. Volume UUID-based (survives cable/port changes). Affects auto path only — explicit eject still works |
 | **Time Machine auto-protect** | TM backup disks auto-detected (`Backups.backupdb` / `.com.apple.timemachine.donotpresent`) → excluded from auto-eject on first sighting + 1 notification. Menu shows clock icon + a Time Machine badge (macOS 14+; parenthetical on 13) |
@@ -223,7 +225,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 diskOUT/
 ├── AppDelegate.swift            # Main logic (diskutil exec, menu cache, sleep/wake handling)
 ├── LanguageRuntime.swift        # language negotiation, stored-value validation, safe relaunch policy
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 177 keys)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 218 keys)
 ├── main.swift                   # Explicit entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen generated)
 ├── DiskOUT.entitlements         # empty plist. Prevents entitlements pitfalls in project.yml

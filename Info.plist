@@ -40,10 +40,16 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>DiskOUTBaseMotionPriceID</key>
+	<string>pri_01m2hfdd6tj68gc3sdvz99smpy</string>
 	<key>DiskOUTBillingBaseURL</key>
 	<string>https://diskout-paddle-billing.sukmack.workers.dev</string>
+	<key>DiskOUTCharacterPacksEnabled</key>
+	<true/>
 	<key>DiskOUTEntitlementPublicKey</key>
 	<string>ptsyyuHUpc6JBSSw3E/EQ6HEh5aF+u86HnwcFmdjnik=</string>
+	<key>DiskOUTHalloweenPriceID</key>
+	<string>pri_01m2hfq5a2gj2c7xt62p5eq0r1</string>
 	<key>DiskOUTPaddleOneTimePriceID</key>
 	<string>pri_01kxz609bdn1m025acsb60b366</string>
 	<key>LSApplicationCategoryType</key>

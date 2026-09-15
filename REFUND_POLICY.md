@@ -1,8 +1,8 @@
 # DiskOUT Refund Policy
 
-Effective: July 20, 2026
+Effective: September 15, 2026
 
-DiskOUT Premium is sold as a **USD 4.99 one-time digital purchase** through Paddle, which acts as the Merchant of Record.
+DiskOUT Premium is sold as a **USD 1.90 basic motion pack or USD 3.90 Halloween character and motion pack, each a one-time digital purchase** through Paddle, which acts as the Merchant of Record.
 
 ## Requesting a refund
 
@@ -14,9 +14,9 @@ This policy does not limit any statutory cancellation, withdrawal, conformity, o
 
 - An approved full or product-related partial refund revokes the affected Premium purchase after the adjustment is received and verified.
 - A tax-only adjustment does not revoke the purchased Character Pack.
-- If another valid, unrefunded DiskOUT Premium purchase remains bound to the same Mac, that separate purchase can continue to grant access.
+- If another valid, unrefunded purchase of the same pack remains bound to the same Mac, that separate purchase can continue to grant access.
 - A chargeback or payment dispute may temporarily suspend or revoke access while it is reviewed. An approved reversal restores access only when no other refund or dispute still blocks it.
 
-If the app has not yet reflected an approved refund or reversal, connect the Mac to the internet and choose the purchase-status action in DiskOUT. Billing-state changes never disable the free core disk features or numeric menu-bar display.
+If the app has not yet reflected an approved refund or reversal, connect the Mac to the internet and choose the purchase-status action in DiskOUT. Billing-state changes never disable the free core disk features, numeric display, or basic characters. Other independently purchased packs keep their own access.
 
 For product support, email [sukmack@gmail.com](mailto:sukmack@gmail.com) or use [DiskOUT Support](https://github.com/yooongZa/DiskOUT/issues). For transaction, receipt, or refund support, use Paddle's receipt link or [Paddle Buyer Support](https://paddle.net/).

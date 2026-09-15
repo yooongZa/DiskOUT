@@ -12,8 +12,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 495S4FVMCB
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: "0.5.13"
-    CURRENT_PROJECT_VERSION: "27"
+    MARKETING_VERSION: "0.6.0"
+    CURRENT_PROJECT_VERSION: "28"
 
 # Swift Package Manager 의존성.
 # Sparkle 2: 자동 업데이트 프레임워크 (https://sparkle-project.org).
@@ -29,6 +29,10 @@ targets:
     platform: macOS
     sources:
       - path: AppDelegate.swift
+      - path: CharacterActivityPolicy.swift
+      - path: CharacterCatalog.swift
+      - path: CharacterArtwork.swift
+      - path: CharacterSettingsView.swift
       - path: CrashReportParsing.swift
       - path: AppLifecycleTelemetry.swift
       - path: DiskActivityPolicy.swift
@@ -89,6 +93,9 @@ targets:
         # private signing key belong exclusively in the billing Worker secrets.
         # Missing or invalid values deliberately hide purchase UI and keep the free presentation.
         DiskOUTBillingBaseURL: "https://diskout-paddle-billing.sukmack.workers.dev"
+        DiskOUTCharacterPacksEnabled: true
+        DiskOUTBaseMotionPriceID: "pri_01m2hfdd6tj68gc3sdvz99smpy"
+        DiskOUTHalloweenPriceID: "pri_01m2hfq5a2gj2c7xt62p5eq0r1"
         DiskOUTPaddleOneTimePriceID: "pri_01kxz609bdn1m025acsb60b366"
         DiskOUTEntitlementPublicKey: "ptsyyuHUpc6JBSSw3E/EQ6HEh5aF+u86HnwcFmdjnik="
     settings:

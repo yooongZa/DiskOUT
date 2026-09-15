@@ -40,7 +40,7 @@
 
 DiskOUT은 normal unmount(정상 마운트 해제)를 먼저 시도합니다. 수동 추출과 `추출하고 잠자기`는 쓰기 중이면 먼저 확인하고, 추출하지 못하면 이유와 다음 행동을 보여줍니다. Time Machine 디스크와 사용자가 제외한 디스크는 자동 추출하지 않습니다.
 
-추출·마운트·잠자기 자동화와 숫자 메뉴바 표시는 무료입니다. USD 4.99 일회성 Premium은 숫자를 메뉴바 캐릭터로 바꾸는 선택 기능입니다.
+추출·마운트·잠자기 자동화, 숫자 표시와 기본 캐릭터 13종·기본 반복은 무료입니다. 기본 캐릭터 프리미엄 모션 팩은 USD 1.90, 할로윈 10종+모션 팩은 USD 3.90의 독립적인 일회성 구매입니다. 환경설정 → 캐릭터에서 미리 보고 구매할 수 있습니다.
 
 ---
 
@@ -106,7 +106,7 @@ DiskOUT이 관리하는 모든 추출은 Disk Arbitration(디스크 중재)의 `
 <details>
 <summary><b>무료인가요?</b></summary>
 
-네. 추출·마운트·잠자기 자동화 등 실질 기능과 기존 숫자 메뉴바 표시는 그대로 무료입니다. 선택 사항인 Premium 메뉴바 캐릭터는 USD 4.99 일회성 구매이며, 운영 결제 설정 전 개발 빌드에서는 구매 메뉴가 표시되지 않습니다.
+추출·마운트·잠자기 자동화, 숫자 표시와 기본 캐릭터 13종·기본 반복은 무료입니다. 기본 캐릭터 프리미엄 모션 팩은 USD 1.90, 할로윈 10종+모션 팩은 USD 3.90의 독립적인 일회성 구매입니다. 환경설정 → 캐릭터에서 미리 보고 구매할 수 있습니다.
 
 </details>
 
@@ -165,7 +165,9 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | 기능 | 설명 |
 |---|---|
 | 메뉴바 드롭다운 | 연결된 외장 드라이브 목록. stale cache(오래된 캐시)는 즉시 표시하고 background refresh(백그라운드 갱신) 완료 후 메뉴를 다시 채워 창 열림 지연을 줄임. 갱신 실패 시 기존 cache 를 유지하고 실패 row(행)를 표시. **갱신 source 는 DA event-driven 인벤토리가 1순위** → SD 카드 삽입으로 `storagekitd` 가 막혀도 메뉴 즉시 정상 |
-| **메뉴바 아이콘 = 캐릭터/⏏ + 마운트 개수** | 무료 버전은 기존 eject 글리프(⏏)와 숫자를 유지. 검증된 Premium 은 0~12에 해당하는 21pt 반전 캐릭터와 오른쪽 9pt 숫자를 표시하며, count별 안전한 trailing trim(뒤쪽 여백 제외)으로 둘 사이 간격을 줄임. 13 이상·asset 누락·권한 미검증 시 무료 표시로 안전하게 복귀. 다중 파티션·RAID·APFS 합성 볼륨은 1개로 집계. `DAInventory` 변화에 이벤트 기반 자동 갱신하며, 추출 진행/결과 심볼(↻·✓·✗)이 animation보다 우선. Reduce Motion(동작 줄이기)에서는 첫 frame으로 정지 |
+| **메뉴바 아이콘 = 캐릭터/⏏ + 마운트 개수** | 숫자와 기본 13종·기본 반복은 무료 선택. 기본 모션 팩은 사용량에 따라 쉬기/움직이기/빠르게 움직이기를 제공하고, 할로윈 팩은 실제 0~9개를 숫자 의미가 있는 캐릭터에 자동 연결하고, 10개 이상은 정확한 숫자로 표시. 기본 2개 자전거는 활동에 따라 쉬거나 움직이고, 활동이 많으면 더 빠르게 움직이며 휴식 중 Zzz가 떠오름. 기본 셋의 13개 이상은 숫자로 대체하며 추출 진행·결과가 애니메이션보다 우선. 동작 줄이기와 잠자기에는 재생 정지. |
+| **기본 캐릭터 13종** | 0~12개에 맞춰 바뀌며 얼굴과 비율을 통일. 2는 일반 자전거, 3은 끝이 뾰족한 세발낙지, 8은 여덟 다리 문어, 9는 아홉 꼬리 구미호. 무료 기본 반복은 6프레임·프레임당 140ms이며, 새 원화로 외형과 움직임을 다듬음. |
+| **할로윈 숫자 캐릭터 0~9** | 0 호박 · 1 숫자 1 모양 지팡이 · 2 할로윈 자전거 · 3 케르베로스 · 4 네 발로 걷는 책상 · 5 마녀 모자를 쓴 별 · 6 여섯 방향 거미줄 · 7 숫자 7 모양 낫 · 8 여덟 다리 거미 · 9 구미호. 실제 디스크 개수에 맞춰 자동으로 바뀌며, 10개 이상은 숫자로 표시. |
 | **읽기/쓰기 활동 표시** | 외장에 읽기·쓰기 I/O 가 진행 중이면 메뉴바 숫자 옆 작은 systemBlue `●` + "읽는 중 / 쓰는 중 — 분리하지 마세요" tooltip (업데이트 알림의 빨간 `●` 와 색으로 구분). 메뉴에서는 **그 디스크 항목 옆에만** 파란 `●` — 어떤 디스크가 바쁜지 바로 식별하고, tooltip 으로 읽기·쓰기·둘 다를 구분. 물리 디스크 I/O 카운터(IORegistry)를 1.5s 폴링, 볼륨→물리 매핑은 parent-walk 로 RAID·APFS 합성·직결 모두 처리. 읽기는 background 인덱싱 오탐 방지로 임계가 높음. 추출 뒤 최신 마운트 목록과 물리 매핑이 확인되면 해당 디스크의 파란 점을 제거하고, 아직 마운트된 다른 디스크의 활동 상태는 유지. 외장 있을 때만 가동 (배터리) |
 | **디스크 용량 / 사용률** | 각 디스크 메뉴 항목 2번째 줄에 *남은 용량 · 사용률* 표시 — 예 `2.9 TB free · 40% used`. 메뉴 열 때 `URLResourceValues` 로 조회 (프로세스 호출 없음) |
 | Finder 열기 / 개별 추출 | 드라이브 이름 클릭 = Finder 열기, <kbd>⌘</kbd>+클릭 = 개별 추출. 목록 맨 위에 기본 메뉴 크기의 흐린 `클릭: Finder에서 열기` / `⌘클릭: 드라이브 추출` 안내를 두 줄로 한 번 표시하고, 드라이브 행에는 이름·상태·용량만 표시 |
@@ -187,11 +189,11 @@ DiskOUT 의 자동(잠자기) 추출은 정상 unmount 단계를 먼저 시도�
 | 결과 알림 | **무음** banner + 메뉴바 아이콘 ✓/!/✗ (circle 계열 심볼로 통일). 부재 중 발생하거나 negative 결과 (실패·재마운트 실패·sleep 추출 실패) 만 **알림 센터에 보관**, 본인 trigger + 성공은 banner 만 잠깐 표시 |
 | 병렬 추출 | `DispatchGroup` 으로 N개 드라이브 동시 추출 |
 | **로그인 시 자동 실행** | 환경설정 → General에서 설정. `SMAppService.mainApp` 사용. `.requiresApproval`이면 혼합 상태와 “로그인 항목 허용 필요” 라벨을 표시하고 시스템 설정으로 안내 |
-| **환경설정 창** | <kbd>⌘</kbd><kbd>,</kbd> 또는 메뉴의 “환경설정…”. 시스템 설정식 **툴바 페인 6개** — General(로그인·언어·오류 보고) / Eject Behavior(잠자기·화면 꺼짐·Music/Photos·강제 마운트 해제·우클릭) / Notifications / Hotkeys / Premium(구매·복원·상태) / About(버전·업데이트·링크). 페인별 높이 자동 전환, 비자명 옵션마다 설명 줄 |
+| **환경설정 창** | <kbd>⌘</kbd><kbd>,</kbd> 또는 메뉴의 “환경설정…”. 시스템 설정식 **툴바 페인 6개** — General(로그인·언어·오류 보고) / Eject Behavior(잠자기·화면 꺼짐·Music/Photos·강제 마운트 해제·우클릭) / Notifications / Hotkeys / Characters(구매·복원·상태) / About(버전·업데이트·링크). 페인별 높이 자동 전환, 비자명 옵션마다 설명 줄 |
 | **단축키 충돌 자동 정정** | 추출 / 마운트 / 추출하고 잠자기 단축키가 같은 preset 으로 저장되면 충돌 감지 + 다른 preset 으로 자동 이동 + alert |
 | **권한 누락 메뉴 안내** | Accessibility(손쉬운 사용) / 알림 권한이 미허용 상태면 메뉴 상단에 ⚠ 경고 row 표시. 클릭하면 시스템 설정의 해당 페이지로 이동 |
 | **알림 세부 제어** | 전체 알림, 성공 알림, 실패 알림을 각각 토글. 기본은 모두 ON. macOS 시스템 설정에서 알림이 차단됐으면 상태를 표시하고 해당 설정을 바로 열 수 있음 |
-| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 177개 키. 시스템 선호 언어 목록 전체에서 첫 지원 언어를 자동 선택하고, 모두 미지원이면 영어로 fallback. 환경설정 General → Language에서 시스템 따라가기 또는 명시 언어 선택 가능 |
+| **다국어 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 218개 키. 시스템 선호 언어 목록 전체에서 첫 지원 언어를 자동 선택하고, 모두 미지원이면 영어로 fallback. 환경설정 General → Language에서 시스템 따라가기 또는 명시 언어 선택 가능 |
 | **자동 업데이트 (Sparkle 2)** | 24시간 주기로 백그라운드 체크. 새 버전 발견 시 다이얼로그 안 띄우고 **메뉴바 아이콘에 작은 systemRed `●` + 메뉴 안 "X.Y.Z 업데이트…" 항목 (같은 빨간 점 prefix)** 으로만 표시 (gentle reminder). 사용자가 클릭하면 상태 메뉴를 닫은 뒤 Sparkle 확인을 시작하고, 확인 중·업데이트 안내·업데이트 없음/오류 modal 단계에서 전면 표시를 제한된 횟수로 다시 요청. EdDSA(Ed25519) + Apple Code Signing 이중 검증. appcast 호스팅은 GitHub Pages, DMG 호스팅은 GitHub Releases — 무료 운영 |
 | **Per-disk 자동 추출 제외** | 메뉴 하단 *"자동 추출 제외 디스크"* submenu 에서 디스크별 토글. Volume UUID 기반 (케이블 슬롯 바뀌어도 유지). 자동 path 만 영향, 명시적 추출은 그대로. |
 | **Time Machine 자동 보호** | TM 백업 디스크 자동 식별 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 검사) → 첫 등장 시 자동 추출에서 제외 + 1회 알림. 메뉴에 시계 아이콘 + Time Machine badge(배지) 표기 (macOS 14+, 13은 괄호) |
@@ -227,7 +229,7 @@ diskOUT/
 ├── PremiumAccessPolicy.swift    # fail-closed entitlement 검증 정책
 ├── StatusCharacterAnimator.swift # 0~12 메뉴바 character animation
 ├── StatusItemPresentation.swift # 무료/Premium 표시와 Preview build 경계
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 177 키)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 번역 (Xcode String Catalog, 218 키)
 ├── main.swift                   # 명시적 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 자동 생성)
 ├── DiskOUT.entitlements         # 빈 plist. project.yml 의 entitlements 명시 함정 방지용
@@ -259,18 +261,9 @@ printf 'Built app: %s\n' "$BUILD_WORK_DIR/DerivedData/Build/Products/Release/Dis
 
 설치하려면 아래 rollback(롤백) 가능한 절차를 사용합니다. 또는 Xcode에서 `DiskOUT.xcodeproj`를 열고 <kbd>⌘</kbd><kbd>R</kbd>을 누릅니다.
 
-### Premium Preview 로컬 빌드
+### 캐릭터 미리보기
 
-결제 운영 credential(자격 증명) 없이 캐릭터 UI만 검수할 때 사용하는 개발 전용 build flag(빌드 플래그)입니다. Paddle lease(이용 권한) 검증 코드는 바꾸지 않으며, 일반 빌드에는 플래그가 없어서 계속 fail-closed(안전 차단)됩니다. 배포·Archive 빌드에는 사용하지 않습니다.
-
-```bash
-cd ~/Documents/diskOUT
-xcodebuild -project DiskOUT.xcodeproj -scheme DiskOUT -configuration Release \
-  -derivedDataPath /private/tmp/DiskOUT-premium-preview-derived \
-  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DISKOUT_PREMIUM_PREVIEW' build
-```
-
-정상 배포 경로와 Preview 경계를 함께 확인하려면 같은 표시 정책 테스트를 플래그 없이 한 번, `-D DISKOUT_PREMIUM_PREVIEW`와 함께 한 번 실행합니다.
+환경설정 → 캐릭터에서 기본 13종과 할로윈 10종의 휴식·활동·고활동을 구매 전에 볼 수 있습니다. 미리보기에는 가상 활동을 사용하며 실제 디스크 상태와 구매 권한은 변경하지 않습니다. 기본 캐릭터와 기본 반복은 무료입니다. 유료 팩 적용은 서명된 권한을 확인하고, 실제 상품 ID가 없는 빌드에는 준비 중으로 표시합니다.
 
 **안전 설치 (롤백 가능)**
 

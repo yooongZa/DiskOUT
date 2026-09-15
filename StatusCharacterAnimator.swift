@@ -1,23 +1,11 @@
 import AppKit
-import ImageIO
-
-/// Loads the bundled 0...12 status-character atlas once and exposes cached template images.
-/// The atlas is 6 columns (animation frames) by 13 rows (mounted-drive count).
+/// Renders the bundled 0...12 basic artwork once into six cached template frames per character.
 final class StatusCharacterFrameStore {
     static let maximumCharacterCount = 12
     static let frameCount = 6
 
-    private static let atlasCellPoints = 22
-    /// 메뉴바가 21pt canvas 를 다시 축소하므로 atlas 의 투명 여백만 안전하게 덜어
-    /// 캐릭터의 실제 잉크 크기를 키운다. 1x/2x 78개 frame 의 중심 18pt 안에
-    /// alpha 64 초과 픽셀이 모두 들어오는 것을 사전 asset 분석으로 확인했다.
-    private static let atlasCropPoints = 18
-    private static let renderedStatusSize = NSSize(width: 21, height: 21)
-    /// 6개 pose 전체의 오른쪽 투명 여백만 count 별로 layout 에서 제외한다.
-    /// bitmap 과 21pt 높이는 유지하므로 캐릭터가 찌그러지거나 frame 마다 흔들리지 않는다.
-    private static let trailingAlignmentTrimAtlasPoints = [
-        2, 3, 3, 1, 0, 0, 2, 0, 0, 0, 1, 0, 1,
-    ]
+    let halloweenArtwork: HalloweenArtworkStore
+    let basicArtwork: BasicArtworkStore
 
     private var frames: [[NSImage?]] = Array(
         repeating: Array(repeating: nil, count: frameCount),
@@ -25,48 +13,15 @@ final class StatusCharacterFrameStore {
     )
 
     init(bundle: Bundle = .main) {
-        var atlases = [
-            Self.loadAtlas(named: "PremiumStatusCharacters", scale: 1, bundle: bundle),
-            Self.loadAtlas(named: "PremiumStatusCharacters@2x", scale: 2, bundle: bundle),
-        ].compactMap { $0 }
-        // Xcode's Resources phase combines a foo.png + foo@2x.png pair into one multi-page TIFF.
-        // Direct swiftc tests and some alternate packaging paths keep the PNGs, so support both.
-        if atlases.isEmpty {
-            atlases = Self.loadCombinedTIFF(bundle: bundle)
-        }
-
-        guard !atlases.isEmpty else { return }
-
+        halloweenArtwork = HalloweenArtworkStore(bundle: bundle)
+        basicArtwork = BasicArtworkStore(bundle: bundle)
         for count in 0...Self.maximumCharacterCount {
+            guard basicArtwork.hasArtwork(for: count) else { continue }
             for frame in 0..<Self.frameCount {
-                let image = NSImage(size: Self.renderedStatusSize)
-                for atlas in atlases {
-                    let cellPixels = Self.atlasCellPoints * atlas.scale
-                    let cropPixels = Self.atlasCropPoints * atlas.scale
-                    let cropInsetPixels = (cellPixels - cropPixels) / 2
-                    let crop = CGRect(
-                        x: frame * cellPixels + cropInsetPixels,
-                        y: count * cellPixels + cropInsetPixels,
-                        width: cropPixels,
-                        height: cropPixels
-                    )
-                    guard let cropped = atlas.image.cropping(to: crop) else { continue }
-                    let representation = NSBitmapImageRep(cgImage: cropped)
-                    representation.size = Self.renderedStatusSize
-                    image.addRepresentation(representation)
-                }
-                if !image.representations.isEmpty {
-                    let trailingTrim = CGFloat(Self.trailingAlignmentTrimAtlasPoints[count])
-                        * Self.renderedStatusSize.width / CGFloat(Self.atlasCropPoints)
-                    image.alignmentRect = NSRect(
-                        x: 0,
-                        y: 0,
-                        width: Self.renderedStatusSize.width - trailingTrim,
-                        height: Self.renderedStatusSize.height
-                    )
-                    image.isTemplate = true
-                    frames[count][frame] = image
-                }
+                frames[count][frame] = CharacterArtwork.image(
+                    visual: .basic(count: count, reactive: false), state: .active, frame: frame,
+                    halloweenStore: halloweenArtwork, basicStore: basicArtwork
+                )
             }
         }
     }
@@ -81,40 +36,6 @@ final class StatusCharacterFrameStore {
               (0..<Self.frameCount).contains(frame) else { return nil }
         return frames[count][frame]
     }
-
-    private struct Atlas {
-        let image: CGImage
-        let scale: Int
-    }
-
-    private static func loadAtlas(named name: String, scale: Int, bundle: Bundle) -> Atlas? {
-        guard let url = bundle.url(forResource: name, withExtension: "png"),
-              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-
-        let expectedWidth = atlasCellPoints * frameCount * scale
-        let expectedHeight = atlasCellPoints * (maximumCharacterCount + 1) * scale
-        guard image.width == expectedWidth, image.height == expectedHeight else { return nil }
-        return Atlas(image: image, scale: scale)
-    }
-
-    private static func loadCombinedTIFF(bundle: Bundle) -> [Atlas] {
-        guard let url = bundle.url(forResource: "PremiumStatusCharacters", withExtension: "tiff"),
-              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return [] }
-
-        let oneXWidth = atlasCellPoints * frameCount
-        let oneXHeight = atlasCellPoints * (maximumCharacterCount + 1)
-        var loaded: [Atlas] = []
-        for index in 0..<CGImageSourceGetCount(source) {
-            guard let image = CGImageSourceCreateImageAtIndex(source, index, nil),
-                  image.width % oneXWidth == 0,
-                  image.height % oneXHeight == 0 else { continue }
-            let scale = image.width / oneXWidth
-            guard (scale == 1 || scale == 2), image.height == oneXHeight * scale else { continue }
-            loaded.append(Atlas(image: image, scale: scale))
-        }
-        return loaded.sorted { $0.scale < $1.scale }
-    }
 }
 
 /// Main-run-loop animation driver. It never mutates the status item directly; AppDelegate
@@ -123,15 +44,28 @@ final class StatusCharacterAnimator {
     static let frameDuration: TimeInterval = 0.14
 
     private let frameStore: StatusCharacterFrameStore
+    private let renderSize: CGFloat
     private var timer: Timer?
     private var accessibilityObserver: NSObjectProtocol?
     private var isActive = false
+    private var visual: CharacterVisual?
+    private var motionState: CharacterMotionState = .active
+    private var timeline = CharacterMotionTimeline()
+    private let now: () -> TimeInterval
+    private let reduceMotion: () -> Bool
+    private var framesCache: [String: NSImage] = [:]
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var displayAwake = true
+    private var systemAwake = true
     private(set) var frameIndex = 0
 
     var onFrameChanged: (() -> Void)?
 
-    init(frameStore: StatusCharacterFrameStore = StatusCharacterFrameStore()) {
-        self.frameStore = frameStore
+    init(frameStore: StatusCharacterFrameStore = StatusCharacterFrameStore(),
+         renderSize: CGFloat = 21,
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
+        self.frameStore = frameStore; self.renderSize = renderSize; self.now = now; self.reduceMotion = reduceMotion
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil,
@@ -139,6 +73,82 @@ final class StatusCharacterAnimator {
         ) { [weak self] _ in
             self?.accessibilityOptionsDidChange()
         }
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification] {
+            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                if name == NSWorkspace.screensDidSleepNotification { self.displayAwake = false }
+                if name == NSWorkspace.screensDidWakeNotification { self.displayAwake = true }
+                if name == NSWorkspace.willSleepNotification { self.systemAwake = false }
+                if name == NSWorkspace.didWakeNotification { self.systemAwake = true }
+                self.stopTimer()
+                if self.shouldAnimate { self.startTimer() }
+                self.onFrameChanged?()
+            })
+        }
+    }
+
+    private var shouldAnimate: Bool {
+        guard isActive, displayAwake, systemAwake,
+              !reduceMotion() else { return false }
+        if case .basic(let count, _) = visual {
+            guard frameStore.hasFrames(for: count) else { return false }
+        }
+        if case .halloween(let character, let animated) = visual {
+            guard animated, frameStore.halloweenArtwork.hasArtwork(for: character) else { return false }
+        }
+        return motionState != .unknown
+    }
+
+    func configure(visual: CharacterVisual, state: CharacterMotionState) {
+        precondition(Thread.isMainThread)
+        let effective: CharacterMotionState
+        switch visual {
+        case .basic(_, let reactive): effective = reactive ? state : .active
+        case .halloween(_, let animated): effective = animated ? state : .unknown
+        case .numbers: effective = .unknown
+        }
+        guard self.visual != visual || motionState != effective || !isActive else { return }
+        let reset = self.visual != visual || !isActive
+        if self.visual != visual { framesCache.removeAll(keepingCapacity: true) }
+        timeline.setState(effective, at: now(), reset: reset)
+        self.visual = visual; motionState = effective; frameIndex = 0
+        isActive = visual != .numbers
+        stopTimer()
+        if shouldAnimate { startTimer() }
+    }
+
+    func currentImage() -> NSImage? {
+        guard let visual else { return nil }
+        let frame = shouldAnimate ? frameIndex : 0
+        if case .basic(let count, let reactive) = visual, !reactive {
+            guard frameStore.hasFrames(for: count) else { return nil }
+            if renderSize == 21 { return frameStore.image(for: count, frame: frame) }
+            // Gallery images use the source artwork at their own resolution and keep six frames.
+            let key = "basic-free-\(count)-\(frame)"
+            if let cached = framesCache[key] { return cached }
+            let image = CharacterArtwork.image(visual: visual, state: .active, frame: frame,
+                halloweenStore: frameStore.halloweenArtwork, renderSize: renderSize,
+                basicStore: frameStore.basicArtwork)
+            if let image { framesCache[key] = image }
+            return image
+        }
+        let state = shouldAnimate ? motionState : CharacterMotionState.unknown
+        let pose = timeline.pose(at: now(), animated: shouldAnimate)
+        let key = "\(visual)-\(state.rawValue)-\(pose)"
+        if let cached = framesCache[key] { return cached }
+        let base: NSImage?
+        if case .basic(let count, _) = visual {
+            base = frameStore.image(for: count, frame: state == .rest || state == .unknown ? 0 : pose.frame)
+        } else { base = nil }
+        let image = CharacterArtwork.image(visual: visual, state: state, frame: pose.frame, basicImage: base, pose: pose,
+            halloweenStore: frameStore.halloweenArtwork, renderSize: renderSize, basicStore: frameStore.basicArtwork)
+        if let image {
+            if framesCache.count >= 384 { framesCache.removeAll(keepingCapacity: true) }
+            framesCache[key] = image
+        }
+        return image
     }
 
     func hasFrames(for count: Int) -> Bool {
@@ -146,7 +156,7 @@ final class StatusCharacterAnimator {
     }
 
     func image(for count: Int) -> NSImage? {
-        let displayedFrame = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : frameIndex
+        let displayedFrame = reduceMotion() ? 0 : frameIndex
         return frameStore.image(for: count, frame: displayedFrame)
     }
 
@@ -154,8 +164,9 @@ final class StatusCharacterAnimator {
         precondition(Thread.isMainThread)
         guard isActive != active else { return }
         isActive = active
+        if active { timeline.setState(motionState, at: now(), reset: true) }
         frameIndex = 0
-        if active && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if shouldAnimate {
             startTimer()
         } else {
             stopTimer()
@@ -167,6 +178,8 @@ final class StatusCharacterAnimator {
         precondition(Thread.isMainThread)
         isActive = false
         stopTimer()
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        workspaceObservers.removeAll()
         if let accessibilityObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver)
             self.accessibilityObserver = nil
@@ -175,7 +188,10 @@ final class StatusCharacterAnimator {
 
     private func startTimer() {
         guard timer == nil else { return }
-        let timer = Timer(timeInterval: Self.frameDuration, repeats: true) { [weak self] _ in
+        let duration: TimeInterval
+        if case .basic(_, let reactive) = visual, !reactive { duration = Self.frameDuration }
+        else { duration = visual == nil ? Self.frameDuration : 0.1 }
+        let timer = Timer(timeInterval: duration, repeats: true) { [weak self] _ in
             guard let self, self.isActive else { return }
             self.frameIndex = (self.frameIndex + 1) % StatusCharacterFrameStore.frameCount
             self.onFrameChanged?()
@@ -192,15 +208,13 @@ final class StatusCharacterAnimator {
     private func accessibilityOptionsDidChange() {
         guard isActive else { return }
         frameIndex = 0
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            stopTimer()
-        } else {
-            startTimer()
-        }
+        stopTimer()
+        if shouldAnimate { startTimer() }
         onFrameChanged?()
     }
 
     deinit {
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         timer?.invalidate()
         if let accessibilityObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver)

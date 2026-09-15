@@ -2026,8 +2026,63 @@ private enum PaddleBillingControllerTests {
         session.invalidateAndCancel()
     }
 
+    private static func testIndependentCharacterPurchasesAndRevocation() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let configuration = PaddleBillingConfiguration(infoDictionary: [
+            "DiskOUTBillingBaseURL": "https://billing.test",
+            "DiskOUTPaddleOneTimePriceID": oneTimePriceID,
+            "DiskOUTEntitlementPublicKey": key.publicKey.rawRepresentation.base64EncodedString(),
+            "DiskOUTCharacterPacksEnabled": true,
+            "DiskOUTBaseMotionPriceID": "pri_" + String(repeating: "b", count: 26),
+            "DiskOUTHalloweenPriceID": "pri_" + String(repeating: "c", count: 26),
+        ])
+        func envelope(_ packs: Set<CharacterPack>, revision: Int64) throws -> Data {
+            let payload = CharacterEntitlementPayload(schemaVersion: 3, installID: installationID,
+                revision: revision, issuedAt: Date(), expiresAt: Date().addingTimeInterval(600),
+                entitlements: CharacterPack.allCases.map { .init(id: $0.rawValue, status: packs.contains($0) ? .active : .free) })
+            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+            let bytes = try encoder.encode(payload)
+            return try JSONEncoder().encode(SignedEnvelope(payload: bytes.base64EncodedString(),
+                signature: key.signature(for: bytes).base64EncodedString()))
+        }
+        let halloween = try envelope([.halloween], revision: 1)
+        let both = try envelope(Set(CharacterPack.allCases), revision: 2)
+        let revoked = try envelope([.halloween], revision: 3)
+        var response = halloween
+        StubURLProtocol.reset { _, request in
+            expect(request.url?.path == "/v2/entitlements", "character ownership route")
+            return StubURLProtocol.Plan(data: response)
+        }
+        let session = makeSession()
+        let controller = PaddleBillingController(configuration: configuration, secureStore: makeStore(),
+            session: session, purchasePollDelays: [0.02, 0.04, 0.08])
+        var result: Bool?
+        controller.refresh { result = $0 }
+        expect(waitUntil { result != nil }, "Halloween refresh completes")
+        expect(controller.ownedCharacterPacks == [.halloween], "Halloween purchase is independent")
+        expect(controller.canPurchase(.baseMotion) && !controller.canPurchase(.halloween), "only unowned product can be bought")
+        let checkout = controller.checkoutURL(for: .baseMotion)!
+        expect(URLComponents(url: checkout, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "product", value: "base_motion_v1")) == true, "checkout targets product")
+        controller.startPurchasePolling(for: .baseMotion)
+        expect(controller.isPurchasePolling, "second purchase polls while first is owned")
+        response = both
+        result = nil; controller.refresh { result = $0 }
+        expect(waitUntil { controller.ownedCharacterPacks.count == 2 }, "second grant arrives")
+        expect(!controller.isPurchasePolling, "target grant stops polling")
+        response = revoked
+        result = nil; controller.refresh { result = $0 }
+        expect(waitUntil { result != nil }, "refund refresh finishes")
+        expect(controller.ownedCharacterPacks == [.halloween], "refund only revokes target pack")
+        response = both
+        result = nil; controller.refresh { result = $0 }
+        expect(waitUntil { result != nil }, "replay check finishes")
+        expect(result == false && controller.ownedCharacterPacks == [.halloween], "older revision cannot resurrect refunded pack")
+        controller.stop(); session.invalidateAndCancel()
+    }
+
     static func main() throws {
         precondition(Thread.isMainThread)
+        try testIndependentCharacterPurchasesAndRevocation()
         testMissingConfigurationFailsClosedWithoutNetwork()
         testConfigurationRejectsMalformedPublicSettingsAndPreservesBasePath()
         testBindingCredentialPersistenceFailsClosed()

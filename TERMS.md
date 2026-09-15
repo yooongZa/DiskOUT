@@ -1,18 +1,18 @@
 # DiskOUT Terms and Conditions
 
-Effective: July 20, 2026
+Effective: September 15, 2026
 
 DiskOUT is supplied by an independent developer under the **LIMOD** brand ("LIMOD," "we," or "us"). Questions about these terms may be sent to [sukmack@gmail.com](mailto:sukmack@gmail.com) or submitted through [DiskOUT Support](https://github.com/yooongZa/DiskOUT/issues).
 
 ## 1. Product
 
-DiskOUT is a macOS utility for ejecting, mounting, and monitoring external drives. Its core disk features and numeric menu-bar display are free. The optional Premium Character Pack changes the menu-bar presentation for counts 0–12; it does not change the core disk functions.
+DiskOUT is a macOS utility for ejecting, mounting, and monitoring external drives. Its core disk features, numeric display, and 13 basic characters with their basic loops are free. Optional packs add activity-reactive motion or new characters with motion. Resting characters do not indicate successful drive ejection.
 
 ## 2. Premium purchase and license
 
-- The advertised base price is **USD 4.99 as a one-time purchase**. The checkout shows the final localized price and any applicable tax before payment.
+- The advertised base price is **USD 1.90 for the Basic Character Premium Motion Pack or USD 3.90 for Halloween Characters + Motion, each as an independent one-time purchase**. The checkout shows the final localized price and any applicable tax before payment.
 - Paddle is the Merchant of Record and processes the transaction, receipt, tax, and eligible refund.
-- A completed purchase grants a personal, non-exclusive right to use the Premium Character Pack on one Mac at a time. It is not a recurring subscription.
+- A completed purchase grants a personal, non-exclusive right to use the purchased pack on one Mac at a time. Halloween includes 10 characters and their motion, without requiring the basic motion pack; it does not grant premium motion for the 13 basic characters. It is not a recurring subscription.
 - Premium can be moved to another Mac with the private recovery code. Moving it rebinds the purchase to the new Mac, and the previous Mac loses access after its next online verification.
 - The recovery code is a bearer credential. You must keep it private and must not publish, sell, or share it.
 - Premium requires a periodic online entitlement check. A previously verified Mac can remain active offline only until its signed lease expires, for at most 30 days.

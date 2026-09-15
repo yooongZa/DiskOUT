@@ -7,6 +7,58 @@
 
 import Foundation
 
+enum CharacterPack: String, CaseIterable, Codable {
+    case baseMotion = "base_motion_v1"
+    case halloween = "halloween_v1"
+
+    var priceUSD: String { self == .baseMotion ? "1.90" : "3.90" }
+    var title: String {
+        switch self {
+        case .baseMotion: return String(localized: "Basic Character Premium Motion Pack")
+        case .halloween: return String(localized: "Halloween Characters + Motion Pack")
+        }
+    }
+}
+
+struct CharacterEntitlementPayload: Codable, Equatable {
+    struct Entry: Codable, Equatable {
+        let id: String
+        let status: PremiumEntitlementStatus
+    }
+    let schemaVersion: Int
+    let installID: String
+    let revision: Int64
+    let issuedAt: Date
+    let expiresAt: Date
+    let entitlements: [Entry]
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version", installID = "install_id"
+        case issuedAt = "issued_at", expiresAt = "expires_at"
+        case revision, entitlements
+    }
+
+    var activePacks: Set<CharacterPack> {
+        Set(entitlements.filter { $0.status == .active }.compactMap { CharacterPack(rawValue: $0.id) })
+    }
+
+    func accepts(installID: String, now: Date, previous: CharacterEntitlementPayload? = nil) -> Bool {
+        let ids = entitlements.map(\.id)
+        let expected = Set(CharacterPack.allCases.map(\.rawValue))
+        let duration = expiresAt.timeIntervalSince(issuedAt)
+        let maximum = activePacks.isEmpty ? PremiumAccessPolicy.maximumDeniedLeaseDuration
+            : PremiumAccessPolicy.maximumPositiveLeaseDuration
+        guard schemaVersion == 3, self.installID == installID, revision >= 0,
+              ids.count == expected.count, Set(ids) == expected,
+              issuedAt.timeIntervalSince(now) <= PremiumAccessPolicy.maximumFutureIssuedAtSkew,
+              duration > 0, duration <= maximum, now < expiresAt else { return false }
+        if let previous, previous.installID == installID {
+            guard revision >= previous.revision, issuedAt >= previous.issuedAt else { return false }
+        }
+        return true
+    }
+}
+
 enum PremiumEntitlementStatus: Equatable, Codable {
     case active
     case free
