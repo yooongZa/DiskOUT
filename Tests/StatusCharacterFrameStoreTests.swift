@@ -20,7 +20,7 @@ private enum StatusCharacterFrameStoreTests {
         _ = NSApplication.shared
         let store = StatusCharacterFrameStore(bundle: bundle)
         expect(store.basicArtwork.hasCompleteCollection, "all 13 refreshed basic characters ship in the bundle")
-        expect(StatusCharacterAnimator.frameDuration == 0.14, "free loops retain their 140ms cadence")
+        expect(StatusCharacterAnimator.frameDuration == 0.12, "free loops use the lively 120ms walking cadence")
         for count in 0...StatusCharacterFrameStore.maximumCharacterCount {
             expect(store.hasFrames(for: count), "count \(count) has all six bundled frames")
             var payloads = Set<Data>()

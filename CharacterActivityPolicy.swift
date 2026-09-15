@@ -12,7 +12,7 @@ enum CharacterMotionState: String, CaseIterable, Codable {
         }
     }
     var frameDuration: TimeInterval {
-        switch self { case .unknown: return 1; case .rest: return 0.6; case .active: return 0.16; case .busy: return 0.11 }
+        switch self { case .unknown: return 1; case .rest: return 0.6; case .active: return 0.12; case .busy: return 0.08 }
     }
 }
 

@@ -60,6 +60,22 @@ import Foundation
         selection.save(to: defaults)
         check(defaults.object(forKey: "character.halloween") == nil, "manual character preference removed")
         check(CharacterSelection(defaults: defaults) == selection, "display, collection and motion survive migration")
+        // Active finishes a stride in 720ms; busy runs the same six poses in 480ms.
+        for (state, step) in [(CharacterMotionState.active, 0.12), (.busy, 0.08)] {
+            var stride = CharacterMotionTimeline()
+            stride.setState(state, at: 10)
+            for tick in 0..<18 {
+                let time = 10 + (Double(tick) + 0.5) * step
+                check(stride.pose(at: time).frame == tick % 6, "every running pose appears at the intended cadence")
+                check(stride.pose(at: time).zFrame == -1, "running never shows sleep marks")
+            }
+            stride.setState(state, at: 11)
+            check(stride.startedAt == 10, "activity polling does not restart a stride")
+            check(stride.pose(at: 10 + 31.5 * step).frame == 1,
+                  "late rendering follows elapsed time instead of replaying missed frames")
+            check(stride.pose(at: 12, animated: false) == .still(state: .unknown),
+                  "disabled running effects remain neutral")
+        }
         var timeline = CharacterMotionTimeline()
         timeline.setState(.rest, at: 0)
         check(timeline.pose(at: 0).sleepStep == 0, "rest starts upright")
@@ -67,6 +83,10 @@ import Foundation
         check(timeline.pose(at: 0.8).sleepStep == 8, "fully tucked after 0.8 seconds")
         check(timeline.pose(at: 0.7).zFrame == -1, "Z waits for tuck")
         check(timeline.pose(at: 1).zFrame != timeline.pose(at: 1.7).zFrame, "Z advances independently")
+        check(timeline.pose(at: 0.95).zFrame == 1 && timeline.pose(at: 1.05).zFrame == 2,
+              "sleep marks retain their 100ms clock")
+        check(timeline.pose(at: 0.35).breathFrame == 1 && timeline.pose(at: 0.65).breathFrame == 2,
+              "breathing retains its 300ms clock")
         timeline.setState(.rest, at: 1)
         check(timeline.startedAt == 0, "polling same state never restarts animation")
         timeline.setState(.active, at: 2)

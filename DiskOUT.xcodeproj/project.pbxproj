@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		94DA74798D205997054AD3AB /* BasicFox.png in Resources */ = {isa = PBXBuildFile; fileRef = EE4F2FFBBF44DF9312E3FECF /* BasicFox.png */; };
+		8B2E53334D333136331DA928 /* HalloweenBicycleRest.png in Resources */ = {isa = PBXBuildFile; fileRef = 48E6AEBCBA49DDC52220C74E /* HalloweenBicycleRest.png */; };
+		22FF28464F9CD8E958A42546 /* HalloweenBroom.png in Resources */ = {isa = PBXBuildFile; fileRef = 70C2BD26532A100F1BE8ACAE /* HalloweenBroom.png */; };
+		791C791C26C28FEFE4CF7A6E /* HalloweenHound.png in Resources */ = {isa = PBXBuildFile; fileRef = C2276DADC378BE5B6B3B086A /* HalloweenHound.png */; };
+		B649CB23ED1D0D34397B7817 /* HalloweenWeb.png in Resources */ = {isa = PBXBuildFile; fileRef = E510C7DEF545DCDB4817C093 /* HalloweenWeb.png */; };
+		B97A64140C88AF8AB0BEFF4D /* HalloweenScythe.png in Resources */ = {isa = PBXBuildFile; fileRef = 0B73FB82FBE48F5807CFC9DB /* HalloweenScythe.png */; };
+		58CA24B496001C0109C441C5 /* HalloweenFox.png in Resources */ = {isa = PBXBuildFile; fileRef = 7838F00E93CB7CF3B7A8C005 /* HalloweenFox.png */; };
 		C5A5202C449342659ECF8ED0 /* BasicBicycle.png in Resources */ = {isa = PBXBuildFile; fileRef = 142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */; };
 		C4E388B414CE4134947D9C1B /* HalloweenBicycleSleepingGhost.png in Resources */ = {isa = PBXBuildFile; fileRef = 19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */; };
 		1440D89BCD054D018C7D02B2 /* HalloweenBicycle.png in Resources */ = {isa = PBXBuildFile; fileRef = 21B0812231E54345B254D938 /* HalloweenBicycle.png */; };
@@ -41,6 +48,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		EE4F2FFBBF44DF9312E3FECF /* BasicFox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicFox.png; sourceTree = "<group>"; };
+		48E6AEBCBA49DDC52220C74E /* HalloweenBicycleRest.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycleRest.png; sourceTree = "<group>"; };
+		70C2BD26532A100F1BE8ACAE /* HalloweenBroom.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBroom.png; sourceTree = "<group>"; };
+		C2276DADC378BE5B6B3B086A /* HalloweenHound.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenHound.png; sourceTree = "<group>"; };
+		E510C7DEF545DCDB4817C093 /* HalloweenWeb.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenWeb.png; sourceTree = "<group>"; };
+		0B73FB82FBE48F5807CFC9DB /* HalloweenScythe.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenScythe.png; sourceTree = "<group>"; };
+		7838F00E93CB7CF3B7A8C005 /* HalloweenFox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenFox.png; sourceTree = "<group>"; };
 		142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicBicycle.png; sourceTree = "<group>"; };
 		19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycleSleepingGhost.png; sourceTree = "<group>"; };
 		21B0812231E54345B254D938 /* HalloweenBicycle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycle.png; sourceTree = "<group>"; };
@@ -91,6 +105,13 @@
 			children = (
 				A3CBF64993C7F9689D9D76F5 /* BasicCharacters.png */,
 				142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */,
+				EE4F2FFBBF44DF9312E3FECF /* BasicFox.png */,
+				48E6AEBCBA49DDC52220C74E /* HalloweenBicycleRest.png */,
+				70C2BD26532A100F1BE8ACAE /* HalloweenBroom.png */,
+				C2276DADC378BE5B6B3B086A /* HalloweenHound.png */,
+				E510C7DEF545DCDB4817C093 /* HalloweenWeb.png */,
+				0B73FB82FBE48F5807CFC9DB /* HalloweenScythe.png */,
+				7838F00E93CB7CF3B7A8C005 /* HalloweenFox.png */,
 				3DF0BFE9CF9FEE450100946F /* HalloweenCharacters.png */,
 				21B0812231E54345B254D938 /* HalloweenBicycle.png */,
 				19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */,
@@ -207,6 +228,13 @@
 				37DBF5233342983EFE7F3CFA /* Assets.xcassets in Resources */,
 				917731C06A63FF4DC562AD1F /* BasicCharacters.png in Resources */,
 				C5A5202C449342659ECF8ED0 /* BasicBicycle.png in Resources */,
+				94DA74798D205997054AD3AB /* BasicFox.png in Resources */,
+				8B2E53334D333136331DA928 /* HalloweenBicycleRest.png in Resources */,
+				22FF28464F9CD8E958A42546 /* HalloweenBroom.png in Resources */,
+				791C791C26C28FEFE4CF7A6E /* HalloweenHound.png in Resources */,
+				B649CB23ED1D0D34397B7817 /* HalloweenWeb.png in Resources */,
+				B97A64140C88AF8AB0BEFF4D /* HalloweenScythe.png in Resources */,
+				58CA24B496001C0109C441C5 /* HalloweenFox.png in Resources */,
 				26F788BD8B729FC1BD680625 /* HalloweenCharacters.png in Resources */,
 				1440D89BCD054D018C7D02B2 /* HalloweenBicycle.png in Resources */,
 				C4E388B414CE4134947D9C1B /* HalloweenBicycleSleepingGhost.png in Resources */,
@@ -285,7 +313,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 28;
+				CURRENT_PROJECT_VERSION = 29;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -306,7 +334,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.6.0;
+				MARKETING_VERSION = 0.6.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -353,7 +381,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 28;
+				CURRENT_PROJECT_VERSION = 29;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -368,7 +396,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.6.0;
+				MARKETING_VERSION = 0.6.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

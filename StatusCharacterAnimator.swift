@@ -41,7 +41,7 @@ final class StatusCharacterFrameStore {
 /// Main-run-loop animation driver. It never mutates the status item directly; AppDelegate
 /// decides whether a frame may replace the current eject-progress/result symbol.
 final class StatusCharacterAnimator {
-    static let frameDuration: TimeInterval = 0.14
+    static let frameDuration: TimeInterval = 0.12
 
     private let frameStore: StatusCharacterFrameStore
     private let renderSize: CGFloat
@@ -190,7 +190,8 @@ final class StatusCharacterAnimator {
         guard timer == nil else { return }
         let duration: TimeInterval
         if case .basic(_, let reactive) = visual, !reactive { duration = Self.frameDuration }
-        else { duration = visual == nil ? Self.frameDuration : 0.1 }
+        // Keep the sleep effects' 100ms clock, while waking motion gets every pose.
+        else { duration = motionState == .rest ? 0.1 : motionState.frameDuration }
         let timer = Timer(timeInterval: duration, repeats: true) { [weak self] _ in
             guard let self, self.isActive else { return }
             self.frameIndex = (self.frameIndex + 1) % StatusCharacterFrameStore.frameCount

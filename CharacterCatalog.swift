@@ -34,7 +34,7 @@ enum HalloweenCharacter: String, CaseIterable {
     var title: String {
         switch self {
         case .pumpkin: return String(localized: "Pumpkin")
-        case .staff: return String(localized: "One-Shaped Staff")
+        case .staff: return String(localized: "Witch's Broom")
         case .bicycle: return String(localized: "Halloween Bicycle")
         case .hound: return String(localized: "Cerberus")
         case .desk: return String(localized: "Four-Legged Desk")

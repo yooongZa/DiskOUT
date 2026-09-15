@@ -5232,31 +5232,31 @@
         }
       }
     },
-    "One-Shaped Staff": {
+    "Witch's Broom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One-Shaped Staff"
+            "value": "Witch's Broom"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "1자 지팡이"
+            "value": "마녀 빗자루"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1の形の杖"
+            "value": "魔女のほうき"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "1字形魔杖"
+            "value": "女巫扫帚"
           }
         }
       }
