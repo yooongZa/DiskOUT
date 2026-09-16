@@ -110,11 +110,11 @@ struct CharacterMotionTimeline {
         return sleepingFrom + (target - sleepingFrom) * eased
     }
 
-    func pose(at time: TimeInterval, animated: Bool = true) -> CharacterRenderPose {
+    func pose(at time: TimeInterval, animated: Bool = true, frameCount: Int = 6) -> CharacterRenderPose {
         guard animated, state != .unknown else { return .still(state: .unknown) }
         let elapsed = max(0, time - startedAt)
         let asleep = sleepAmount(at: time)
-        return .init(frame: Int(elapsed / state.frameDuration) % 6,
+        return .init(frame: Int(elapsed / state.frameDuration) % max(1, frameCount),
                      sleepStep: Int((asleep * 8).rounded()),
                      breathFrame: state == .rest ? Int(elapsed / 0.3) % 12 : 0,
                      zFrame: state == .rest && elapsed >= 0.8 ? Int((elapsed - 0.8) / 0.1) % 28 : -1)

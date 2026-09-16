@@ -76,6 +76,12 @@ import Foundation
             check(stride.pose(at: 12, animated: false) == .still(state: .unknown),
                   "disabled running effects remain neutral")
         }
+        var bicycleClock = CharacterMotionTimeline()
+        bicycleClock.setState(.active, at: 0, reset: true)
+        for tick in 0..<24 {
+            check(bicycleClock.pose(at: (Double(tick) + 0.2) * CharacterMotionState.active.frameDuration, frameCount: 8).frame == tick % 8,
+                  "bicycle timeline plays all eight poses and wraps")
+        }
         var timeline = CharacterMotionTimeline()
         timeline.setState(.rest, at: 0)
         check(timeline.pose(at: 0).sleepStep == 0, "rest starts upright")

@@ -1,5 +1,5 @@
 import AppKit
-/// Renders the bundled 0...12 basic artwork once into six cached template frames per character.
+/// Renders each basic character into its own fixed-size cached frame cycle.
 final class StatusCharacterFrameStore {
     static let maximumCharacterCount = 12
     static let frameCount = 6
@@ -7,17 +7,16 @@ final class StatusCharacterFrameStore {
     let halloweenArtwork: HalloweenArtworkStore
     let basicArtwork: BasicArtworkStore
 
-    private var frames: [[NSImage?]] = Array(
-        repeating: Array(repeating: nil, count: frameCount),
-        count: maximumCharacterCount + 1
-    )
+    private var frames: [[NSImage?]] = (0...maximumCharacterCount).map {
+        Array(repeating: nil, count: CharacterArtwork.frameCount(for: .basic(count: $0, reactive: false)))
+    }
 
     init(bundle: Bundle = .main) {
         halloweenArtwork = HalloweenArtworkStore(bundle: bundle)
         basicArtwork = BasicArtworkStore(bundle: bundle)
         for count in 0...Self.maximumCharacterCount {
             guard basicArtwork.hasArtwork(for: count) else { continue }
-            for frame in 0..<Self.frameCount {
+            for frame in frames[count].indices {
                 frames[count][frame] = CharacterArtwork.image(
                     visual: .basic(count: count, reactive: false), state: .active, frame: frame,
                     halloweenStore: halloweenArtwork, basicStore: basicArtwork
@@ -33,7 +32,7 @@ final class StatusCharacterFrameStore {
 
     func image(for count: Int, frame: Int) -> NSImage? {
         guard (0...Self.maximumCharacterCount).contains(count),
-              (0..<Self.frameCount).contains(frame) else { return nil }
+              frames[count].indices.contains(frame) else { return nil }
         return frames[count][frame]
     }
 }
@@ -125,7 +124,7 @@ final class StatusCharacterAnimator {
         if case .basic(let count, let reactive) = visual, !reactive {
             guard frameStore.hasFrames(for: count) else { return nil }
             if renderSize == 21 { return frameStore.image(for: count, frame: frame) }
-            // Gallery images use the source artwork at their own resolution and keep six frames.
+            // Gallery images use the source artwork at their own resolution and keep each character’s full cycle.
             let key = "basic-free-\(count)-\(frame)"
             if let cached = framesCache[key] { return cached }
             let image = CharacterArtwork.image(visual: visual, state: .active, frame: frame,
@@ -135,7 +134,7 @@ final class StatusCharacterAnimator {
             return image
         }
         let state = shouldAnimate ? motionState : CharacterMotionState.unknown
-        let pose = timeline.pose(at: now(), animated: shouldAnimate)
+        let pose = timeline.pose(at: now(), animated: shouldAnimate, frameCount: CharacterArtwork.frameCount(for: visual))
         let key = "\(visual)-\(state.rawValue)-\(pose)"
         if let cached = framesCache[key] { return cached }
         let base: NSImage?
@@ -194,7 +193,7 @@ final class StatusCharacterAnimator {
         else { duration = motionState == .rest ? 0.1 : motionState.frameDuration }
         let timer = Timer(timeInterval: duration, repeats: true) { [weak self] _ in
             guard let self, self.isActive else { return }
-            self.frameIndex = (self.frameIndex + 1) % StatusCharacterFrameStore.frameCount
+            self.frameIndex = (self.frameIndex + 1) % CharacterArtwork.frameCount(for: self.visual ?? .numbers)
             self.onFrameChanged?()
         }
         self.timer = timer

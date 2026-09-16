@@ -3,38 +3,59 @@ import ImageIO
 
 /// Refreshed basic and approved Halloween artwork, rasterized at 1x/2x.
 enum CharacterArtwork {
+    static func isBicycle(_ visual: CharacterVisual) -> Bool {
+        switch visual {
+        case .basic(count: 2, _), .halloween(.bicycle, _): return true
+        default: return false
+        }
+    }
+
+    static func frameCount(for visual: CharacterVisual) -> Int { isBicycle(visual) ? 8 : 6 }
+
     static func image(visual: CharacterVisual, state: CharacterMotionState, frame: Int,
                       basicImage: NSImage? = nil, pose: CharacterRenderPose? = nil,
                       halloweenStore: HalloweenArtworkStore = .shared, renderSize: CGFloat = 21,
                       basicStore: BasicArtworkStore = .shared) -> NSImage? {
         guard visual != .numbers else { return nil }
-        let pose = pose ?? .still(state: state, frame: frame)
+        let pose = pose ?? .init(frame: frame % frameCount(for: visual), sleepStep: state == .rest ? 8 : 0,
+            breathFrame: state == .rest ? frame % 12 : 0, zFrame: state == .rest ? frame % 28 : -1)
         if case .basic(let count, _) = visual {
             guard basicStore.hasArtwork(for: count) else { return nil }
         }
         if case .halloween(let character, _) = visual {
             guard halloweenStore.hasArtwork(for: character) else { return nil }
         }
-        let image = NSImage(size: NSSize(width: renderSize, height: renderSize))
+        let bicycle = isBicycle(visual)
+        // The menu bar gives horizontal characters their own width. Gallery tiles
+        // remain square, with the same 30 × 21 drawing fitted inside them.
+        let canvasWidth: CGFloat = bicycle ? 30 : 21
+        let outputSize = NSSize(width: bicycle && renderSize == 21 ? canvasWidth : renderSize, height: renderSize)
+        let drawingScale = renderSize / (bicycle && renderSize != 21 ? canvasWidth : 21)
+        let image = NSImage(size: outputSize)
         for scale in [1, 2] {
-            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(renderSize) * scale,
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(outputSize.width) * scale,
                 pixelsHigh: Int(renderSize) * scale, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                 isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
                 let context = NSGraphicsContext(bitmapImageRep: bitmap) else { continue }
             bitmap.size = image.size
             NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = context
-            context.cgContext.scaleBy(x: CGFloat(scale) * renderSize / 21, y: CGFloat(scale) * renderSize / 21)
+            context.cgContext.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
+            context.cgContext.translateBy(x: 0, y: (outputSize.height - 21 * drawingScale) / 2)
+            context.cgContext.scaleBy(x: drawingScale, y: drawingScale)
             NSColor.black.setFill(); NSColor.black.setStroke()
             switch visual {
             case .numbers: break
             case .basic(let count, _):
-                drawBasic(count, store: basicStore, pose: pose, state: state)
+                if count == 2 { drawBicycle(basicStore: basicStore, halloweenStore: halloweenStore, halloween: false, pose: pose, state: state) }
+                else { drawBasic(count, store: basicStore, pose: pose, state: state) }
             case .halloween(let character, _):
-                drawHalloween(character, store: halloweenStore, pose: pose, state: state)
+                if character == .bicycle { drawBicycle(basicStore: basicStore, halloweenStore: halloweenStore, halloween: true, pose: pose, state: state) }
+                else { drawHalloween(character, store: halloweenStore, pose: pose, state: state) }
             }
             if state == .rest, pose.zFrame >= 0 {
                 let originX: CGFloat
-                if case .halloween(.staff, _) = visual { originX = 1.8 }
+                if bicycle { originX = 22.8 }
+                else if case .halloween(.staff, _) = visual { originX = 1.8 }
                 else { originX = 15.3 }
                 sleepMarks(frame: pose.zFrame, originX: originX)
             }
@@ -79,6 +100,147 @@ enum CharacterArtwork {
             line([(x, y + h), (x + w, y + h), (x, y), (x + w, y)], width: 0.65)
         }
         NSColor.black.setStroke()
+    }
+
+    /// Bicycle-specific 8-pose cycle, drawn in a 30 × 21 point canvas.
+    /// Tires stay circular; cranks, basket and passenger have separate motion.
+    private static func drawBicycle(basicStore: BasicArtworkStore, halloweenStore: HalloweenArtworkStore,
+                                    halloween: Bool, pose: CharacterRenderPose, state: CharacterMotionState) {
+        guard let sprite = halloween ? halloweenStore.sprite(for: .bicycle) : basicStore.sprite(for: 2),
+              let context = NSGraphicsContext.current?.cgContext else { return }
+        let key = pose.frame % 8, moving = state == .active || state == .busy
+        let sleeping = CGFloat(pose.sleepAmount), awake = 1 - sleeping
+        let phase = CGFloat(key) * .pi / 4
+        let busy = state == .busy
+        let width: CGFloat = halloween ? 23.0 : 25.5
+        let unit = width / sprite.sourceBounds.width
+        let rect = NSRect(x: (30 - width) / 2, y: halloween ? 1.25 : 1.4,
+                          width: width, height: width / sprite.aspect)
+        func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+            NSPoint(x: rect.minX + (x - sprite.sourceBounds.minX) * unit,
+                    y: rect.minY + (sprite.sourceBounds.maxY - y) * unit)
+        }
+        func region(_ source: CGRect) -> CGRect {
+            // Keep the mask beyond the trimmed source bounds. High-quality
+            // interpolation can otherwise leave a faint edge above the old head.
+            CGRect(x: rect.minX + (source.minX - sprite.sourceBounds.minX) * unit,
+                   y: rect.minY + (sprite.sourceBounds.maxY - source.maxY) * unit,
+                   width: source.width * unit, height: source.height * unit)
+        }
+        let basket = CGRect(x: 826, y: 305, width: 337, height: 248)
+        // The handlebar is beside the ghost's lowest lobe. Two disjoint cuts
+        // retain that handlebar without leaving a black fragment in the passenger.
+        let ghostCuts = [CGRect(x: 340, y: 185, width: 430, height: 349),
+                         CGRect(x: 340, y: 534, width: 375, height: 32)]
+        let cutouts = halloween ? ghostCuts : [basket]
+        func sourcePart(_ cuts: [CGRect], excluding: Bool = false) {
+            context.saveGState()
+            if excluding { context.addRect(rect.insetBy(dx: -2, dy: -2)) }
+            for cutout in cuts { context.addRect(region(cutout)) }
+            context.clip(using: excluding ? .evenOdd : .winding)
+            sprite.draw(in: rect)
+            context.restoreGState()
+        }
+        let back = halloween ? point(334, 895) : point(309, 775)
+        let front = halloween ? point(920, 895) : point(942, 775)
+        let crank = halloween ? point(613, 895) : point(611, 775)
+        let radius = (halloween ? CGFloat(192) : CGFloat(208)) * unit
+        let bounce: [CGFloat] = busy ? [0, -0.18, 0.05, 0.34, 0.20, -0.08, -0.13, 0.04]
+                                             : [0, 0.12, 0.24, 0.15, 0, -0.08, -0.13, -0.05]
+        let lean: [CGFloat] = busy ? [-0.018, -0.025, -0.01, 0.018, 0.025, 0.008, -0.015, -0.02]
+                                           : [0, -0.006, -0.01, -0.005, 0.004, 0.009, 0.008, 0.003]
+        let bodyLift = moving ? bounce[key] * 0.45 * awake : 0
+        let bodyAngle = moving ? lean[key] * 0.65 * awake : (halloween ? 0 : -0.015 * sleeping)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        context.saveGState()
+        context.translateBy(x: crank.x, y: crank.y + bodyLift)
+        context.rotate(by: bodyAngle)
+        context.translateBy(x: -crank.x, y: -crank.y)
+        if halloween {
+            context.saveGState()
+            // The bicycle base occupies only the lower band of the source. Its
+            // own clip also removes interpolation residue from the detached head.
+            context.clip(to: CGRect(x: 0, y: 0, width: 30, height: 15.5))
+            sourcePart(cutouts, excluding: true)
+            context.restoreGState()
+        } else { sourcePart(cutouts, excluding: true) }
+
+        // A single spoke per wheel reads at 1x and has a full eight-frame rotation.
+        // The opaque tire ring and the hub are never cut or stretched.
+        if moving {
+            for hub in [back, front] {
+                let spoke = phase - .pi / 4
+                line([(hub.x, hub.y), (hub.x + cos(spoke) * radius * 0.67,
+                      hub.y + sin(spoke) * radius * 0.67)], width: 0.6)
+            }
+        }
+        let pedalAngle = moving ? -phase : -CGFloat.pi / 3
+        let pedalLength: CGFloat = 1.7
+        let pedal = NSPoint(x: crank.x + cos(pedalAngle) * pedalLength,
+                            y: crank.y + sin(pedalAngle) * pedalLength)
+        let opposite = NSPoint(x: crank.x - cos(pedalAngle) * pedalLength,
+                               y: crank.y - sin(pedalAngle) * pedalLength)
+        line([(opposite.x, opposite.y), (pedal.x, pedal.y)], width: 0.85)
+        line([(pedal.x - 0.85, pedal.y), (pedal.x + 0.85, pedal.y)], width: 0.85)
+        line([(opposite.x - 0.6, opposite.y), (opposite.x + 0.6, opposite.y)], width: 0.65)
+
+        if !halloween {
+            let anchor = point(863, 540)
+            let basketLean: [CGFloat] = busy ? [0.01, 0.025, -0.018, -0.055, -0.02, 0.035, 0.015, -0.015]
+                                                    : [0, -0.008, -0.025, -0.012, 0.01, 0.02, 0.012, 0]
+            context.saveGState()
+            context.translateBy(x: anchor.x, y: anchor.y)
+            context.rotate(by: moving ? basketLean[key] * awake : 0)
+            context.translateBy(x: -anchor.x, y: -anchor.y)
+            sourcePart([basket])
+            context.restoreGState()
+            // Solid mounting bracket joins the smiling basket to the front fork.
+            let fork = point(825, 535)
+            line([(fork.x, fork.y), (anchor.x + 0.4, anchor.y + 0.15)], width: 0.8)
+        }
+        context.restoreGState()
+
+        guard halloween else { return }
+        let ghostSource = CGRect(x: 354, y: 202, width: 403, height: 355)
+        let original = region(ghostSource)
+        let float: [CGFloat] = busy ? [0.05, -0.20, -0.08, 0.35, 0.75, 0.55, 0.20, 0]
+                                           : [0, 0.35, 0.65, 0.45, 0, -0.25, -0.35, -0.15]
+        let tilt: [CGFloat] = busy ? [0.10, 0.16, 0.20, 0.12, -0.01, -0.04, 0.02, 0.07]
+                                          : [0, 0.025, 0.05, 0.025, -0.02, -0.04, -0.025, 0]
+        let hem: [CGFloat] = busy ? [-0.02, 0.04, 0.13, 0.18, 0.07, -0.12, -0.14, -0.08]
+                                         : [-0.03, 0, 0.06, 0.10, 0.05, -0.02, -0.07, -0.06]
+        let ghostScale: CGFloat = 7.0 / original.width
+        let floatY = moving ? float[key] * 0.20 * awake : 0
+        let center = NSPoint(x: 14.1 - sleeping * 4.35 - (busy ? 0.2 * awake : 0),
+                             y: 16.55 + floatY - sleeping * 3.6)
+        let dissolve = max(0, min(1, (sleeping - 0.30) / 0.70))
+        let foldedOpacity = dissolve * dissolve * (3 - 2 * dissolve)
+        if foldedOpacity < 1 {
+            context.saveGState()
+            context.setAlpha(1 - foldedOpacity)
+            context.translateBy(x: center.x, y: center.y)
+            context.rotate(by: moving ? tilt[key] * 0.45 * awake : 0)
+            context.scaleBy(x: ghostScale * (1 - sleeping * 0.10), y: ghostScale * (1 - sleeping * 0.52))
+            context.translateBy(x: -original.midX, y: -original.midY)
+            // A shear below the face has zero displacement at its seam; the cloth
+            // trails one pose behind without detaching or warping either eye.
+            let seam = point(354, 417).y
+            sourcePart([CGRect(x: 340, y: 185, width: 430, height: 232)])
+            context.saveGState()
+            let shear = moving ? hem[key] * 0.5 * awake : 0
+            context.concatenate(CGAffineTransform(a: 1, b: 0, c: shear, d: 1, tx: -shear * seam, ty: 0))
+            sourcePart([CGRect(x: 340, y: 417, width: 430, height: 117), ghostCuts[1]])
+            context.restoreGState()
+            context.restoreGState()
+        }
+        if foldedOpacity > 0, let resting = halloweenStore.bicycleRest {
+            let breath = state == .rest ? sin(CGFloat(pose.breathFrame) * .pi / 6) * 0.08 : 0
+            let restWidth: CGFloat = 7.3
+            let restHeight = restWidth / resting.aspect * (1 + breath)
+            let saddle = point(469, 563)
+            resting.draw(in: NSRect(x: saddle.x - restWidth / 2, y: saddle.y - 0.2,
+                                    width: restWidth, height: restHeight), opacity: foldedOpacity)
+        }
     }
 
     private enum Gait {
@@ -363,17 +525,7 @@ enum CharacterArtwork {
                 ? [-0.08, -0.16, 0.08, 0.24, 0.12, -0.02][pose.frame % 6] * (1 - sleeping)
                 : wave * 0.055 * energy
             part(NSRect(x: 0, y: 0.48, width: 1, height: 0.52), pivot: point(0.5, 0.48), angle: head)
-        case 2:
-            sprite.draw(in: rect)
-            if moving, sleeping < 0.5 {
-                for x in [0.199, 0.800] {
-                    let center = point(x, 0.273), radius = rect.width * 0.166
-                    for angle in [phase, phase + .pi] {
-                        cut { ellipse(center.x + cos(angle) * radius - 0.22,
-                                      center.y + sin(angle) * radius - 0.22, 0.44, 0.44) }
-                    }
-                }
-            }
+        case 2: break // Rendered in the bicycle canvas.
         case 3:
             sprite.draw(in: rect, part: NSRect(x: 0, y: 0.46, width: 1, height: 0.54))
             for index in 0..<3 {
@@ -510,67 +662,7 @@ enum CharacterArtwork {
                 yScale: 1 - sleeping * 0.035 + breath * 0.025) { sprite.draw(in: rect) }
         case .staff:
             transformed(NSPoint(x: rect.midX, y: rect.minY), angle: -sleeping * 0.08) { sprite.draw(in: rect) }
-        case .bicycle:
-            guard let resting = store.bicycleRest else { return }
-            // Both poses use the awake ink bounds. Keep the wheels and frame from the
-            // awake source fixed; the rest artwork replaces only the cloth-covered saddle.
-            let float = (wave * 0.32 + breath * 0.6) * (1 - sleeping)
-            let ghostRegion = sprite.region(forSourceRect: CGRect(x: 0, y: 0, width: 1254, height: 532))
-            let saddleRegion = sprite.region(forSourceRect: CGRect(x: 310, y: 440, width: 335, height: 225))
-            func destination(_ region: NSRect) -> NSRect {
-                NSRect(x: rect.minX + rect.width * region.minX, y: rect.minY + rect.height * region.minY,
-                       width: rect.width * region.width, height: rect.height * region.height)
-            }
-            let ghostRect = destination(ghostRegion), saddleRect = destination(saddleRegion)
-            // Extend the body exclusion past the source bounds so interpolation cannot
-            // leave a faint line from the floating ghost after it has folded away.
-            let ghostCutRect = NSRect(x: rect.minX - 1, y: ghostRect.minY,
-                width: rect.width + 2, height: rect.maxY - ghostRect.minY + 1)
-            let dissolve = max(0, min(1, (sleeping - 0.25) / 0.75))
-            let foldedOpacity = dissolve * dissolve * (3 - 2 * dissolve)
-            context.saveGState()
-            // Subtract the union of the two regions, including their overlap only once.
-            context.addRect(rect.insetBy(dx: -1, dy: -1)); context.addRect(ghostCutRect)
-            context.clip(using: .evenOdd)
-            context.beginPath()
-            context.addRect(rect.insetBy(dx: -1, dy: -1)); context.addRect(saddleRect)
-            context.clip(using: .evenOdd)
-            sprite.draw(in: rect)
-            context.restoreGState()
-            context.saveGState()
-            context.addRect(rect.insetBy(dx: -1, dy: -1)); context.addRect(ghostCutRect)
-            context.clip(using: .evenOdd)
-            sprite.draw(in: rect, part: saddleRegion, opacity: 1 - foldedOpacity)
-            context.restoreGState()
-
-            let ghostAnchor = NSPoint(x: rect.minX + rect.width * 0.45, y: ghostRect.minY)
-            context.saveGState()
-            context.translateBy(x: ghostAnchor.x - rect.width * 0.10 * sleeping,
-                                y: ghostAnchor.y - rect.height * 0.10 * sleeping + float)
-            if state == .busy {
-                // The floating passenger trails behind as the front wheel lifts.
-                context.rotate(by: [0, 0.08, 0.20, 0.25, 0.10, -0.03][pose.frame % 6] * (1 - sleeping))
-            }
-            context.scaleBy(x: 1 - sleeping * 0.18, y: 1 - sleeping * 0.62)
-            context.translateBy(x: -ghostAnchor.x, y: -ghostAnchor.y)
-            sprite.draw(in: rect, part: ghostRegion, opacity: 1 - foldedOpacity)
-            context.restoreGState()
-            if foldedOpacity > 0 {
-                // Breath is confined to the cloth; the underlying frame never stretches.
-                transformed(NSPoint(x: saddleRect.midX, y: saddleRect.minY), yScale: 1 + breath * 0.10) {
-                    resting.draw(in: rect, part: saddleRegion, opacity: foldedOpacity)
-                }
-            }
-            if moving, sleeping < 0.5 {
-                // A rotating rim highlight keeps both original round wheels and the frame intact.
-                for x in [0.201, 0.805] {
-                    let cx = rect.minX + rect.width * x, cy = rect.minY + rect.height * 0.193
-                    let radius = rect.width * 0.165
-                    for angle in [phase, phase + .pi] {
-                        cut { ellipse(cx + cos(angle) * radius - 0.27, cy + sin(angle) * radius - 0.27, 0.54, 0.54) }
-                    }
-                }
-            }
+        case .bicycle: break // Rendered in the bicycle canvas.
         case .hound:
             transformed(NSPoint(x: rect.midX, y: rect.midY), angle: -sleeping * 0.025) {
                 if state == .busy { pouncingPaws(sprite, rect: rect, pose: pose) }
@@ -668,11 +760,7 @@ final class HalloweenArtworkStore {
         for (character, name) in replacements {
             sprites[character] = Self.standalone(name, bundle: bundle)
         }
-        if let awake = sprites[.bicycle],
-           let resting = Self.load("HalloweenBicycleRest", bundle: bundle, width: 1254, height: 1254) {
-            // Preserve the awake canvas when folding so the bicycle cannot jump in size.
-            bicycleRest = Self.mask(resting, crop: awake.sourceBounds, trim: false)
-        }
+        bicycleRest = Self.standalone("HalloweenBicycleRest", bundle: bundle)
         if let sheet = Self.load("HalloweenDeskPoses", bundle: bundle) {
             // The rest sheet's decorative z is deliberately excluded; the common clock draws Zzz.
             for (pose, rect) in [(DeskPose.rest, CGRect(x: 62, y: 320, width: 464, height: 302)),

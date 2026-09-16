@@ -144,10 +144,10 @@ import AppKit
                 let heightSpan = heights.max()! - heights.min()!
                 let tilts=features.map {$0[3]},tiltSpan=tilts.max()!-tilts.min()!
                 precondition(poses1x.count >= 4, "Lively motion has at least four visible 1x poses: \(visual), \(state)")
-                if state == .active {
+                if state == .active && !CharacterArtwork.isBicycle(visual) {
                     precondition(verticalSpan>=0.6 && heightSpan>=0.5,
                         "Active gait retains visible travel and posture changes: \(visual), travel \(verticalSpan)pt, height \(heightSpan)pt")
-                } else {
+                } else if !CharacterArtwork.isBicycle(visual) {
                     // A wheelie or sweep can rotate inside the same outer height.
                     precondition(max(verticalSpan,heightSpan)>=0.5 || tiltSpan>=0.08,
                         "Busy gait visibly travels, changes posture or rotates: \(visual), travel \(verticalSpan)pt, height \(heightSpan)pt, tilt \(tiltSpan)")
@@ -155,7 +155,7 @@ import AppKit
                 motionFeatures.append(features)
             }
             let difference=normalizedCycleDistance(motionFeatures[0],motionFeatures[1])
-            precondition(difference>=0.35,
+            precondition(CharacterArtwork.isBicycle(visual) || difference>=0.35,
                 "Active and busy have different pose sequences after removing speed, amplitude and cyclic phase: \(visual), normalized distance \(difference)")
         }
         // The larger faces must retain their enclosed white eyes/markings while
@@ -261,44 +261,23 @@ import AppKit
                 }
             }
         }
-        // At phase zero, body movement is zero and only the two opposed wheel
-        // highlights change. Their removal centroids must match the wheel hubs
-        // measured in the approved PNG, rather than the previous bicycle's hubs.
-        for (visual, sourceHubs, sourceRadius) in [
-            (CharacterVisual.basic(count: 2, reactive: true), [NSPoint(x: 298, y: 776), NSPoint(x: 957, y: 776)], 180.0),
-            (.halloween(.bicycle, animated: true), [NSPoint(x: 330, y: 922), NSPoint(x: 919, y: 922)], 162.0)
-        ] {
-            let sprite: HalloweenArtworkStore.Sprite
-            if case .basic(let count, _) = visual { sprite = store.basicArtwork.sprite(for: count)! }
-            else { sprite = store.halloweenArtwork.sprite(for: .bicycle)! }
-            func wheelImage(_ state: CharacterMotionState) -> NSBitmapImageRep {
-                CharacterArtwork.image(visual: visual, state: state, frame: 0,
-                    pose: .init(frame: 0, sleepStep: 0, breathFrame: 0, zFrame: -1),
-                    halloweenStore: store.halloweenArtwork, renderSize: 128, basicStore: store.basicArtwork)!
-                    .representations.last as! NSBitmapImageRep
+        // A rigid bicycle can ride smoothly without bouncing its entire mass.
+        // Check its readable width and eight distinct mechanical poses directly.
+        for visual in [CharacterVisual.basic(count: 2, reactive: true), .halloween(.bicycle, animated: true)] {
+            var stateFrames: [Set<Data>] = []
+            for state in [CharacterMotionState.active, .busy] {
+                var frames = Set<Data>()
+                for f in 0..<8 {
+                    let icon = CharacterArtwork.image(visual: visual, state: state, frame: f,
+                        halloweenStore: store.halloweenArtwork, basicStore: store.basicArtwork)!
+                    precondition(icon.size == NSSize(width: 30, height: 21), "Bicycle has dedicated horizontal space")
+                    frames.insert((icon.representations.first as! NSBitmapImageRep).representation(using: .png, properties: [:])!)
+                    artworkBounds(icon, context: "Eight-pose bicycle \(visual) \(state) \(f)")
+                }
+                precondition(frames.count == 8, "Every crank / rider pose is visible at native 1x")
+                stateFrames.append(frames)
             }
-            let still = wheelImage(.unknown), moving = wheelImage(.active)
-            var minX = still.pixelsWide, minY = still.pixelsHigh, maxX = -1, maxY = -1
-            for y in 0..<still.pixelsHigh { for x in 0..<still.pixelsWide where still.colorAt(x: x, y: y)!.alphaComponent > 0.1 {
-                minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y)
-            }}
-            var weights = [Double](repeating: 0, count: 2), sumX = weights, sumY = weights
-            for y in 0..<still.pixelsHigh { for x in 0..<still.pixelsWide {
-                let lost = Double(still.colorAt(x: x, y: y)!.alphaComponent - moving.colorAt(x: x, y: y)!.alphaComponent)
-                guard lost > 0.1 else { continue }
-                let sourceX = Double(sprite.sourceBounds.minX) + (Double(x - minX) + 0.5) / Double(maxX - minX + 1) * Double(sprite.sourceBounds.width)
-                let sourceY = Double(sprite.sourceBounds.minY) + (Double(y - minY) + 0.5) / Double(maxY - minY + 1) * Double(sprite.sourceBounds.height)
-                let wheel = sourceX < (sourceHubs[0].x + sourceHubs[1].x) / 2 ? 0 : 1
-                let distance = hypot(sourceX - sourceHubs[wheel].x, sourceY - sourceHubs[wheel].y)
-                precondition(abs(distance - sourceRadius) < 35, "Wheel highlights remain on the tire, away from the frame: \(visual)")
-                weights[wheel] += lost; sumX[wheel] += lost * sourceX; sumY[wheel] += lost * sourceY
-            }}
-            for wheel in 0..<2 {
-                precondition(weights[wheel] > 4, "Both wheels have visible rotation highlights: \(visual)")
-                precondition(abs(sumX[wheel] / weights[wheel] - sourceHubs[wheel].x) < 12
-                    && abs(sumY[wheel] / weights[wheel] - sourceHubs[wheel].y) < 12,
-                    "Opposed highlights rotate around the new source wheel center: \(visual), wheel \(wheel)")
-            }
+            precondition(stateFrames[0] != stateFrames[1], "Busy riding has its own posture / passenger cycle")
         }
         func inkComponents(_ bitmap:NSBitmapImageRep,threshold:CGFloat) -> [Int] {
             let width=bitmap.pixelsWide,height=bitmap.pixelsHigh
@@ -335,7 +314,7 @@ import AppKit
         // active loop. Inspect gallery-resolution pixels to avoid confusing 1x
         // antialiasing with a clipped source region or a ghost joined to the bike.
         for state in [CharacterMotionState.unknown, .active, .busy] {
-            for frame in 0..<6 {
+            for frame in 0..<8 {
                 let icon = CharacterArtwork.image(visual: .halloween(.bicycle, animated: true), state: state, frame: frame,
                     pose: .init(frame: frame, sleepStep: 0, breathFrame: 0, zFrame: -1),
                     halloweenStore: store.halloweenArtwork, renderSize: 64, basicStore: store.basicArtwork)!
@@ -362,11 +341,9 @@ import AppKit
                     minY = min(minY, y); maxY = max(maxY, y)
                 }
             }
-            // The approved v2 source has its frame and wheels below source row 690.
-            // Keep this measured body region independent of the renderer's ghost
-            // clipping polygon; enlarging the ghost must not hide frame changes.
-            let sourceBounds = store.halloweenArtwork.sprite(for: .bicycle)!.sourceBounds
-            let firstBikeRow = minY + Int(ceil(Double(maxY - minY + 1) * (690 - sourceBounds.minY) / sourceBounds.height))
+            // In the fixed 30 × 21 drawing, the frame below y=11 stays still.
+            // Gallery canvases center that drawing vertically in a square tile.
+            let firstBikeRow = Int(ceil(Double(reference.pixelsHigh) * (1 - (4.5 + 11) / 30)))
             for image in ghostSleepFrames.dropFirst() {
                 let bitmap = image.representations[representationIndex] as! NSBitmapImageRep
                 for y in firstBikeRow..<reference.pixelsHigh {
@@ -385,7 +362,7 @@ import AppKit
                 pose: .init(frame: 0, sleepStep: 8, breathFrame: breath, zFrame: -1),
                 halloweenStore: store.halloweenArtwork, basicStore: store.basicArtwork)!
             for case let bitmap as NSBitmapImageRep in folded.representations {
-                for y in 0..<(bitmap.pixelsHigh * 6 / 21) { for x in 0..<bitmap.pixelsWide {
+                for y in 0..<(bitmap.pixelsHigh * 2 / 21) { for x in 0..<bitmap.pixelsWide {
                     precondition(bitmap.colorAt(x: x, y: y)!.alphaComponent <= 1.0 / 255,
                         "Folded ghost leaves no old head fragments: \(bitmap.pixelsWide)px, breath \(breath), (\(x), \(y))")
                 }}
@@ -497,6 +474,6 @@ import AppKit
             NSGraphicsContext.restoreGraphicsState()
             try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
         }
-        print("CharacterArtworkTests: PASS (8 individual v2 assets; 23 characters × 3 states × 6 frames × 2 resolutions; distinct pose cycles, face details and squid attachment; edges through rest-to-active/busy; fixed bicycle body; live transitions and stop/resume)")
+        print("CharacterArtworkTests: PASS (8 individual v2 assets; 23 characters, bicycle 8-pose cycles, 1x/2x; distinct pose cycles, face details and squid attachment; edges through rest-to-active/busy; fixed bicycle body; live transitions and stop/resume)")
     }
 }

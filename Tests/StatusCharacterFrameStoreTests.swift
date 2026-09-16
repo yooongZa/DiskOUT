@@ -25,21 +25,23 @@ private enum StatusCharacterFrameStoreTests {
             expect(store.hasFrames(for: count), "count \(count) has all six bundled frames")
             var payloads = Set<Data>()
             var alignmentRects = Set<String>()
-            for frame in 0..<StatusCharacterFrameStore.frameCount {
+            let frameCount = count == 2 ? 8 : 6
+            let width = count == 2 ? 30 : 21
+            for frame in 0..<frameCount {
                 guard let image = store.image(for: count, frame: frame) else {
                     fputs("FAIL: missing count \(count), frame \(frame)\n", stderr)
                     exit(1)
                 }
-                expect(image.size == NSSize(width: 21, height: 21), "status image uses prominent 21pt size")
+                expect(image.size == NSSize(width: width, height: 21), "status image uses prominent 21pt size")
                 let representationSizes = Set(image.representations.map {
                     "\($0.pixelsWide)x\($0.pixelsHigh)"
                 })
-                expect(representationSizes == Set(["21x21", "42x42"]),
+                expect(representationSizes == Set(["\(width)x21", "\(width * 2)x42"]),
                        "status image renders the source artwork at 1x and 2x")
                 let expectedAlignmentRect = NSRect(
                     x: 0,
                     y: 0,
-                    width: 21,
+                    width: CGFloat(width),
                     height: 21
                 )
                 expect(abs(image.alignmentRect.minX - expectedAlignmentRect.minX) < 0.001 &&
@@ -55,14 +57,14 @@ private enum StatusCharacterFrameStoreTests {
             }
             expect(alignmentRects.count == 1,
                    "count \(count) keeps one alignment width across all animation frames")
-            expect(payloads.count == StatusCharacterFrameStore.frameCount,
-                   "count \(count) renders six distinct free animation frames")
+            expect(payloads.count == frameCount,
+                   "count \(count) renders all distinct free animation frames")
         }
         for count in [-1, 13] {
             expect(!store.hasFrames(for: count), "out-of-range count uses the numeric fallback")
             expect(store.image(for: count, frame: 0) == nil, "out-of-range count has no rendered frame")
         }
-        expect(store.image(for: 2, frame: -1) == nil && store.image(for: 2, frame: 6) == nil,
+        expect(store.image(for: 2, frame: -1) == nil && store.image(for: 2, frame: 8) == nil,
                "out-of-range animation frames are rejected")
         let missing = StatusCharacterFrameStore(bundle: Bundle(for: NSView.self))
         expect(!missing.basicArtwork.hasCompleteCollection, "missing source is reported")
