@@ -43,6 +43,15 @@ enum CharacterArtwork {
             context.cgContext.translateBy(x: 0, y: (outputSize.height - 21 * drawingScale) / 2)
             context.cgContext.scaleBy(x: drawingScale, y: drawingScale)
             NSColor.black.setFill(); NSColor.black.setStroke()
+            context.cgContext.saveGState()
+            if needsSleepRoom(visual) {
+                // Broad silhouettes settle slightly smaller and to the left,
+                // leaving a clear Z column without changing their proportions.
+                let amount = CGFloat(pose.sleepAmount), fit = 1 - 0.15 * amount
+                context.cgContext.translateBy(x: 10.5 - 0.8 * amount, y: 1.5)
+                context.cgContext.scaleBy(x: fit, y: fit)
+                context.cgContext.translateBy(x: -10.5, y: -1.5)
+            }
             switch visual {
             case .numbers: break
             case .basic(let count, _):
@@ -52,12 +61,15 @@ enum CharacterArtwork {
                 if character == .bicycle { drawBicycle(basicStore: basicStore, halloweenStore: halloweenStore, halloween: true, pose: pose, state: state) }
                 else { drawHalloween(character, store: halloweenStore, pose: pose, state: state) }
             }
+            context.cgContext.restoreGState()
             if state == .rest, pose.zFrame >= 0 {
-                let originX: CGFloat
-                if bicycle { originX = 22.8 }
-                else if case .halloween(.staff, _) = visual { originX = 1.8 }
-                else { originX = 15.3 }
-                sleepMarks(frame: pose.zFrame, originX: originX)
+                let marks = sleepMarkLayout(for: visual)
+                if renderSize <= 21 {
+                    menuBarSleepMark(frame: pose.zFrame, onLeft: marks.origin < 10,
+                                     canvasWidth: canvasWidth, pixelScale: CGFloat(scale) * drawingScale)
+                } else {
+                    sleepMarks(frame: pose.zFrame, originX: marks.origin, drift: marks.drift)
+                }
             }
             NSGraphicsContext.restoreGraphicsState()
             image.addRepresentation(bitmap)
@@ -90,15 +102,78 @@ enum CharacterArtwork {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState(); context.setBlendMode(.clear); body(); context.restoreGState()
     }
-    private static func sleepMarks(frame: Int, originX: CGFloat) {
-        for offset in [0, 14] {
-            let progress = CGFloat((frame + offset) % 28) / 28
-            let alpha = min(1, progress / 0.14) * min(1, (1 - progress) / 0.32)
-            NSColor.black.withAlphaComponent(alpha).setStroke()
-            let x = originX + progress * 2, y = 13.8 + progress * 4
-            let w = 1.35 + progress * 0.9, h = 1.3 + progress * 0.8
-            line([(x, y + h), (x + w, y + h), (x, y), (x + w, y)], width: 0.65)
+    private static func needsSleepRoom(_ visual: CharacterVisual) -> Bool {
+        switch visual {
+        case .basic(let count, _): return [4, 5, 9].contains(count)
+        case .halloween(let character, _): return [.hound, .desk, .fox].contains(character)
+        case .numbers: return false
         }
+    }
+
+    private static func sleepMarkLayout(for visual: CharacterVisual) -> (origin: CGFloat, drift: CGFloat) {
+        if needsSleepRoom(visual) { return (18, 0) }
+        switch visual {
+        case .basic(let count, _):
+            switch count {
+            case 0, 6, 11, 12: return (2.4, 0)
+            case 2, 7, 10: return (2.4, 2.6)
+            case 8: return (18, 0)
+            default: return (15.3, 2.6)
+            }
+        case .halloween(let character, _):
+            switch character {
+            case .pumpkin, .star, .web, .scythe: return (2.4, 0)
+            case .staff: return (1.8, 2.6)
+            case .bicycle, .spider: return (2.4, 2.6)
+            default: return (15.3, 2.6)
+            }
+        case .numbers: return (15.3, 2.6)
+        }
+    }
+
+    private static func menuBarSleepMark(frame: Int, onLeft: Bool, canvasWidth: CGFloat, pixelScale: CGFloat) {
+        // At 21pt, a 2pt-high Z collapses into a few gray pixels. Use one
+        // 4 x 5pt glyph with solid, pixel-aligned bars and a readable diagonal.
+        let step = frame % 14
+        let x: CGFloat = onLeft ? 1 : canvasWidth - 5
+        let y = (CGFloat(13) + CGFloat(step) / 13 * 2) * pixelScale
+        let originY = y.rounded() / pixelScale
+        let alpha: CGFloat = step == 0 || step == 13 ? 0.7 : 1
+        NSColor.black.withAlphaComponent(alpha).setFill()
+        let rows = [(0, 0, 4), (0, 1, 1), (1, 2, 1), (2, 3, 1), (0, 4, 4)]
+        for (dx, dy, width) in rows {
+            NSRect(x: x + CGFloat(dx), y: originY + CGFloat(dy), width: CGFloat(width), height: 1).fill()
+        }
+        NSColor.black.setFill()
+    }
+
+    private static func sleepMarks(frame: Int, originX: CGFloat, drift: CGFloat) {
+        // Stagger the larger marks far enough apart to keep each Z legible at 1x.
+        for offset in [0, 9, 18] {
+            let progress = CGFloat((frame + offset) % 28) / 28
+            let alpha = min(1, progress / 0.10) * min(1, (1 - progress) / 0.22)
+            NSColor.black.withAlphaComponent(alpha).setStroke()
+            let x = originX - 1 + progress * drift + sin(progress * .pi * 2) * 0.25
+            let y = 9.2 + progress * 8.1
+            let w = 1.75 + progress, h = 1.5 + progress * 0.75
+            line([(x, y + h), (x + w, y + h), (x, y), (x + w, y)], width: 0.8)
+        }
+        NSColor.black.setStroke()
+    }
+
+    private static func bicycleRoad(frame: Int, awake: CGFloat, busy: Bool) {
+        guard awake > 0, let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.clip(to: CGRect(x: 1.5, y: 0.9, width: 27, height: 1))
+        NSColor.black.withAlphaComponent((busy ? 0.70 : 0.55) * awake).setStroke()
+        // Active travels one dash spacing per eight-pose loop, busy travels two.
+        // With the 120ms/80ms cadence, busy traffic moves three times as fast.
+        let shift = CGFloat((frame * (busy ? 2 : 1)) % 8)
+        for dash in 0...4 {
+            let x = CGFloat(dash) * 8 - shift
+            line([(x, 1.3), (x + 3.6, 1.3)], width: 0.65)
+        }
+        context.restoreGState()
         NSColor.black.setStroke()
     }
 
@@ -112,6 +187,7 @@ enum CharacterArtwork {
         let sleeping = CGFloat(pose.sleepAmount), awake = 1 - sleeping
         let phase = CGFloat(key) * .pi / 4
         let busy = state == .busy
+        if moving { bicycleRoad(frame: key, awake: awake, busy: busy) }
         let width: CGFloat = halloween ? 23.0 : 25.5
         let unit = width / sprite.sourceBounds.width
         let rect = NSRect(x: (30 - width) / 2, y: halloween ? 1.25 : 1.4,
@@ -169,7 +245,9 @@ enum CharacterArtwork {
         // The opaque tire ring and the hub are never cut or stretched.
         if moving {
             for hub in [back, front] {
-                let spoke = phase - .pi / 4
+                // AppKit's y axis points up: negative angles roll clockwise,
+                // matching the forward pedal rotation and leftward road motion.
+                let spoke = -phase - .pi / 4
                 line([(hub.x, hub.y), (hub.x + cos(spoke) * radius * 0.67,
                       hub.y + sin(spoke) * radius * 0.67)], width: 0.6)
             }

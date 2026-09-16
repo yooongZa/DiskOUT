@@ -279,10 +279,10 @@ import AppKit
             }
             precondition(stateFrames[0] != stateFrames[1], "Busy riding has its own posture / passenger cycle")
         }
-        func inkComponents(_ bitmap:NSBitmapImageRep,threshold:CGFloat) -> [Int] {
+        func inkComponents(_ bitmap:NSBitmapImageRep,threshold:CGFloat,excludingBottomRows:Int = 0) -> [Int] {
             let width=bitmap.pixelsWide,height=bitmap.pixelsHigh
             var ink=[Bool](repeating:false,count:width*height),visited=ink,areas:[Int]=[]
-            for y in 0..<height {for x in 0..<width {ink[y*width+x]=bitmap.colorAt(x:x,y:y)!.alphaComponent>threshold}}
+            for y in 0..<(height-excludingBottomRows) {for x in 0..<width {ink[y*width+x]=bitmap.colorAt(x:x,y:y)!.alphaComponent>threshold}}
             for start in ink.indices where ink[start] && !visited[start] {
                 var queue=[start],cursor=0;visited[start]=true
                 while cursor<queue.count {
@@ -319,7 +319,11 @@ import AppKit
                     pose: .init(frame: frame, sleepStep: 0, breathFrame: 0, zFrame: -1),
                     halloweenStore: store.halloweenArtwork, renderSize: 64, basicStore: store.basicArtwork)!
                 let bitmap = icon.representations.last as! NSBitmapImageRep
-                let componentAreas=inkComponents(bitmap,threshold:0.3)
+                // Exclude the road band (below drawing y=2) from the silhouette
+                // count, keeping the floating ghost/body separation check intact.
+                // The 30 x 21 drawing has 4.5 points of padding in a square tile.
+                let roadRows = Int(ceil(Double(bitmap.pixelsHigh) * 6.5 / 30))
+                let componentAreas=inkComponents(bitmap,threshold:0.3,excludingBottomRows:roadRows)
                 precondition(componentAreas.filter { $0 > 4 }.count == 2,
                     "Awake bicycle has exactly two intact silhouettes: floating ghost and bicycle; \(state) frame \(frame), components \(componentAreas)")
             }
