@@ -1048,7 +1048,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// LinearMouse의 상태 정보처럼 드라이브 동작을 메뉴 위쪽에 두 줄로 한 번만 흐리게 표시한다.
     /// action 없는 native item이라 클릭 영역이나 키보드 실행 경로를 추가하지 않는다.
     private func driveUsageHintMenuItem() -> NSMenuItem {
-        let usage = String(localized: "Click: Open in Finder\n⌘-Click: Eject")
+        let usage = String(localized: "Click: Open in Finder\n⌘-Click / Right-Click: Eject")
         let item = NSMenuItem(title: usage, action: nil, keyEquivalent: "")
         item.attributedTitle = NSAttributedString(
             string: usage,
@@ -1057,7 +1057,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 .foregroundColor: NSColor.secondaryLabelColor
         ])
         item.isEnabled = false
-        item.setAccessibilityLabel(String(localized: "Click to open in Finder.  ⌘+click to eject."))
+        item.setAccessibilityLabel(String(localized: "Click to open in Finder. ⌘+click or right-click to eject."))
         return item
     }
 
@@ -1264,7 +1264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 item.attributedTitle = driveMenuItemTitle(primary: row.primary,
                                                           secondary: row.secondary)
                 // 기존 읽기/쓰기 경고를 보존하면서 클릭 동작을 안내한다.
-                let actionHint = String(localized: "Click to open in Finder.  ⌘+click to eject.")
+                let actionHint = String(localized: "Click to open in Finder. ⌘+click or right-click to eject.")
                 if let activityHint = activityTooltip(writing: row.activity.writing,
                                                        reading: row.activity.reading) {
                     item.toolTip = "\(activityHint)\n\(actionHint)"
@@ -1971,7 +1971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// 일반 클릭은 Finder에서 열고, 정확한 Command+좌클릭만 기존 개별 추출로 보낸다.
+    /// 일반 클릭은 Finder에서 열고, 정확한 Command+좌클릭 또는 보조키 없는 우클릭은 개별 추출로 보낸다.
     /// event는 메뉴 action 진입 즉시 snapshot해 이후 main-loop event 변화와 분리한다.
     @objc private func activateDriveMenuItem(_ sender: NSMenuItem) {
         guard let payload = sender.representedObject as? DriveMenuItemPayload else { return }
@@ -1979,9 +1979,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let name = payload.displayName
         let event = NSApp.currentEvent
         let flags = event?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
-        let isPrimaryClick = event?.type == .leftMouseDown || event?.type == .leftMouseUp
+        let click: DriveMenuClickKind
+        switch event?.type {
+        case .leftMouseDown, .leftMouseUp: click = .primary
+        case .rightMouseDown, .rightMouseUp: click = .secondary
+        default: click = .other
+        }
         let action = DriveMenuActionPolicy.action(
-            isPrimaryClick: isPrimaryClick,
+            click: click,
             hasCommand: flags.contains(.command),
             hasOption: flags.contains(.option),
             hasControl: flags.contains(.control),
@@ -2011,7 +2016,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         )
     }
 
-    /// 개별 드라이브 추출 (Command+메뉴 아이템 클릭).
+    /// 개별 드라이브 추출 (Command+클릭 또는 우클릭).
     private func ejectOne(url: URL, name: String) {
         let path = url.path
         // 쓰는 중이면 강제 추출 전에 확인 (수동 경로 전용 가드).

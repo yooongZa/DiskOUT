@@ -34,7 +34,7 @@ private enum SettingsBehaviorPolicyTests {
         testOneShotCallbackUnderConcurrency()
         testPremiumMenuPolicy()
         testDriveUsageHintPresentation()
-        testDriveMenuActionRequiresExactCommandPrimaryClick()
+        testDriveMenuActionRequiresExactEjectClick()
         print("SettingsBehaviorPolicyTests: PASS")
     }
 
@@ -215,14 +215,14 @@ private enum SettingsBehaviorPolicyTests {
                "multiple mounted drives still show only the shared section-level hint")
     }
 
-    private static func testDriveMenuActionRequiresExactCommandPrimaryClick() {
-        func action(primary: Bool = true,
+    private static func testDriveMenuActionRequiresExactEjectClick() {
+        func action(click: DriveMenuClickKind = .primary,
                     command: Bool = false,
                     option: Bool = false,
                     control: Bool = false,
                     shift: Bool = false) -> DriveMenuAction {
             DriveMenuActionPolicy.action(
-                isPrimaryClick: primary,
+                click: click,
                 hasCommand: command,
                 hasOption: option,
                 hasControl: control,
@@ -232,10 +232,22 @@ private enum SettingsBehaviorPolicyTests {
 
         expect(action() == .openInFinder,
                "a plain primary click opens Finder")
-        expect(action(primary: false, command: true) == .openInFinder,
+        expect(action(click: .other) == .openInFinder,
+               "a missing mouse event opens Finder")
+        expect(action(click: .other, command: true) == .openInFinder,
                "keyboard or Accessibility activation cannot eject")
         expect(action(command: true) == .eject,
                "an exact Command primary click ejects")
+        expect(action(click: .secondary) == .eject,
+               "an unmodified secondary click ejects")
+        expect(action(click: .secondary, command: true) == .openInFinder,
+               "Command-secondary click fails safe to Finder")
+        expect(action(click: .secondary, option: true) == .openInFinder,
+               "Option-secondary click fails safe to Finder")
+        expect(action(click: .secondary, control: true) == .openInFinder,
+               "Control-secondary click fails safe to Finder")
+        expect(action(click: .secondary, shift: true) == .openInFinder,
+               "Shift-secondary click fails safe to Finder")
         expect(action(command: true, option: true) == .openInFinder,
                "Command-Option click fails safe to Finder")
         expect(action(command: true, control: true) == .openInFinder,

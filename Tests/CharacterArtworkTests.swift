@@ -310,9 +310,9 @@ import AppKit
             precondition(areas.filter {Double($0)>=significant}.count==1,
                 "Squid push-off retains both large tentacles on the body: \(state) frame \(frame), components \(areas)")
         }}
-        // The floating ghost must remain a whole, separate figure through the
-        // active loop. Inspect gallery-resolution pixels to avoid confusing 1x
-        // antialiasing with a clipped source region or a ghost joined to the bike.
+        // The selected B rider holds the handlebar. Its body and bicycle must
+        // remain connected, with no fragments introduced by the sleep/crank masks.
+        // Inspect gallery pixels so 1x antialiasing does not hide a broken joint.
         for state in [CharacterMotionState.unknown, .active, .busy] {
             for frame in 0..<8 {
                 let icon = CharacterArtwork.image(visual: .halloween(.bicycle, animated: true), state: state, frame: frame,
@@ -320,12 +320,12 @@ import AppKit
                     halloweenStore: store.halloweenArtwork, renderSize: 64, basicStore: store.basicArtwork)!
                 let bitmap = icon.representations.last as! NSBitmapImageRep
                 // Exclude the road band (below drawing y=2) from the silhouette
-                // count, keeping the floating ghost/body separation check intact.
+                // count, keeping the rider/body attachment check intact.
                 // The 30 x 21 drawing has 4.5 points of padding in a square tile.
                 let roadRows = Int(ceil(Double(bitmap.pixelsHigh) * 6.5 / 30))
                 let componentAreas=inkComponents(bitmap,threshold:0.3,excludingBottomRows:roadRows)
-                precondition(componentAreas.filter { $0 > 4 }.count == 2,
-                    "Awake bicycle has exactly two intact silhouettes: floating ghost and bicycle; \(state) frame \(frame), components \(componentAreas)")
+                precondition(componentAreas.filter { $0 > 4 }.count == 1,
+                    "The B rider and bicycle stay attached without mask fragments; \(state) frame \(frame), components \(componentAreas)")
             }
         }
         // The ghost folds onto the saddle while the original bicycle stays unchanged.
@@ -345,9 +345,10 @@ import AppKit
                     minY = min(minY, y); maxY = max(maxY, y)
                 }
             }
-            // In the fixed 30 × 21 drawing, the frame below y=11 stays still.
+            // The selected B bike is smaller: its lower wheel/frame band below
+            // y=5 stays still while the rider folds above the saddle at y=5.3.
             // Gallery canvases center that drawing vertically in a square tile.
-            let firstBikeRow = Int(ceil(Double(reference.pixelsHigh) * (1 - (4.5 + 11) / 30)))
+            let firstBikeRow = Int(ceil(Double(reference.pixelsHigh) * (1 - (4.5 + 5) / 30)))
             for image in ghostSleepFrames.dropFirst() {
                 let bitmap = image.representations[representationIndex] as! NSBitmapImageRep
                 for y in firstBikeRow..<reference.pixelsHigh {

@@ -188,9 +188,11 @@ enum CharacterArtwork {
         let phase = CGFloat(key) * .pi / 4
         let busy = state == .busy
         if moving { bicycleRoad(frame: key, awake: awake, busy: busy) }
-        let width: CGFloat = halloween ? 23.0 : 25.5
+        // The selected artwork gives the face most of the height. Fit its own
+        // proportions instead of enlarging the wheels to fill the horizontal slot.
+        let width = min(CGFloat(26), 17.8 * sprite.aspect)
         let unit = width / sprite.sourceBounds.width
-        let rect = NSRect(x: (30 - width) / 2, y: halloween ? 1.25 : 1.4,
+        let rect = NSRect(x: (30 - width) / 2, y: 1.4,
                           width: width, height: width / sprite.aspect)
         func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
             NSPoint(x: rect.minX + (x - sprite.sourceBounds.minX) * unit,
@@ -203,12 +205,12 @@ enum CharacterArtwork {
                    y: rect.minY + (sprite.sourceBounds.maxY - source.maxY) * unit,
                    width: source.width * unit, height: source.height * unit)
         }
-        let basket = CGRect(x: 826, y: 305, width: 337, height: 248)
-        // The handlebar is beside the ghost's lowest lobe. Two disjoint cuts
-        // retain that handlebar without leaving a black fragment in the passenger.
-        let ghostCuts = [CGRect(x: 340, y: 185, width: 430, height: 349),
-                         CGRect(x: 340, y: 534, width: 375, height: 32)]
-        let cutouts = halloween ? ghostCuts : [basket]
+        let basket = CGRect(x: 686, y: 190, width: 612, height: 432)
+        // The rider and the handlebar stay together while riding. At rest this
+        // upper band settles onto the saddle; the complete lower bicycle is fixed.
+        let rider = CGRect(x: 365, y: 55, width: 720, height: 715)
+        let crankCut = CGRect(x: 700, y: 816, width: 118, height: 98)
+        let cutouts = halloween ? [rider, crankCut] : [basket]
         func sourcePart(_ cuts: [CGRect], excluding: Bool = false) {
             context.saveGState()
             if excluding { context.addRect(rect.insetBy(dx: -2, dy: -2)) }
@@ -217,10 +219,10 @@ enum CharacterArtwork {
             sprite.draw(in: rect)
             context.restoreGState()
         }
-        let back = halloween ? point(334, 895) : point(309, 775)
-        let front = halloween ? point(920, 895) : point(942, 775)
-        let crank = halloween ? point(613, 895) : point(611, 775)
-        let radius = (halloween ? CGFloat(192) : CGFloat(208)) * unit
+        let back = halloween ? point(581, 867) : point(375, 779)
+        let front = halloween ? point(955, 867) : point(959, 779)
+        let crank = halloween ? point(748, 862) : point(619, 766)
+        let radius = (halloween ? CGFloat(99) : CGFloat(130)) * unit
         let bounce: [CGFloat] = busy ? [0, -0.18, 0.05, 0.34, 0.20, -0.08, -0.13, 0.04]
                                              : [0, 0.12, 0.24, 0.15, 0, -0.08, -0.13, -0.05]
         let lean: [CGFloat] = busy ? [-0.018, -0.025, -0.01, 0.018, 0.025, 0.008, -0.015, -0.02]
@@ -232,14 +234,21 @@ enum CharacterArtwork {
         context.translateBy(x: crank.x, y: crank.y + bodyLift)
         context.rotate(by: bodyAngle)
         context.translateBy(x: -crank.x, y: -crank.y)
+        context.saveGState()
         if halloween {
-            context.saveGState()
-            // The bicycle base occupies only the lower band of the source. Its
-            // own clip also removes interpolation residue from the detached head.
-            context.clip(to: CGRect(x: 0, y: 0, width: 30, height: 15.5))
-            sourcePart(cutouts, excluding: true)
-            context.restoreGState()
-        } else { sourcePart(cutouts, excluding: true) }
+            // Bound the base to its own band as well as masking the rider.
+            // This removes interpolation residue from the former head at rest.
+            context.clip(to: CGRect(x: 0, y: 0, width: 30, height: region(rider).minY))
+        }
+        sourcePart(cutouts, excluding: true)
+        context.restoreGState()
+
+        if halloween {
+            // Restore the frame links across the baked-in crank that was masked
+            // above, then draw a single rotating crank at the new wheel scale.
+            let chain = point(700, 862), tube = point(786, 816)
+            line([(chain.x, chain.y), (crank.x, crank.y), (tube.x, tube.y)], width: 0.45)
+        }
 
         // A single spoke per wheel reads at 1x and has a full eight-frame rotation.
         // The opaque tire ring and the hub are never cut or stretched.
@@ -249,21 +258,21 @@ enum CharacterArtwork {
                 // matching the forward pedal rotation and leftward road motion.
                 let spoke = -phase - .pi / 4
                 line([(hub.x, hub.y), (hub.x + cos(spoke) * radius * 0.67,
-                      hub.y + sin(spoke) * radius * 0.67)], width: 0.6)
+                      hub.y + sin(spoke) * radius * 0.67)], width: 0.42)
             }
         }
         let pedalAngle = moving ? -phase : -CGFloat.pi / 3
-        let pedalLength: CGFloat = 1.7
+        let pedalLength: CGFloat = halloween ? 0.9 : 1.1
         let pedal = NSPoint(x: crank.x + cos(pedalAngle) * pedalLength,
                             y: crank.y + sin(pedalAngle) * pedalLength)
         let opposite = NSPoint(x: crank.x - cos(pedalAngle) * pedalLength,
                                y: crank.y - sin(pedalAngle) * pedalLength)
-        line([(opposite.x, opposite.y), (pedal.x, pedal.y)], width: 0.85)
-        line([(pedal.x - 0.85, pedal.y), (pedal.x + 0.85, pedal.y)], width: 0.85)
-        line([(opposite.x - 0.6, opposite.y), (opposite.x + 0.6, opposite.y)], width: 0.65)
+        line([(opposite.x, opposite.y), (pedal.x, pedal.y)], width: 0.5)
+        line([(pedal.x - 0.5, pedal.y), (pedal.x + 0.5, pedal.y)], width: 0.5)
+        line([(opposite.x - 0.4, opposite.y), (opposite.x + 0.4, opposite.y)], width: 0.4)
 
         if !halloween {
-            let anchor = point(863, 540)
+            let anchor = point(865, 600)
             let basketLean: [CGFloat] = busy ? [0.01, 0.025, -0.018, -0.055, -0.02, 0.035, 0.015, -0.015]
                                                     : [0, -0.008, -0.025, -0.012, 0.01, 0.02, 0.012, 0]
             context.saveGState()
@@ -273,52 +282,37 @@ enum CharacterArtwork {
             sourcePart([basket])
             context.restoreGState()
             // Solid mounting bracket joins the smiling basket to the front fork.
-            let fork = point(825, 535)
-            line([(fork.x, fork.y), (anchor.x + 0.4, anchor.y + 0.15)], width: 0.8)
+            let fork = point(872, 638)
+            line([(fork.x, fork.y), (anchor.x, anchor.y)], width: 0.7)
+        }
+        if halloween {
+            let saddle = point(730, 770)
+            let dissolve = max(0, min(1, (sleeping - 0.25) / 0.75))
+            let foldedOpacity = dissolve * dissolve * (3 - 2 * dissolve)
+            if foldedOpacity < 1 {
+                context.saveGState()
+                context.setAlpha(1 - foldedOpacity)
+                context.translateBy(x: saddle.x, y: saddle.y)
+                context.scaleBy(x: 1 - sleeping * 0.12, y: 1 - sleeping * 0.55)
+                context.translateBy(x: -saddle.x, y: -saddle.y)
+                sourcePart([rider])
+                context.restoreGState()
+            }
+            if foldedOpacity > 0, let resting = halloweenStore.bicycleRest {
+                // The hands and upper handlebar were part of the riding pose.
+                // Reveal a short bare handlebar when that pose folds away.
+                let stem = point(964, 770), grip = point(949, 682)
+                context.saveGState(); context.setAlpha(foldedOpacity)
+                line([(stem.x, stem.y), (grip.x, grip.y), (grip.x - 0.75, grip.y)], width: 0.45)
+                context.restoreGState()
+                let breath = state == .rest ? sin(CGFloat(pose.breathFrame) * .pi / 6) * 0.045 : 0
+                let restWidth: CGFloat = 9.5
+                let restHeight = restWidth / resting.aspect * (1 + breath)
+                resting.draw(in: NSRect(x: saddle.x - restWidth / 2, y: saddle.y - 0.05,
+                                        width: restWidth, height: restHeight), opacity: foldedOpacity)
+            }
         }
         context.restoreGState()
-
-        guard halloween else { return }
-        let ghostSource = CGRect(x: 354, y: 202, width: 403, height: 355)
-        let original = region(ghostSource)
-        let float: [CGFloat] = busy ? [0.05, -0.20, -0.08, 0.35, 0.75, 0.55, 0.20, 0]
-                                           : [0, 0.35, 0.65, 0.45, 0, -0.25, -0.35, -0.15]
-        let tilt: [CGFloat] = busy ? [0.10, 0.16, 0.20, 0.12, -0.01, -0.04, 0.02, 0.07]
-                                          : [0, 0.025, 0.05, 0.025, -0.02, -0.04, -0.025, 0]
-        let hem: [CGFloat] = busy ? [-0.02, 0.04, 0.13, 0.18, 0.07, -0.12, -0.14, -0.08]
-                                         : [-0.03, 0, 0.06, 0.10, 0.05, -0.02, -0.07, -0.06]
-        let ghostScale: CGFloat = 7.0 / original.width
-        let floatY = moving ? float[key] * 0.20 * awake : 0
-        let center = NSPoint(x: 14.1 - sleeping * 4.35 - (busy ? 0.2 * awake : 0),
-                             y: 16.55 + floatY - sleeping * 3.6)
-        let dissolve = max(0, min(1, (sleeping - 0.30) / 0.70))
-        let foldedOpacity = dissolve * dissolve * (3 - 2 * dissolve)
-        if foldedOpacity < 1 {
-            context.saveGState()
-            context.setAlpha(1 - foldedOpacity)
-            context.translateBy(x: center.x, y: center.y)
-            context.rotate(by: moving ? tilt[key] * 0.45 * awake : 0)
-            context.scaleBy(x: ghostScale * (1 - sleeping * 0.10), y: ghostScale * (1 - sleeping * 0.52))
-            context.translateBy(x: -original.midX, y: -original.midY)
-            // A shear below the face has zero displacement at its seam; the cloth
-            // trails one pose behind without detaching or warping either eye.
-            let seam = point(354, 417).y
-            sourcePart([CGRect(x: 340, y: 185, width: 430, height: 232)])
-            context.saveGState()
-            let shear = moving ? hem[key] * 0.5 * awake : 0
-            context.concatenate(CGAffineTransform(a: 1, b: 0, c: shear, d: 1, tx: -shear * seam, ty: 0))
-            sourcePart([CGRect(x: 340, y: 417, width: 430, height: 117), ghostCuts[1]])
-            context.restoreGState()
-            context.restoreGState()
-        }
-        if foldedOpacity > 0, let resting = halloweenStore.bicycleRest {
-            let breath = state == .rest ? sin(CGFloat(pose.breathFrame) * .pi / 6) * 0.08 : 0
-            let restWidth: CGFloat = 7.3
-            let restHeight = restWidth / resting.aspect * (1 + breath)
-            let saddle = point(469, 563)
-            resting.draw(in: NSRect(x: saddle.x - restWidth / 2, y: saddle.y - 0.2,
-                                    width: restWidth, height: restHeight), opacity: foldedOpacity)
-        }
     }
 
     private enum Gait {

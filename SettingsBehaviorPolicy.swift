@@ -274,23 +274,26 @@ enum DriveUsageHintPresentationPolicy {
     }
 }
 
+enum DriveMenuClickKind {
+    case primary
+    case secondary
+    case other
+}
+
 enum DriveMenuActionPolicy {
-    /// Eject is destructive, so it requires positive proof of an exact Command + primary click.
-    /// Keyboard/Accessibility activation, a missing event, or any additional primary modifier
-    /// falls back to opening Finder.
-    static func action(isPrimaryClick: Bool,
+    /// Eject requires an exact Command + primary click or an unmodified secondary click.
+    /// Keyboard/Accessibility activation, a missing event, and mixed modifiers open Finder.
+    static func action(click: DriveMenuClickKind,
                        hasCommand: Bool,
                        hasOption: Bool,
                        hasControl: Bool,
                        hasShift: Bool) -> DriveMenuAction {
-        guard isPrimaryClick,
-              hasCommand,
-              !hasOption,
-              !hasControl,
-              !hasShift else {
-            return .openInFinder
+        guard !hasOption, !hasControl, !hasShift else { return .openInFinder }
+        switch click {
+        case .primary: return hasCommand ? .eject : .openInFinder
+        case .secondary: return hasCommand ? .openInFinder : .eject
+        case .other: return .openInFinder
         }
-        return .eject
     }
 }
 
