@@ -240,7 +240,7 @@ final class CharacterGalleryAnimator {
     var onFramesChanged: (([NSImage?]) -> Void)?
     var isRunning: Bool { timer != nil }
 
-    init(bundle: Bundle = .main, renderSize: CGFloat = 21,
+    init(bundle: Bundle = .main, renderSize: CGFloat = 21 * 1.15,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         basicArtwork = BasicArtworkStore(bundle: bundle)
@@ -302,7 +302,8 @@ final class CharacterGalleryAnimator {
             let key = "\(index)-\(state.rawValue)-\(pose)"
             if let cached = cache[key] { return cached }
             let image = CharacterArtwork.image(visual: visual, state: state, frame: pose.frame, pose: pose,
-                halloweenStore: halloweenArtwork, renderSize: renderSize, basicStore: basicArtwork)
+                halloweenStore: halloweenArtwork, renderSize: renderSize, basicStore: basicArtwork,
+                preserveMenuBarLayout: true)
             if let image {
                 if cache.count >= 384 { cache.removeAll(keepingCapacity: true) }
                 cache[key] = image

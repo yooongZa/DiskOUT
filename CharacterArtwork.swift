@@ -15,7 +15,7 @@ enum CharacterArtwork {
     static func image(visual: CharacterVisual, state: CharacterMotionState, frame: Int,
                       basicImage: NSImage? = nil, pose: CharacterRenderPose? = nil,
                       halloweenStore: HalloweenArtworkStore = .shared, renderSize: CGFloat = 21,
-                      basicStore: BasicArtworkStore = .shared) -> NSImage? {
+                      basicStore: BasicArtworkStore = .shared, preserveMenuBarLayout: Bool = false) -> NSImage? {
         guard visual != .numbers else { return nil }
         let pose = pose ?? .init(frame: frame % frameCount(for: visual), sleepStep: state == .rest ? 8 : 0,
             breathFrame: state == .rest ? frame % 12 : 0, zFrame: state == .rest ? frame % 28 : -1)
@@ -26,20 +26,22 @@ enum CharacterArtwork {
             guard halloweenStore.hasArtwork(for: character) else { return nil }
         }
         let bicycle = isBicycle(visual)
-        // Native-size previews and the menu bar give bicycles their own width.
-        // Larger review renders fit the same 30 × 21 drawing inside a square.
+        // Settings can enlarge the menu bar layout without squeezing bicycles into a square.
+        // Larger review renders still fit the same 30 × 21 drawing inside a square.
+        let menuBarLayout = preserveMenuBarLayout || renderSize == 21
         let canvasWidth: CGFloat = bicycle ? 30 : 21
-        let outputSize = NSSize(width: bicycle && renderSize == 21 ? canvasWidth : renderSize, height: renderSize)
-        let drawingScale = renderSize / (bicycle && renderSize != 21 ? canvasWidth : 21)
+        let outputSize = NSSize(width: bicycle && menuBarLayout ? renderSize * canvasWidth / 21 : renderSize, height: renderSize)
+        let drawingScale = renderSize / (bicycle && !menuBarLayout ? canvasWidth : 21)
         let image = NSImage(size: outputSize)
         for scale in [1, 2] {
-            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(outputSize.width) * scale,
-                pixelsHigh: Int(renderSize) * scale, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ceil(outputSize.width * CGFloat(scale))),
+                pixelsHigh: Int(ceil(outputSize.height * CGFloat(scale))), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                 isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
                 let context = NSGraphicsContext(bitmapImageRep: bitmap) else { continue }
             bitmap.size = image.size
             NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = context
-            context.cgContext.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
+            context.cgContext.scaleBy(x: CGFloat(bitmap.pixelsWide) / outputSize.width,
+                                     y: CGFloat(bitmap.pixelsHigh) / outputSize.height)
             context.cgContext.translateBy(x: 0, y: (outputSize.height - 21 * drawingScale) / 2)
             context.cgContext.scaleBy(x: drawingScale, y: drawingScale)
             NSColor.black.setFill(); NSColor.black.setStroke()
@@ -64,7 +66,7 @@ enum CharacterArtwork {
             context.cgContext.restoreGState()
             if state == .rest, pose.zFrame >= 0 {
                 let marks = sleepMarkLayout(for: visual)
-                if renderSize <= 21 {
+                if menuBarLayout || renderSize <= 21 {
                     menuBarSleepMark(frame: pose.zFrame, onLeft: marks.origin < 10,
                                      canvasWidth: canvasWidth, pixelScale: CGFloat(scale) * drawingScale)
                 } else {

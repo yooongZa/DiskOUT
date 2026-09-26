@@ -39,7 +39,7 @@ enum UI {
     static let cardCornerRadius: CGFloat = 10
     static let settingsPaneWidth: CGFloat = 540
     static let settingsContentWidth = settingsPaneWidth - windowPadding * 2
-    static let characterPreviewSize: CGFloat = 21 // Match the menu bar's native character height.
+    static let characterPreviewSize: CGFloat = 21 * 1.15 // Slightly larger than the menu bar for easier previewing.
     static let characterOfferTextWidth: CGFloat = 280
 
     // 폰트 크기 (메뉴/메뉴바는 ofSize: 0 = 시스템 기본을 그대로 사용)
