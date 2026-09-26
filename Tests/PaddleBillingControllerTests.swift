@@ -2045,10 +2045,10 @@ private enum PaddleBillingControllerTests {
             return try JSONEncoder().encode(SignedEnvelope(payload: bytes.base64EncodedString(),
                 signature: key.signature(for: bytes).base64EncodedString()))
         }
-        let halloween = try envelope([.halloween], revision: 1)
+        let legacyMotion = try envelope([.baseMotion], revision: 1)
         let both = try envelope(Set(CharacterPack.allCases), revision: 2)
         let revoked = try envelope([.halloween], revision: 3)
-        var response = halloween
+        var response = legacyMotion
         StubURLProtocol.reset { _, request in
             expect(request.url?.path == "/v2/entitlements", "character ownership route")
             return StubURLProtocol.Plan(data: response)
@@ -2059,11 +2059,14 @@ private enum PaddleBillingControllerTests {
         var result: Bool?
         controller.refresh { result = $0 }
         expect(waitUntil { result != nil }, "Halloween refresh completes")
-        expect(controller.ownedCharacterPacks == [.halloween], "Halloween purchase is independent")
-        expect(controller.canPurchase(.baseMotion) && !controller.canPurchase(.halloween), "only unowned product can be bought")
-        let checkout = controller.checkoutURL(for: .baseMotion)!
-        expect(URLComponents(url: checkout, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "product", value: "base_motion_v1")) == true, "checkout targets product")
+        expect(controller.ownedCharacterPacks == [.baseMotion], "retired motion purchase remains restorable")
+        expect(!controller.canPurchase(.baseMotion) && controller.canPurchase(.halloween), "only seasonal products can be bought")
+        expect(configuration.checkoutURL(installationID: installationID, bindingSecret: "test", product: .baseMotion) == nil, "retired motion checkout blocked even before ownership")
         controller.startPurchasePolling(for: .baseMotion)
+        expect(!controller.isPurchasePolling, "retired motion cannot start purchase polling")
+        let checkout = controller.checkoutURL(for: .halloween)!
+        expect(URLComponents(url: checkout, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "product", value: "halloween_v1")) == true, "checkout targets product")
+        controller.startPurchasePolling(for: .halloween)
         expect(controller.isPurchasePolling, "second purchase polls while first is owned")
         response = both
         result = nil; controller.refresh { result = $0 }

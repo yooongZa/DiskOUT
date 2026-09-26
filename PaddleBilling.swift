@@ -65,7 +65,7 @@ struct PaddleBillingConfiguration {
     }
 
     func canPurchase(_ product: CharacterPack) -> Bool {
-        guard characterPacksEnabled, isConfigured,
+        guard product != .baseMotion, characterPacksEnabled, isConfigured,
               let priceID = characterPriceIDs[product], Self.isValidPaddlePriceID(priceID),
               priceID != oneTimePriceID else { return false }
         return characterPriceIDs.filter { Self.isValidPaddlePriceID($0.value) && $0.value == priceID }.count == 1

@@ -39,7 +39,7 @@ enum UI {
     static let cardCornerRadius: CGFloat = 10
     static let settingsPaneWidth: CGFloat = 540
     static let settingsContentWidth = settingsPaneWidth - windowPadding * 2
-    static let characterPreviewSize: CGFloat = 64
+    static let characterPreviewSize: CGFloat = 21 // Match the menu bar's native character height.
     static let characterOfferTextWidth: CGFloat = 280
 
     // 폰트 크기 (메뉴/메뉴바는 ofSize: 0 = 시스템 기본을 그대로 사용)
@@ -119,7 +119,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let packs = billingController?.ownedCharacterPacks ?? []
         let lost = previousCharacterPacks.subtracting(packs)
         if lost.contains(.halloween), characterSelection.collection == .halloween { characterSelection.collection = .basic }
-        if lost.contains(.baseMotion) { characterSelection.basicReactive = false }
         previousCharacterPacks = packs
         characterSelection.save(to: .standard)
         applyCountTitle(); settingsWindowController?.refreshExternalState()
@@ -7382,7 +7381,10 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         premiumManageButton.menu = menu
         let divider = NSBox(); divider.boxType = .separator
         divider.widthAnchor.constraint(equalToConstant: UI.settingsContentWidth).isActive = true
-        return pane([characterPicker, divider, premiumManageButton, premiumStatusLabel, premiumStopButton])
+        let footer = NSStackView(views: [premiumManageButton, NSView(), characterPicker.appliedStatusLabel])
+        footer.orientation = .horizontal; footer.alignment = .centerY; footer.spacing = UI.rowSpacing
+        footer.widthAnchor.constraint(equalToConstant: UI.settingsContentWidth).isActive = true
+        return pane([characterPicker, divider, footer, premiumStatusLabel, premiumStopButton])
     }
 
     private func resizeCharacterPane() {

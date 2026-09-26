@@ -72,6 +72,47 @@ private enum StatusCharacterFrameStoreTests {
             expect(!missing.hasFrames(for: count) && missing.image(for: count, frame: 0) == nil,
                    "missing source does not fall back to the replaced artwork")
         }
+        var previewTime: TimeInterval = 0
+        var reduceMotion = false
+        var latestFrames: [NSImage?] = []
+        var gallery: CharacterGalleryAnimator? = CharacterGalleryAnimator(bundle: bundle,
+            now: { previewTime }, reduceMotion: { reduceMotion })
+        gallery!.onFramesChanged = { latestFrames = $0 }
+        gallery!.configure(collection: .basic)
+        expect(!gallery!.isRunning, "hidden gallery has no timer")
+        gallery!.setActive(true)
+        expect(gallery!.isRunning, "visible gallery starts shared timer")
+        expect(latestFrames.count == 10 && latestFrames.allSatisfy { $0 != nil }, "ten basic previews render")
+        let upright = latestFrames[2]!.tiffRepresentation
+        previewTime = 3; gallery!.configure(collection: .basic)
+        expect(latestFrames[2]!.tiffRepresentation != upright, "preview visibly sleeps")
+        let sleeping = latestFrames[2]!.tiffRepresentation
+        previewTime = 4.2; gallery!.configure(collection: .basic)
+        expect(latestFrames[2]!.tiffRepresentation != sleeping, "preview visibly wakes")
+        gallery!.configure(collection: .halloween)
+        expect(latestFrames.count == 10 && latestFrames.allSatisfy { $0 != nil }, "unowned seasonal gallery renders ten previews")
+        let center = NSWorkspace.shared.notificationCenter
+        reduceMotion = true
+        center.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        expect(!gallery!.isRunning, "Reduce Motion stops shared timer")
+        reduceMotion = false
+        center.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        expect(gallery!.isRunning, "turning off Reduce Motion resumes visible gallery")
+        center.post(name: NSWorkspace.willSleepNotification, object: nil)
+        expect(!gallery!.isRunning, "system sleep stops gallery")
+        center.post(name: NSWorkspace.didWakeNotification, object: nil)
+        expect(gallery!.isRunning, "system wake resumes visible gallery")
+        center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        expect(!gallery!.isRunning, "display sleep stops gallery")
+        center.post(name: NSWorkspace.didWakeNotification, object: nil)
+        expect(!gallery!.isRunning, "system wake cannot override a sleeping display")
+        gallery!.setActive(false)
+        center.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+        expect(!gallery!.isRunning, "display wake never resumes a hidden gallery")
+        gallery!.setActive(true)
+        let isReleased = { [weak gallery] in gallery == nil }
+        gallery = nil
+        expect(isReleased(), "timer and observers do not retain a closed gallery")
         print("StatusCharacterFrameStoreTests: PASS")
     }
 }

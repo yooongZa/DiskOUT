@@ -10,8 +10,8 @@ enum CharacterCollection: String, CaseIterable {
         case .halloween: return String(localized: "2026 Halloween")
         }
     }
-    var motionPack: CharacterPack {
-        switch self { case .basic: return .baseMotion; case .halloween: return .halloween }
+    var paidPack: CharacterPack? {
+        switch self { case .basic: return nil; case .halloween: return .halloween }
     }
 }
 enum CharacterDisplayMode: String { case numbers, characters }
@@ -51,23 +51,19 @@ enum HalloweenCharacter: String, CaseIterable {
 struct CharacterSelection: Equatable {
     var display: CharacterDisplayMode = .characters
     var collection: CharacterCollection = .basic
-    var basicReactive = false
-    var halloweenAnimated = true
 
     init() {}
     init(defaults: UserDefaults) {
         display = CharacterDisplayMode(rawValue: defaults.string(forKey: "character.display") ?? "") ?? .characters
         collection = CharacterCollection(rawValue: defaults.string(forKey: "character.collection") ?? "") ?? .basic
         // The old character.halloween choice is deliberately ignored: live artwork follows count.
-        basicReactive = defaults.bool(forKey: "character.basicReactive")
-        halloweenAnimated = defaults.object(forKey: "character.halloweenAnimated") as? Bool ?? true
     }
     func save(to defaults: UserDefaults) {
         defaults.set(display.rawValue, forKey: "character.display")
         defaults.set(collection.rawValue, forKey: "character.collection")
         defaults.removeObject(forKey: "character.halloween")
-        defaults.set(basicReactive, forKey: "character.basicReactive")
-        defaults.set(halloweenAnimated, forKey: "character.halloweenAnimated")
+        defaults.removeObject(forKey: "character.basicReactive")
+        defaults.removeObject(forKey: "character.halloweenAnimated")
     }
 }
 
@@ -82,9 +78,9 @@ enum CharacterPresentationPolicy {
         guard selection.display == .characters else { return .numbers }
         if selection.collection == .halloween, owned.contains(.halloween) {
             guard let character = HalloweenCharacter.character(for: count) else { return .numbers }
-            return .halloween(character, animated: selection.halloweenAnimated)
+            return .halloween(character, animated: true)
         }
         guard (0...12).contains(count) else { return .numbers }
-        return .basic(count: count, reactive: selection.basicReactive && owned.contains(.baseMotion))
+        return .basic(count: count, reactive: true)
     }
 }

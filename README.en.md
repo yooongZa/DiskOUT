@@ -40,7 +40,7 @@ Core features are free · macOS 13+ · Apple Silicon · Apple notarized
 
 DiskOUT tries a normal unmount first. Manual eject and `Eject and Sleep` ask before proceeding when a drive is being written to, and explain what blocked an eject when it fails. Time Machine disks and drives you exclude are left out of auto-eject.
 
-Disk operations, numbers, and all 13 basic characters with their basic loops are free. The Basic Character Premium Motion Pack is USD 1.90; Halloween includes 10 characters and motion for USD 3.90. Each is an independent one-time purchase. Preview and purchase packs in Settings → Characters.
+Disk operations, numbers, all 13 basic characters are free. Only seasonal character packs are paid: 2026 Halloween includes 10 characters for USD 3.90 as a one-time purchase, usable year-round. Select a collection and preview 10 animated characters in Settings → Characters.
 
 ---
 
@@ -106,7 +106,7 @@ If even force unmount fails, the disk is left alone — we won't risk data corru
 <details>
 <summary><b>Is it free?</b></summary>
 
-Disk operations, numbers, and all 13 basic characters with their basic loops are free. The Basic Character Premium Motion Pack is USD 1.90; Halloween includes 10 characters and motion for USD 3.90. Each is an independent one-time purchase. Preview and purchase packs in Settings → Characters.
+Disk operations, numbers, all 13 basic characters are free. Only seasonal character packs are paid: 2026 Halloween includes 10 characters for USD 3.90 as a one-time purchase, usable year-round. Select a collection and preview 10 animated characters in Settings → Characters.
 
 </details>
 
@@ -165,8 +165,8 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | Feature | Description |
 |---|---|
 | Menu bar dropdown | Lists connected externals. Stale cache shown immediately, then background-refreshed when complete. On refresh failure, the previous cache stays + a failure row is shown. **DA event-driven inventory is the primary source** → menu stays responsive even when `storagekitd` is blocked (e.g. by SD card insertion) |
-| **Menu bar icon = character/⏏ + mount count** | Numbers, 13 basic characters and their basic loops are free choices. The basic motion pack reacts to drive activity; the bicycle for count 2 rests with floating Zzz, moves when drives are active, and moves faster with heavier activity. Halloween automatically maps counts 0–9 to numbered character shapes; 10 or more uses the exact number. Basic counts above 12 also use numbers. Eject progress/results take priority. Reduce Motion and sleep stop animation. |
-| **13 basic characters** | Counts 0–12 share consistent faces and proportions: 2 is a regular bicycle, 3 is an octopus with three pointed arms, 8 is an eight-armed octopus, and 9 is a nine-tailed fox. The free basic loops use six frames at 140ms per frame, with refreshed artwork and movement. |
+| **Menu bar icon = character/⏏ + mount count** | Numbers and 13 basic characters are free. Characters respond automatically to drive activity; the bicycle for count 2 rests with floating Zzz, moves when drives are active, and moves faster with heavier activity. Halloween automatically maps counts 0–9 to numbered character shapes; 10 or more uses the exact number. Basic counts above 12 also use numbers. Eject progress/results take priority. Reduce Motion and sleep stop animation. |
+| **13 basic characters** | Counts 0–12 share consistent faces and proportions: 2 is a regular bicycle, 3 is an octopus with three pointed arms, 8 is an eight-armed octopus, and 9 is a nine-tailed fox. Animation timing: 120ms per frame during normal activity and 80ms during heavy activity, with eight frames for bicycles and six for other characters. Idle characters settle into sleep. |
 | **Halloween number characters 0–9** | 0 pumpkin · 1 one-shaped staff · 2 Halloween bicycle · 3 Cerberus · 4 walking four-legged desk · 5 star in a witch hat · 6 six-spoke web · 7 seven-shaped scythe · 8 eight-legged spider · 9 nine-tailed fox. The actual drive count selects the character automatically; counts of 10 or more appear as numbers. |
 | **Read/write activity indicator** | When read or write I/O is active on an external, a small systemBlue `●` appears next to the menu bar number + a "Reading / Writing — don't disconnect" tooltip (color-distinct from the red update dot). In the menu, the blue `●` appears **only next to the busy disk** — and the tooltip distinguishes reading / writing / both. Polls physical-disk I/O counters (IORegistry) every 1.5 s; volume→physical mapping via parent-walk handles RAID / APFS-synthesized / direct uniformly. Reads use a higher threshold to avoid background-indexing false positives. After an eject, once the updated mounted inventory and physical mapping are resolved, activity for the ejected disk is removed while the state of other mounted disks is preserved. Runs only while externals are present (battery) |
 | **Disk capacity / usage** | Each disk's menu item shows *free · usage* on a second line — e.g. `2.9 TB free · 40% used`. Read via `URLResourceValues` on menu open (no process spawn) |
@@ -193,7 +193,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 | **Hotkey conflict auto-fix** | If eject / mount / eject-and-sleep would share the same preset, the conflict is detected + one is auto-moved + alerted |
 | **Missing-permission menu hint** | If Accessibility (for global hotkeys) or notification permission is missing, a ⚠ warning row appears at the top of the menu. Click to jump to the relevant System Settings page |
 | **Fine-grained notification toggles** | Separate toggles for all / success / failure notifications. All ON by default. If macOS blocks notifications, Settings shows the status and opens the relevant System Settings page |
-| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 218 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
+| **Localization (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` with 204 keys. The app checks the full system language preference list and picks the first supported language, falling back to English only when none match. Settings → General → Language supports system default or an explicit override |
 | **Auto-update (Sparkle 2)** | 24h background check. On new version, no modal — just a small systemRed `●` in the menu bar + an "Update to X.Y.Z…" menu item with the same red-dot prefix (gentle reminder). On click, DiskOUT closes the status menu, starts the Sparkle check, and makes bounded foreground requests for the checking, update-presentation, and no-update/error modal stages. EdDSA(Ed25519) + Apple Code Signing double verification. Appcast on GitHub Pages, DMG on GitHub Releases — free hosting |
 | **Per-disk auto-eject exclude** | Per-disk toggles in the bottom *"Auto-Eject Excluded Disks"* submenu. Volume UUID-based (survives cable/port changes). Affects auto path only — explicit eject still works |
 | **Time Machine auto-protect** | TM backup disks auto-detected (`Backups.backupdb` / `.com.apple.timemachine.donotpresent`) → excluded from auto-eject on first sighting + 1 notification. Menu shows clock icon + a Time Machine badge (macOS 14+; parenthetical on 13) |
@@ -225,7 +225,7 @@ See the [release notes](https://github.com/yooongZa/DiskOUT/releases) for techni
 diskOUT/
 ├── AppDelegate.swift            # Main logic (diskutil exec, menu cache, sleep/wake handling)
 ├── LanguageRuntime.swift        # language negotiation, stored-value validation, safe relaunch policy
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 218 keys)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans translations (Xcode String Catalog, 204 keys)
 ├── main.swift                   # Explicit entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen generated)
 ├── DiskOUT.entitlements         # empty plist. Prevents entitlements pitfalls in project.yml

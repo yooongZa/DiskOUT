@@ -120,3 +120,27 @@ struct CharacterMotionTimeline {
                      zFrame: state == .rest && elapsed >= 0.8 ? Int((elapsed - 0.8) / 0.1) % 28 : -1)
     }
 }
+
+/// A settings-only demonstration. It never supplies samples to the real disk activity policy.
+enum CharacterPreviewTimeline {
+    static let characterCount = 10
+    static let duration: TimeInterval = 12
+
+    static func phase(at elapsed: TimeInterval) -> TimeInterval {
+        elapsed.isFinite ? max(0, elapsed).truncatingRemainder(dividingBy: duration) : 0
+    }
+
+    static func state(at elapsed: TimeInterval) -> CharacterMotionState {
+        let phase = phase(at: elapsed)
+        return phase < 4 ? .rest : (phase < 8 ? .active : .busy)
+    }
+
+    static func pose(at elapsed: TimeInterval, frameCount: Int) -> CharacterRenderPose {
+        let phase = phase(at: elapsed)
+        var timeline = CharacterMotionTimeline()
+        timeline.setState(.rest, at: 0)
+        if phase >= 4 { timeline.setState(.active, at: 4) }
+        if phase >= 8 { timeline.setState(.busy, at: 8) }
+        return timeline.pose(at: phase, frameCount: frameCount)
+    }
+}

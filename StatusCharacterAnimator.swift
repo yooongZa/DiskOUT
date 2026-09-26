@@ -221,3 +221,99 @@ final class StatusCharacterAnimator {
         }
     }
 }
+
+/// Ten settings previews share one clock and bounded bitmap cache. No disk activity is simulated outside this gallery.
+final class CharacterGalleryAnimator {
+    private let basicArtwork: BasicArtworkStore
+    private let halloweenArtwork: HalloweenArtworkStore
+    private let renderSize: CGFloat
+    private let now: () -> TimeInterval
+    private let reduceMotion: () -> Bool
+    private var collection: CharacterCollection = .basic
+    private var active = false
+    private var displayAwake = true
+    private var systemAwake = true
+    private var startedAt: TimeInterval = 0
+    private var timer: Timer?
+    private var observers: [NSObjectProtocol] = []
+    private var cache: [String: NSImage] = [:]
+    var onFramesChanged: (([NSImage?]) -> Void)?
+    var isRunning: Bool { timer != nil }
+
+    init(bundle: Bundle = .main, renderSize: CGFloat = 21,
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
+        basicArtwork = BasicArtworkStore(bundle: bundle)
+        halloweenArtwork = HalloweenArtworkStore(bundle: bundle)
+        self.renderSize = renderSize; self.now = now; self.reduceMotion = reduceMotion
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                     NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                if name == NSWorkspace.screensDidSleepNotification { self.displayAwake = false }
+                if name == NSWorkspace.screensDidWakeNotification { self.displayAwake = true }
+                if name == NSWorkspace.willSleepNotification { self.systemAwake = false }
+                if name == NSWorkspace.didWakeNotification { self.systemAwake = true }
+                self.updatePlayback()
+            })
+        }
+    }
+
+    func configure(collection: CharacterCollection) {
+        precondition(Thread.isMainThread)
+        if self.collection != collection {
+            self.collection = collection; startedAt = now(); cache.removeAll(keepingCapacity: true)
+        }
+        renderFrame()
+    }
+
+    func setActive(_ active: Bool) {
+        precondition(Thread.isMainThread)
+        guard self.active != active else { return }
+        self.active = active
+        updatePlayback()
+    }
+
+    private func updatePlayback() {
+        let shouldPlay = active && displayAwake && systemAwake && !reduceMotion()
+        if shouldPlay && timer == nil {
+            startedAt = now()
+            let timer = Timer(timeInterval: CharacterMotionState.busy.frameDuration, repeats: true) { [weak self] _ in
+                self?.renderFrame()
+            }
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        } else if !shouldPlay {
+            timer?.invalidate(); timer = nil
+        }
+        renderFrame()
+    }
+
+    private func renderFrame() {
+        let elapsed = max(0, now() - startedAt)
+        let state: CharacterMotionState = isRunning ? CharacterPreviewTimeline.state(at: elapsed) : .unknown
+        let images = (0..<CharacterPreviewTimeline.characterCount).map { index -> NSImage? in
+            let visual: CharacterVisual = collection == .basic ? .basic(count: index, reactive: true)
+                : .halloween(HalloweenCharacter.allCases[index], animated: true)
+            let pose = isRunning ? CharacterPreviewTimeline.pose(at: elapsed, frameCount: CharacterArtwork.frameCount(for: visual))
+                : CharacterRenderPose.still(state: .unknown)
+            let key = "\(index)-\(state.rawValue)-\(pose)"
+            if let cached = cache[key] { return cached }
+            let image = CharacterArtwork.image(visual: visual, state: state, frame: pose.frame, pose: pose,
+                halloweenStore: halloweenArtwork, renderSize: renderSize, basicStore: basicArtwork)
+            if let image {
+                if cache.count >= 384 { cache.removeAll(keepingCapacity: true) }
+                cache[key] = image
+            }
+            return image
+        }
+        onFramesChanged?(images)
+    }
+
+    deinit {
+        timer?.invalidate()
+        for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+    }
+}

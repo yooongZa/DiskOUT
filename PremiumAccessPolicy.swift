@@ -8,14 +8,14 @@
 import Foundation
 
 enum CharacterPack: String, CaseIterable, Codable {
-    case baseMotion = "base_motion_v1"
+    case baseMotion = "base_motion_v1" // Retired from sale; kept for signed receipts and restore compatibility.
     case halloween = "halloween_v1"
 
     var priceUSD: String { self == .baseMotion ? "1.90" : "3.90" }
     var title: String {
         switch self {
         case .baseMotion: return String(localized: "Basic Character Premium Motion Pack")
-        case .halloween: return String(localized: "Halloween Characters + Motion Pack")
+        case .halloween: return String(localized: "2026 Halloween")
         }
     }
 }

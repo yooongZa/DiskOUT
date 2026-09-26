@@ -4768,35 +4768,6 @@
         }
       }
     },
-    "Activity-Reactive Motion": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activity-Reactive Motion"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용량에 반응하는 모션"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用量に反応するモーション"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "随使用量变化的动作"
-          }
-        }
-      }
-    },
     "Basic Character Premium Motion Pack": {
       "extractionState": "manual",
       "localizations": {
@@ -5174,35 +5145,6 @@
         }
       }
     },
-    "Halloween Characters + Motion Pack": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Halloween Characters + Motion Pack"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "할로윈 캐릭터 + 모션 팩"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ハロウィーン キャラクター＋モーションパック"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "万圣节角色＋动作包"
-          }
-        }
-      }
-    },
     "Nine-Tailed Fox": {
       "extractionState": "manual",
       "localizations": {
@@ -5257,35 +5199,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "女巫扫帚"
-          }
-        }
-      }
-    },
-    "Menu Bar Display": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Menu Bar Display"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메뉴 막대 표시"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニューバー表示"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "菜单栏显示"
           }
         }
       }
@@ -5402,35 +5315,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "南瓜"
-          }
-        }
-      }
-    },
-    "Purchased": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Purchased"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "구매 완료"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "購入済み"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已购买"
           }
         }
       }
@@ -5580,151 +5464,6 @@
         }
       }
     },
-    "Apply to Menu Bar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apply to Menu Bar"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메뉴바에 적용"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニューバーに適用"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "应用到菜单栏"
-          }
-        }
-      }
-    },
-    "Applied": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applied"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "적용 중"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "適用中"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已应用"
-          }
-        }
-      }
-    },
-    "Preview Characters": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview Characters"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "캐릭터 미리보기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャラクターをプレビュー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预览角色"
-          }
-        }
-      }
-    },
-    "Preview Drive Count": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview Drive Count"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "미리보기 디스크 수"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プレビューのディスク数"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预览磁盘数量"
-          }
-        }
-      }
-    },
-    "Preview Activity": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview Activity"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "미리보기 활동"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プレビューの動作"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预览活动状态"
-          }
-        }
-      }
-    },
     "Preview": {
       "extractionState": "manual",
       "localizations": {
@@ -5750,122 +5489,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "预览"
-          }
-        }
-      }
-    },
-    "Premium Motion": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Premium Motion"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프리미엄 모션"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プレミアムモーション"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "高级动作"
-          }
-        }
-      }
-    },
-    "Halloween Pack": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Halloween Pack"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "할로윈 팩"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ハロウィンパック"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "万圣节角色包"
-          }
-        }
-      }
-    },
-    "Rest, walk, and speed up with drive activity.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rest, walk, and speed up with drive activity."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "디스크 활동에 따라 쉬고 걷고 빨라집니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスクの動作に合わせて休んだり、歩いたり、速く動いたりします。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "随磁盘活动休息、行走或加速。"
-          }
-        }
-      }
-    },
-    "10 characters with motion, available year-round.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "10 characters with motion, available year-round."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "일 년 내내 사용하는 캐릭터 10종과 모션."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一年中使える10種類のキャラクターとモーション。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全年可用的10种角色及配套动作。"
           }
         }
       }
@@ -5899,93 +5522,6 @@
         }
       }
     },
-    "13 free characters that follow your drive count.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "13 free characters that follow your drive count."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "디스크 수에 따라 바뀌는 무료 캐릭터 13종."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスクの数に合わせて変わる13種類の無料キャラクター。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "随磁盘数量变化的13种免费角色。"
-          }
-        }
-      }
-    },
-    "10 Halloween characters that follow your drive count.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "10 Halloween characters that follow your drive count."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "디스크 수에 따라 바뀌는 할로윈 캐릭터 10종."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスクの数に合わせて変わる10種類のハロウィンキャラクター。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "随磁盘数量变化的10种万圣节角色。"
-          }
-        }
-      }
-    },
-    "Preview only. Resting does not mean a drive is ejected.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview only. Resting does not mean a drive is ejected."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "미리보기입니다. 쉬는 동작은 디스크 추출 상태와 무관합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プレビューです。休む動作はディスクの取り出し状態とは関係ありません。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仅供预览。休息动作与磁盘是否已推出无关。"
-          }
-        }
-      }
-    },
     "Manage Purchases": {
       "extractionState": "manual",
       "localizations": {
@@ -6015,35 +5551,6 @@
         }
       }
     },
-    "Character Series": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Character Series"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "캐릭터 시리즈"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャラクターシリーズ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "角色系列"
-          }
-        }
-      }
-    },
     "2026 Halloween": {
       "extractionState": "manual",
       "localizations": {
@@ -6069,6 +5576,93 @@
           "stringUnit": {
             "state": "translated",
             "value": "2026 万圣节"
+          }
+        }
+      }
+    },
+    "Preview shows characters sleeping and moving. In the menu bar, characters respond to drive activity.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview shows characters sleeping and moving. In the menu bar, characters respond to drive activity."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠들고 움직이는 모습을 미리 볼 수 있습니다. 메뉴바에서는 디스크 사용에 따라 움직입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "眠ったり動いたりする姿をプレビューできます。メニューバーではディスクの使用に応じて動きます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览角色睡觉和移动的样子。在菜单栏中，角色会随磁盘使用情况变化。"
+          }
+        }
+      }
+    },
+    "10 seasonal characters. One-time purchase, yours year-round.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10 seasonal characters. One-time purchase, yours year-round."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시즌 캐릭터 10종. 한 번 구매하고 일 년 내내 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "季節のキャラクター10種。一度の購入で一年中使えます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10 款季节角色，一次购买，全年可用。"
+          }
+        }
+      }
+    },
+    "Using: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用中：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用：%@"
           }
         }
       }

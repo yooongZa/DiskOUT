@@ -1,8 +1,8 @@
 # DiskOUT Refund Policy
 
-Effective: September 15, 2026
+Effective: September 26, 2026
 
-DiskOUT Premium is sold as a **USD 1.90 basic motion pack or USD 3.90 Halloween character and motion pack, each a one-time digital purchase** through Paddle, which acts as the Merchant of Record.
+DiskOUT Premium is sold as a **USD 3.90 Halloween character pack as a one-time digital purchase** through Paddle, which acts as the Merchant of Record.
 
 ## Requesting a refund
 

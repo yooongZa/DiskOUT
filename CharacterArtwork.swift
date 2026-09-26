@@ -26,8 +26,8 @@ enum CharacterArtwork {
             guard halloweenStore.hasArtwork(for: character) else { return nil }
         }
         let bicycle = isBicycle(visual)
-        // The menu bar gives horizontal characters their own width. Gallery tiles
-        // remain square, with the same 30 × 21 drawing fitted inside them.
+        // Native-size previews and the menu bar give bicycles their own width.
+        // Larger review renders fit the same 30 × 21 drawing inside a square.
         let canvasWidth: CGFloat = bicycle ? 30 : 21
         let outputSize = NSSize(width: bicycle && renderSize == 21 ? canvasWidth : renderSize, height: renderSize)
         let drawingScale = renderSize / (bicycle && renderSize != 21 ? canvasWidth : 21)

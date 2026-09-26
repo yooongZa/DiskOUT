@@ -7,11 +7,10 @@ import Foundation
     static func main() {
         var selection = CharacterSelection()
         for count in 0...12 {
-            check(CharacterPresentationPolicy.visual(selection: selection, owned: [], count: count) == .basic(count: count, reactive: false), "all existing characters free")
+            check(CharacterPresentationPolicy.visual(selection: selection, owned: [], count: count) == .basic(count: count, reactive: true), "all existing characters free")
         }
-        selection.basicReactive = true
-        check(CharacterPresentationPolicy.visual(selection: selection, owned: [.halloween], count: 2) == .basic(count: 2, reactive: false), "Halloween cannot unlock basic motion")
-        check(CharacterPresentationPolicy.visual(selection: selection, owned: [.baseMotion], count: 2) == .basic(count: 2, reactive: true), "base motion permission")
+        check(CharacterPresentationPolicy.visual(selection: selection, owned: [.halloween], count: 2) == .basic(count: 2, reactive: true), "basic motion is free independently of seasonal ownership")
+        check(CharacterPresentationPolicy.visual(selection: selection, owned: [.baseMotion], count: 2) == .basic(count: 2, reactive: true), "retired ownership does not affect free motion")
         check(CharacterPresentationPolicy.visual(selection: selection, owned: [.baseMotion], count: 13) == .numbers, "legacy overflow")
         selection.collection = .halloween
         let expectedCharacters: [HalloweenCharacter] = [.pumpkin, .staff, .bicycle, .hound, .desk,
@@ -30,36 +29,47 @@ import Foundation
         for owned in ownerships {
             for collection in CharacterCollection.allCases {
                 selection.collection = collection
-                for motionEnabled in [false, true] {
-                    selection.basicReactive = motionEnabled
-                    selection.halloweenAnimated = motionEnabled
-                    for count in -1...13 {
-                        let expected: CharacterVisual
-                        if collection == .halloween && owned.contains(.halloween) {
-                            expected = (0...9).contains(count)
-                                ? .halloween(expectedCharacters[count], animated: motionEnabled) : .numbers
-                        } else {
-                            expected = (0...12).contains(count)
-                                ? .basic(count: count, reactive: motionEnabled && owned.contains(.baseMotion)) : .numbers
-                        }
-                        check(CharacterPresentationPolicy.visual(selection: selection, owned: owned, count: count) == expected,
-                              "collection, ownership and motion combinations preserve fallback")
+                for count in -1...13 {
+                    let expected: CharacterVisual
+                    if collection == .halloween && owned.contains(.halloween) {
+                        expected = (0...9).contains(count)
+                            ? .halloween(expectedCharacters[count], animated: true) : .numbers
+                    } else {
+                        expected = (0...12).contains(count)
+                            ? .basic(count: count, reactive: true) : .numbers
                     }
+                    check(CharacterPresentationPolicy.visual(selection: selection, owned: owned, count: count) == expected,
+                          "collection and ownership combinations preserve fallback")
                 }
             }
         }
         selection.collection = .halloween
-        selection.halloweenAnimated = false
-        check(CharacterPresentationPolicy.visual(selection: selection, owned: [.halloween], count: 7) == .halloween(.scythe, animated: false), "manual motion off preserved")
-        check(CharacterPresentationPolicy.visual(selection: selection, owned: [.baseMotion], count: 0) == .basic(count: 0, reactive: true), "Halloween refund restores basic egg with separately owned motion")
-        check(CharacterPresentationPolicy.visual(selection: selection, owned: [], count: 9) == .basic(count: 9, reactive: false), "all packs refunded restores free basic artwork")
+        check(CharacterPresentationPolicy.visual(selection: selection, owned: [.halloween], count: 7) == .halloween(.scythe, animated: true), "owned seasonal motion always enabled")
+        check(CharacterPresentationPolicy.visual(selection: selection, owned: [.baseMotion], count: 0) == .basic(count: 0, reactive: true), "Halloween refund restores free reactive basic egg")
+        check(CharacterPresentationPolicy.visual(selection: selection, owned: [], count: 9) == .basic(count: 9, reactive: true), "all packs refunded restores free basic artwork")
         let suite = "DiskOUT.CharacterPolicyTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("frankenstein", forKey: "character.halloween")
+        defaults.set("characters", forKey: "character.display")
+        defaults.set("halloween", forKey: "character.collection")
+        defaults.set(false, forKey: "character.basicReactive")
+        defaults.set(false, forKey: "character.halloweenAnimated")
+        let migrated = CharacterSelection(defaults: defaults)
+        check(migrated.collection == .halloween && migrated.display == .characters, "migration preserves selected collection")
+        check(CharacterPresentationPolicy.visual(selection: migrated, owned: [.halloween], count: 7) == .halloween(.scythe, animated: true), "legacy motion-off preference now uses included motion")
         selection.save(to: defaults)
+        check(defaults.object(forKey: "character.basicReactive") == nil && defaults.object(forKey: "character.halloweenAnimated") == nil, "retired motion toggles removed")
         check(defaults.object(forKey: "character.halloween") == nil, "manual character preference removed")
-        check(CharacterSelection(defaults: defaults) == selection, "display, collection and motion survive migration")
+        check(CharacterSelection(defaults: defaults) == selection, "display and collection survive migration")
+        check(CharacterPreviewTimeline.characterCount == 10, "gallery previews ten characters")
+        for (time, state) in [(0.0, CharacterMotionState.rest), (3.9, .rest), (4.0, .active), (7.9, .active), (8.0, .busy), (11.9, .busy), (12.0, .rest), (28.0, .active)] {
+            check(CharacterPreviewTimeline.state(at: time) == state, "preview repeats sleep, wake, movement, and busy independently")
+        }
+        check(CharacterPreviewTimeline.pose(at: 3, frameCount: 6).sleepStep == 8, "preview fully sleeps")
+        check(CharacterPreviewTimeline.pose(at: 4.2, frameCount: 6).sleepStep == 4, "preview wakes smoothly")
+        check(CharacterPreviewTimeline.pose(at: 4.5, frameCount: 6).sleepStep == 0, "preview finishes waking")
+        check(CharacterPreviewTimeline.pose(at: 8.3, frameCount: 8).frame == 3, "busy preview keeps bicycle cadence")
         // Active finishes a stride in 720ms; busy runs the same six poses in 480ms.
         for (state, step) in [(CharacterMotionState.active, 0.12), (.busy, 0.08)] {
             var stride = CharacterMotionTimeline()
@@ -106,7 +116,7 @@ import Foundation
         check(timeline.pose(at: 4.4).sleepStep == 4, "interrupted tuck reverses without jump")
         timeline.setState(.unknown, at: 5)
         check(timeline.pose(at: 6) == .still(state: .unknown), "unknown never sleeps")
-        check(CharacterPresentationPolicy.visual(selection: selection, owned: [], count: 3) == .basic(count: 3, reactive: false), "refund fallback free")
+        check(CharacterPresentationPolicy.visual(selection: selection, owned: [], count: 3) == .basic(count: 3, reactive: true), "refund fallback free")
         selection.display = .numbers
         for owned in ownerships {
             for count in [0, 1, 9, 10, 12, 30] {
