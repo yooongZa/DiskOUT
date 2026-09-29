@@ -307,7 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // app cannot arrive before the Apple Event handler exists.
         NSAppleEventManager.shared().setEventHandler(
             self,
-            andSelector: #selector(handlePremiumRefreshURL(_:withReplyEvent:)),
+            andSelector: #selector(handleApplicationURL(_:withReplyEvent:)),
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
         )
@@ -457,15 +457,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// `diskout://premium/refresh` can be invoked by any local process, so it is deliberately a
     /// parameter-free, exact-match hint. It cannot mutate billing state or unlock Premium; it only
     /// starts the normal authenticated request whose Ed25519 response is verified by the controller.
-    @objc private func handlePremiumRefreshURL(
+    @objc private func handleApplicationURL(
         _ event: NSAppleEventDescriptor,
         withReplyEvent replyEvent: NSAppleEventDescriptor
     ) {
         guard !isTerminating,
               let rawURL = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
-              let url = URL(string: rawURL),
-              PremiumRefreshCallbackPolicy.accepts(url) else {
-            log.error("Rejected malformed Premium refresh callback")
+              let url = URL(string: rawURL) else { return }
+        if lifecycleTelemetryController.acceptAcquisitionURL(url) { return }
+        guard PremiumRefreshCallbackPolicy.accepts(url) else {
+            log.error("Rejected malformed application callback")
             return
         }
 

@@ -88,6 +88,8 @@ struct AppLifecycleTelemetryState: Codable, Equatable {
     var pendingUpdate: AppLifecyclePendingUpdate?
     var events: [AppLifecycleEvent]
     var deadLetters: [AppLifecycleDeadLetter]
+    // Optional for schema-1 compatibility. Only genuinely new installations get this proof.
+    var acquisition: AppLaunchAcquisition?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -96,6 +98,7 @@ struct AppLifecycleTelemetryState: Codable, Equatable {
         case pendingUpdate = "pending_update"
         case events
         case deadLetters = "dead_letters"
+        case acquisition
     }
 
     init(installationID: String) {
@@ -105,6 +108,7 @@ struct AppLifecycleTelemetryState: Codable, Equatable {
         pendingUpdate = nil
         events = []
         deadLetters = []
+        acquisition = nil
     }
 
     init(from decoder: Decoder) throws {
@@ -121,6 +125,7 @@ struct AppLifecycleTelemetryState: Codable, Equatable {
             [AppLifecycleDeadLetter].self,
             forKey: .deadLetters
         ) ?? []
+        acquisition = try container.decodeIfPresent(AppLaunchAcquisition.self, forKey: .acquisition)
     }
 
     var isValid: Bool {
@@ -134,6 +139,7 @@ struct AppLifecycleTelemetryState: Codable, Equatable {
               pendingUpdate.map({ Self.isCanonicalTimestamp($0.markedAt) }) != false else {
             return false
         }
+        guard acquisition?.isValid != false else { return false }
 
         var identifiers = Set<String>()
         for event in events {
@@ -178,6 +184,35 @@ struct AppLifecycleTelemetryState: Codable, Equatable {
     }
 }
 
+struct AppLaunchAcquisition: Codable, Equatable {
+    let eventID: String
+    let occurredAt: String
+    var token: String?
+
+    var isValid: Bool {
+        AppLifecycleTelemetryState.isCanonicalUUIDv4(eventID) &&
+        AppLifecycleTelemetryState.isCanonicalTimestamp(occurredAt) &&
+        (token == nil || Self.validToken(token!))
+    }
+
+    static func validToken(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy {
+            (48...57).contains($0) || (97...102).contains($0)
+        }
+    }
+
+    static func token(from url: URL) -> String? {
+        guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.scheme == "diskout", parts.host == "ad-first-launch",
+              parts.path.isEmpty, parts.user == nil, parts.password == nil,
+              parts.port == nil, parts.fragment == nil,
+              let items = parts.queryItems, items.count == 1,
+              items[0].name == "token", let token = items[0].value,
+              validToken(token) else { return nil }
+        return token
+    }
+}
+
 enum AppLifecycleLaunchPlanner {
     static func applyingSuccessfulLaunch(
         to previousState: AppLifecycleTelemetryState?,
@@ -194,9 +229,10 @@ enum AppLifecycleLaunchPlanner {
 
         let occurredAt = timestamp(now)
         if previousState == nil && !priorAppStateExists {
+            let firstEventID = makeUUID().uuidString.lowercased()
             _ = append(
                 AppLifecycleEvent(
-                    eventID: makeUUID().uuidString.lowercased(),
+                    eventID: firstEventID,
                     type: .firstLaunch,
                     occurredAt: occurredAt,
                     app: current,
@@ -205,6 +241,7 @@ enum AppLifecycleLaunchPlanner {
                 ),
                 to: &state
             )
+            state.acquisition = AppLaunchAcquisition(eventID: firstEventID, occurredAt: occurredAt)
         }
 
         if state.lastSeen != current {
@@ -488,6 +525,8 @@ final class AppLifecycleTelemetryController {
     private var isStopped = false
     private var inFlightEventID: String?
     private var inFlightTask: URLSessionDataTask?
+    private var acquisitionTask: URLSessionDataTask?
+    private var earlyAcquisitionToken: String?
 
     init(
         endpoint: URL?,
@@ -572,8 +611,35 @@ final class AppLifecycleTelemetryController {
             )
             guard let next else { return }
             if next != self.state, !self.persist(next) { return }
+            if let token = self.earlyAcquisitionToken {
+                self.earlyAcquisitionToken = nil
+                self.saveAcquisitionToken(token)
+            }
             self.flushNextIfNeeded()
         }
+    }
+
+    func acceptAcquisitionURL(_ url: URL) -> Bool {
+        guard let token = AppLaunchAcquisition.token(from: url) else { return false }
+        workQueue.async { [weak self] in
+            guard let self, !self.isStopped, self.loadStateIfNeeded() else { return }
+            if self.state == nil {
+                // A cold-launch Apple Event may arrive before successful startup is recorded.
+                if self.earlyAcquisitionToken == nil { self.earlyAcquisitionToken = token }
+            } else {
+                self.saveAcquisitionToken(token)
+                self.flushNextIfNeeded()
+            }
+        }
+        return true
+    }
+
+    private func saveAcquisitionToken(_ token: String) {
+        guard var next = state, var acquisition = next.acquisition,
+              acquisition.token == nil else { return }
+        acquisition.token = token
+        next.acquisition = acquisition
+        _ = persist(next)
     }
 
     func markPendingUpdate(
@@ -616,6 +682,9 @@ final class AppLifecycleTelemetryController {
             guard !isStopped else { return }
             isStopped = true
             inFlightTask?.cancel()
+            acquisitionTask?.cancel()
+            acquisitionTask = nil
+            earlyAcquisitionToken = nil
             inFlightTask = nil
             inFlightEventID = nil
             session.invalidateAndCancel()
@@ -661,11 +730,24 @@ final class AppLifecycleTelemetryController {
     }
 
     private func flushNextIfNeeded() {
+        // Expiry is local and must not depend on the telemetry endpoint being reachable.
+        if var next = state, let acquisition = next.acquisition {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let launch = formatter.date(from: acquisition.occurredAt),
+               Date().timeIntervalSince(launch) > 30 * 86_400 {
+                next.acquisition = nil
+                _ = persist(next)
+            }
+        }
         guard !isStopped,
               inFlightEventID == nil,
               let endpoint,
-              let state,
-              let event = state.events.first else { return }
+              let state else { return }
+        guard let event = state.events.first else {
+            flushAcquisitionIfNeeded()
+            return
+        }
 
         let payload = AppLifecycleEventRequest(event: event, installationID: state.installationID)
         guard let body = try? JSONEncoder().encode(payload) else { return }
@@ -689,6 +771,53 @@ final class AppLifecycleTelemetryController {
             }
         }
         inFlightTask = task
+        task.resume()
+    }
+
+    private func flushAcquisitionIfNeeded() {
+        guard !isStopped, acquisitionTask == nil, var next = state,
+              let acquisition = next.acquisition else { return }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let launch = formatter.date(from: acquisition.occurredAt),
+              Date().timeIntervalSince(launch) <= 30 * 86_400,
+              !next.deadLetters.contains(where: { $0.event.eventID == acquisition.eventID }) else {
+            next.acquisition = nil
+            _ = persist(next)
+            return
+        }
+        guard let token = acquisition.token, let endpoint,
+              var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { return }
+        components.path = "/v1/ad-first-launch"
+        guard let url = components.url else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "token": token, "event_id": acquisition.eventID, "install_id": next.installationID,
+        ])
+        request.timeoutInterval = 8
+        let task = session.dataTask(with: request) { [weak self] data, response, error in
+            self?.workQueue.async { [weak self] in
+                guard let self, !self.isStopped else { return }
+                self.acquisitionTask = nil
+                guard self.state?.acquisition == acquisition, error == nil,
+                      let response = response as? HTTPURLResponse else { return }
+                let ack = data.flatMap { body -> AppLifecycleEventAcknowledgement? in
+                    guard body.count <= 1_024 else { return nil }
+                    return try? JSONDecoder().decode(AppLifecycleEventAcknowledgement.self, from: body)
+                }
+                let acknowledged = response.statusCode == 200 && ack?.ok == true &&
+                    ack?.eventID == acquisition.eventID
+                // Keep uncertain/temporary responses for a later activation. Never spin on failure.
+                guard acknowledged || [400, 410, 413, 415, 422].contains(response.statusCode),
+                      var next = self.state else { return }
+                next.acquisition = nil
+                _ = self.persist(next)
+            }
+        }
+        acquisitionTask = task
         task.resume()
     }
 

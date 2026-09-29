@@ -112,8 +112,8 @@ private final class LifecycleURLProtocol: URLProtocol {
                 if count <= 0 { break }
                 body.append(buffer, count: count)
             }
-            capturedRequest.httpBody = body
             capturedRequest.httpBodyStream = nil
+            capturedRequest.httpBody = body
         }
         let plan: Plan
         Self.lock.lock()
@@ -269,6 +269,9 @@ private enum AppLifecycleTelemetryTests {
         testRedirectsAreRejected()
         testConcurrentFlushIsSingleFlight()
         testEndpointValidation()
+        testAcquisitionCallbackPolicy()
+        testAcquisitionFirstLaunchAndRetry()
+        testAcquisitionExpiresWhileOffline()
         print("AppLifecycleTelemetryTests: PASS")
     }
 
@@ -913,6 +916,87 @@ private enum AppLifecycleTelemetryTests {
         expect(AppLifecycleTelemetryController.eventEndpoint(infoDictionary: [
             "SUFeedURL": "https://user:secret@updates.example/appcast.xml",
         ]) == nil, "userinfo is rejected from telemetry configuration")
+    }
+
+    private static func testAcquisitionCallbackPolicy() {
+        let token = String(repeating: "a", count: 64)
+        expect(AppLaunchAcquisition.token(from: URL(string: "diskout://ad-first-launch?token=\(token)")!) == token,
+               "a bounded opaque acquisition token is accepted")
+        for raw in [
+            "https://ad-first-launch?token=\(token)",
+            "diskout://user@ad-first-launch?token=\(token)",
+            "diskout://ad-first-launch/extra?token=\(token)",
+            "diskout://ad-first-launch?token=\(token)&token=\(token)",
+            "diskout://ad-first-launch?token=short",
+            "diskout://ad-first-launch?token=\(token)#extra",
+        ] {
+            expect(AppLaunchAcquisition.token(from: URL(string: raw)!) == nil,
+                   "malformed acquisition callback is rejected")
+        }
+        let existing = AppLifecycleLaunchPlanner.applyingSuccessfulLaunch(
+            to: nil, current: build21, priorAppStateExists: true, now: Date()
+        )!
+        expect(existing.acquisition == nil, "old installation cannot acquire a first-launch proof")
+        let legacy = try! JSONDecoder().decode(AppLifecycleTelemetryState.self,
+            from: JSONEncoder().encode(state(lastSeen: build20)))
+        expect(legacy.acquisition == nil && legacy.isValid, "schema-1 state without acquisition stays valid")
+    }
+
+    private static func testAcquisitionFirstLaunchAndRetry() {
+        let token = String(repeating: "a", count: 64)
+        let started = DispatchSemaphore(value: 0)
+        let retried = DispatchSemaphore(value: 0)
+        LifecycleURLProtocol.reset { index, request in
+            if request.url?.path == "/v1/ad-first-launch" {
+                if index == 3 {
+                    started.signal()
+                    return .init(status: 503, body: Data())
+                }
+                retried.signal()
+            }
+            return .init(status: 200, body: acknowledgementBody(eventID: eventID(in: request)!))
+        }
+        let store = MemoryLifecycleStore(state: nil)
+        let controller = AppLifecycleTelemetryController(endpoint: endpoint, stateStore: store, session: testSession())
+        expect(controller.acceptAcquisitionURL(URL(string: "diskout://ad-first-launch?token=\(token)")!),
+               "cold launch callback can precede successful startup")
+        controller.recordSuccessfulLaunch(current: build21, priorAppStateExists: false)
+        expect(started.wait(timeout: .now() + 3) == .success, "attribution follows successful launch delivery")
+        // URLProtocol signals at request dispatch; let its response reach the serial controller queue.
+        Thread.sleep(forTimeInterval: 0.1)
+        let paths = LifecycleURLProtocol.requests.compactMap { $0.url?.path }
+        expect(paths == ["/v1/app-events", "/v1/app-events", "/v1/ad-first-launch"],
+               "first launch and version are ACKed before attribution, without duplicate in-flight requests")
+        expect(controller.stateSnapshotForTesting()?.acquisition?.token == token,
+               "temporary attribution error retains the token for retry")
+        controller.flush()
+        expect(retried.wait(timeout: .now() + 3) == .success, "activation retries the pending attribution")
+        Thread.sleep(forTimeInterval: 0.1)
+        expect(controller.stateSnapshotForTesting()?.acquisition == nil,
+               "matching durable ACK consumes the proof and prevents a second claim")
+        let delivered = LifecycleURLProtocol.requests.count
+        _ = controller.acceptAcquisitionURL(URL(string: "diskout://ad-first-launch?token=\(token)")!)
+        controller.flush()
+        _ = controller.stateSnapshotForTesting()
+        expect(LifecycleURLProtocol.requests.count == delivered, "reopening a measured install sends no new attribution")
+        controller.stop()
+    }
+
+    private static func testAcquisitionExpiresWhileOffline() {
+        var initial = state(lastSeen: build21, events: [queuedVersionEvent()])
+        initial.acquisition = AppLaunchAcquisition(
+            eventID: "33333333-3333-4333-8333-333333333333",
+            occurredAt: "2000-01-01T00:00:00.000Z",
+            token: String(repeating: "b", count: 64)
+        )
+        LifecycleURLProtocol.reset { _, _ in .init(status: 503) }
+        let controller = AppLifecycleTelemetryController(endpoint: endpoint,
+            stateStore: MemoryLifecycleStore(state: initial), session: testSession())
+        controller.flush()
+        let snapshot = controller.stateSnapshotForTesting()
+        expect(snapshot?.acquisition == nil && snapshot?.events.count == 1,
+               "expired token is discarded even while the regular event queue cannot be delivered")
+        controller.stop()
     }
 }
 

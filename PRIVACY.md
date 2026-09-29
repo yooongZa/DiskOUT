@@ -1,6 +1,6 @@
 # DiskOUT Privacy Policy
 
-Effective: August 27, 2026
+Effective: September 28, 2026
 
 DiskOUT is supplied by an independent developer under the **LIMOD** brand. Privacy questions may be sent to [sukmack@gmail.com](mailto:sukmack@gmail.com) or submitted through [DiskOUT Support](https://github.com/yooongZa/DiskOUT/issues).
 
@@ -33,14 +33,25 @@ Anonymous crash and handled-error reporting is enabled by default and can be tur
 
 ## 4. Purposes and service providers
 
-We process this data only to provide and secure Premium access, prevent replay or unauthorized transfer, handle refunds and disputes, deliver software updates, estimate update health, diagnose failures, and support users. Service providers include:
+We process this data to provide and secure Premium access, prevent replay or unauthorized transfer, handle refunds and disputes, deliver software updates, estimate update health, diagnose failures, support users, and measure advertising installs when you choose the optional measurement described below. Service providers include:
 
 - [Paddle](https://www.paddle.com/) for checkout, payment, tax, receipts, and refunds;
 - [Cloudflare](https://www.cloudflare.com/privacypolicy/) for billing, update, and reliability infrastructure;
 - [GitHub](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement) for source, releases, downloads, and support issues; and
-- Apple/macOS for Keychain, notifications, code signing, and local diagnostic reports.
+- Apple/macOS for Keychain, notifications, code signing, and local diagnostic reports; and
+- Google Ads for optional, consented advertising conversion measurement, under [Google’s Privacy Policy](https://policies.google.com/privacy).
 
-We do not sell personal data or use it for advertising.
+We do not sell personal data. Advertising measurement is optional; disk management and downloads work without it. We do not use this measurement for personalized advertising.
+
+### Optional advertising install measurement
+
+On an eligible Google ad landing page, you can choose to share that ad click and your first successful DiskOUT launch with Google Ads. The checkbox starts unchecked. If you opt in before downloading, our Cloudflare service stores the Google click ID (GCLID), consent version and time, ad group, and a one-way hash of a random link token. The browser keeps the token in session storage for that tab. It does not read your browser history or fingerprint your device.
+
+After installation, use the page's **Open DiskOUT** link to deliver that token to the app. The app sends the token and its existing random lifecycle installation and first-launch event UUIDs to our service over HTTPS. The service matches the stored first-launch event, hashes the installation UUID, and prevents duplicate attribution. Previously installed apps, downloads alone, and ordinary relaunches do not create a new first-launch conversion. The app retains a pending token locally only until acknowledgement, permanent rejection, or expiry on a later launch.
+
+For Google Ads conversion reporting, we may share only the consented GCLID, first-launch time, conversion name, a separate random conversion/order ID for deduplication, and consent status. We do not share the lifecycle installation UUID or hash, event UUID, disk or file names, file contents, billing credentials, email address, or phone number in this export. These records are separate from the aggregate-only operational reporting API.
+
+Our advertising records expire 30 days after opt-in and are selected for deletion by an hourly cleanup job. Closing the tab clears its session storage according to your browser's session behavior; the server expiry still applies. Google controls the retention of data already imported into Google Ads under its own policy. You can request withdrawal or deletion using the contact above; include the measurement link if available, and do not post it in a public issue. Withdrawing does not affect the app's free features.
 
 ## 5. Retention, security, and choices
 
@@ -50,7 +61,7 @@ You can disable anonymous crash and error reports at any time. You may also subm
 
 ## 6. International processing and your rights
 
-Paddle, Cloudflare, GitHub, and Apple may process data in countries other than yours under their respective terms and safeguards. Depending on your location, you may have rights to access, correct, delete, restrict, object to, or obtain a copy of personal data, and to complain to a data-protection authority. Mandatory rights are not limited by this policy.
+Paddle, Cloudflare, GitHub, Apple, and, for optional advertising measurement, Google may process data in countries other than yours under their respective terms and safeguards. Depending on your location, you may have rights to access, correct, delete, restrict, object to, or obtain a copy of personal data, and to complain to a data-protection authority. Mandatory rights are not limited by this policy.
 
 ## 7. Changes
 
