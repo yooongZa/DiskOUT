@@ -41,6 +41,13 @@ enum UI {
     static let settingsContentWidth = settingsPaneWidth - windowPadding * 2
     static let characterPreviewSize: CGFloat = 21 * 1.15 // Slightly larger than the menu bar for easier previewing.
     static let characterOfferTextWidth: CGFloat = 280
+    static let characterAnnouncementHeight: CGFloat = 44
+    static let characterAnnouncementFooterHeight: CGFloat = 20
+    static let characterAnnouncementMinWidth: CGFloat = 360
+    static let characterAnnouncementPadding: CGFloat = 12
+    static let characterAnnouncementSpacing: CGFloat = 8
+    static let characterAnnouncementTipSize: CGFloat = 6
+    static let characterAnnouncementCloseSize: CGFloat = 18
 
     // 폰트 크기 (메뉴/메뉴바는 ofSize: 0 = 시스템 기본을 그대로 사용)
     static let titleSize: CGFloat = 16        // 창 헤더 타이틀
@@ -103,25 +110,203 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var characterSelection = CharacterSelection(defaults: .standard)
     private var characterActivity = CharacterActivityPolicy()
     private var previousCharacterPacks = Set<CharacterPack>()
+    private let characterPromotionStore = CharacterPromotionStore()
+    private let characterAnnouncement = CharacterAnnouncementController()
+    private let characterPromotionDiskActivity = CharacterPromotionActivityTracker()
+    private var characterTrialExpiryWorkItem: DispatchWorkItem?
+    private var characterAnnouncementWorkItem: DispatchWorkItem?
+    private var characterPromotionObservers: [NSObjectProtocol] = []
+    private var characterMenuOpen = false
+    private var characterPromotionGeneration: UInt = 0
+    private var characterPromotionDisplayAwake = true
+    private var characterPromotionSystemAwake = true
+    private var characterPromotionExistingInstall = false
+    private var characterCheckoutOpenedThisSession = false
 
     private var currentCharacterVisual: CharacterVisual {
-        CharacterPresentationPolicy.visual(selection: characterSelection,
-            owned: billingController?.ownedCharacterPacks ?? [], count: mountedDriveCount)
+        let owned = billingController?.ownedCharacterPacks ?? []
+        var displayPacks = owned
+        if let trialPack = characterPromotionStore.activePack() { displayPacks.insert(trialPack) }
+        return CharacterPresentationPolicy.visual(
+            selection: characterPromotionStore.effectiveSelection(saved: characterSelection, owned: owned),
+            owned: displayPacks, count: mountedDriveCount)
     }
     private var currentCharacterMotion: CharacterMotionState {
         characterActivity.current(at: ProcessInfo.processInfo.systemUptime, diskCount: mountedDriveCount)
     }
     private func saveCharacterSelection(_ value: CharacterSelection) {
+        characterPromotionStore.cancelTrial()
+        scheduleCharacterTrialExpiry()
         characterSelection = value; value.save(to: .standard)
         applyCountTitle(); settingsWindowController?.refreshExternalState()
     }
     private func characterAccessChanged() {
         let packs = billingController?.ownedCharacterPacks ?? []
+        if let trialPack = characterPromotionStore.activePack(), packs.contains(trialPack) {
+            // Only a still-active preview becomes the paid selection. Explicit user choices
+            // already canceled the preview and are therefore never overwritten here.
+            if let collection = CharacterCollection.allCases.first(where: { $0.paidPack == trialPack }) {
+                characterSelection = CharacterSelection(display: .characters, collection: collection)
+            }
+            characterPromotionStore.cancelTrial()
+            characterAnnouncement.dismiss()
+            scheduleCharacterTrialExpiry()
+        }
         let lost = previousCharacterPacks.subtracting(packs)
         if lost.contains(.halloween), characterSelection.collection == .halloween { characterSelection.collection = .basic }
         previousCharacterPacks = packs
         characterSelection.save(to: .standard)
         applyCountTitle(); settingsWindowController?.refreshExternalState()
+    }
+
+    private var characterPurchasablePacks: Set<CharacterPack> {
+        Set(CharacterPack.allCases.filter { billingController?.canPurchase($0) == true })
+    }
+
+    private var characterAnnouncementContext: CharacterAnnouncementContext {
+        autoEjectStateLock.lock()
+        let systemSleeping = sleepEpisodeCoordinator.systemSleepAwaitingWake
+        let lidClosed = sleepEpisodeCoordinator.isLidClosed
+        let remountBusy = sleepEpisodeCoordinator.hasRemountWork
+        autoEjectStateLock.unlock()
+        manualEjectAndSleepLock.lock()
+        let manualSleepBusy = manualEjectAndSleepCommandInFlight || armedManualEjectAndSleep != nil
+            || manualEjectAndSleepPolicy.hasUnresolvedPendingRequest
+        manualEjectAndSleepLock.unlock()
+        let busy = characterPromotionDiskActivity.isBusy || sleepUnmountActivityTracker.activeCount > 0
+            || currentSleepEjectTask() != nil || remountBusy || manualSleepBusy || powerOffEjectInProgress
+        return CharacterAnnouncementContext(
+            menuOpen: characterMenuOpen,
+            diskBusy: busy || isTransientStatusIconVisible,
+            sleeping: systemSleeping || lidClosed || !characterPromotionSystemAwake || !characterPromotionDisplayAwake,
+            otherUIVisible: settingsWindowController?.window?.isVisible == true
+                || onboardingWindowController?.window?.isVisible == true || NSApp.modalWindow != nil
+                || characterCheckoutOpenedThisSession || isPurchaseInProgress || isOpeningPurchaseDetails || isCheckingPurchaseStatus || isRestoringPurchase
+                || userInitiatedUpdateCheckState != .idle,
+            terminating: isTerminating,
+            onboardingComplete: characterPromotionExistingInstall
+                && SettingsStore.onboardingCompletedVersion >= OnboardingWindowController.version)
+    }
+
+    private func dismissCharacterAnnouncement() {
+        precondition(Thread.isMainThread)
+        characterPromotionGeneration &+= 1
+        characterAnnouncementWorkItem?.cancel(); characterAnnouncementWorkItem = nil
+        characterAnnouncement.dismiss()
+    }
+
+    private func dismissCharacterAnnouncementForDiskAction() {
+        if Thread.isMainThread { dismissCharacterAnnouncement() }
+        else { DispatchQueue.main.async { [weak self] in self?.dismissCharacterAnnouncement() } }
+    }
+
+    private func setupCharacterPromotion() {
+        characterPromotionExistingInstall = SettingsStore.onboardingCompletedVersion > 0
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification,
+                     NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification] {
+            characterPromotionObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                if name == NSWorkspace.willSleepNotification { self.characterPromotionSystemAwake = false }
+                if name == NSWorkspace.didWakeNotification { self.characterPromotionSystemAwake = true }
+                if name == NSWorkspace.screensDidSleepNotification { self.characterPromotionDisplayAwake = false }
+                if name == NSWorkspace.screensDidWakeNotification { self.characterPromotionDisplayAwake = true }
+                if name == NSWorkspace.willSleepNotification || name == NSWorkspace.screensDidSleepNotification {
+                    self.dismissCharacterAnnouncement()
+                } else { self.reconcileCharacterTrial() }
+            })
+        }
+        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.sessionDidResignActiveNotification] {
+            characterPromotionObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.dismissCharacterAnnouncement()
+            })
+        }
+        characterPromotionObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.dismissCharacterAnnouncement() })
+        reconcileCharacterTrial()
+    }
+
+    private func reconcileCharacterTrial() {
+        precondition(Thread.isMainThread)
+        guard statusItem != nil else { return }
+        if characterPromotionStore.expireTrial() {
+            characterAnnouncement.dismiss()
+            applyCountTitle()
+            settingsWindowController?.refreshExternalState()
+        }
+        scheduleCharacterTrialExpiry()
+    }
+
+    private func scheduleCharacterTrialExpiry() {
+        characterTrialExpiryWorkItem?.cancel(); characterTrialExpiryWorkItem = nil
+        guard !isTerminating, let expiry = characterPromotionStore.expiration else { return }
+        let item = DispatchWorkItem { [weak self] in self?.reconcileCharacterTrial() }
+        characterTrialExpiryWorkItem = item
+        // The exact final deadline is retained; a minute checkpoint also catches clock changes.
+        DispatchQueue.main.asyncAfter(deadline: .now() + min(60, max(0.1, expiry.timeIntervalSinceNow)), execute: item)
+    }
+
+    private func scheduleCharacterAnnouncement(afterMenuGeneration generation: UInt) {
+        let campaign = CharacterLaunchCampaign.current
+        guard characterPromotionStore.shouldAnnounce(campaign,
+            owned: billingController?.ownedCharacterPacks ?? [],
+            purchasable: characterPurchasablePacks, context: characterAnnouncementContext),
+              characterPromotionStore.status(for: campaign.pack, owned: billingController?.ownedCharacterPacks ?? [],
+                purchasable: characterPurchasablePacks) == .available else { return }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, generation == self.characterPromotionGeneration,
+                  self.characterPromotionStore.shouldAnnounce(campaign,
+                    owned: self.billingController?.ownedCharacterPacks ?? [],
+                    purchasable: self.characterPurchasablePacks, context: self.characterAnnouncementContext),
+                  self.characterPromotionStore.status(for: campaign.pack, owned: self.billingController?.ownedCharacterPacks ?? [],
+                    purchasable: self.characterPurchasablePacks) == .available,
+                  let button = self.statusItem.button else { return }
+            let shown = self.characterAnnouncement.show(campaign: campaign, kind: .release, relativeTo: button,
+                canRemainVisible: { [weak self] in
+                    guard let self else { return false }
+                    return self.characterAnnouncementContext.allowsPresentation
+                        && self.characterPromotionStore.status(for: campaign.pack,
+                            owned: self.billingController?.ownedCharacterPacks ?? [],
+                            purchasable: self.characterPurchasablePacks) == .available
+                },
+                onPrimaryAction: { [weak self] in self?.showCharacterCampaign(campaign) },
+                onReturn: {})
+            if shown { self.characterPromotionStore.markAnnounced(campaign) }
+        }
+        characterAnnouncementWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)
+    }
+
+    private func showCharacterCampaign(_ campaign: CharacterLaunchCampaign) {
+        showPremiumSettings(nil)
+        settingsWindowController?.previewCharacterCollection(campaign.collection)
+    }
+
+    private func startCharacterTrial(_ pack: CharacterPack) {
+        guard let campaign = CharacterLaunchCampaign.campaign(for: pack), characterPromotionStore.startTrial(campaign,
+            owned: billingController?.ownedCharacterPacks ?? [], purchasable: characterPurchasablePacks) else { return }
+        applyCountTitle(); settingsWindowController?.refreshExternalState()
+        scheduleCharacterTrialExpiry()
+        // The settings window already confirms the trial; do not layer another popup over it.
+        if settingsWindowController?.window?.isVisible != true, let button = statusItem.button {
+            characterAnnouncement.show(campaign: campaign, kind: .trialStarted, relativeTo: button,
+                canRemainVisible: { [weak self] in self?.characterAnnouncementContext.allowsPresentation == true },
+                onPrimaryAction: { [weak self] in self?.showCharacterCampaign(campaign) },
+                onReturn: { [weak self] in self?.endCharacterTrial() })
+        }
+    }
+
+    private func endCharacterTrial() {
+        characterPromotionStore.cancelTrial()
+        dismissCharacterAnnouncement()
+        scheduleCharacterTrialExpiry()
+        applyCountTitle(); settingsWindowController?.refreshExternalState()
+    }
+
+    private func setCharacterAnnouncementsEnabled(_ enabled: Bool) {
+        characterPromotionStore.announcementsEnabled = enabled
+        if !enabled { dismissCharacterAnnouncement() }
     }
     private var billingController: PaddleBillingController?
     private let lifecycleTelemetryController = AppLifecycleTelemetryController.live()
@@ -146,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     //   updaterController       : Sparkle 표준 컨트롤러 (UI = 시스템 기본 다이얼로그)
     //   pendingUpdate           : 자동 체크에서 발견된 미설치 업데이트.
     //                             nil ↔ 값 변화 시 메뉴바 아이콘(applyCountTitle) 즉시 갱신.
-    private var updaterController: SPUStandardUpdaterController!
+    private var updaterController: DiskOUTUpdaterController!
     private var userInitiatedUpdateCheckState: UserInitiatedUpdateCheckState = .idle
     private var userInitiatedUpdateCheckGeneration: UInt = 0
     private var pendingUpdate: SUAppcastItem? {
@@ -396,6 +581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 권한 온보딩 — 콘텐츠 버전이 올라갔거나 처음이면 1회 표시. 비차단 (앱은 이미 동작 중).
         // 메뉴바 아이콘이 자리잡은 뒤 살짝 지연해서 띄운다.
         let onboardingDone = SettingsStore.onboardingCompletedVersion
+        setupCharacterPromotion()
         log.notice("onboarding gate: completedVersion=\(onboardingDone, privacy: .public) appVersion=\(OnboardingWindowController.version, privacy: .public)")
         if onboardingDone < OnboardingWindowController.version {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -427,6 +613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func applicationDidBecomeActive(_ notification: Notification) {
         guard !isTerminating else { return }
+        reconcileCharacterTrial()
         lifecycleTelemetryController.flush()
         settingsWindowController?.refreshExternalState()
         billingController?.refreshAfterReturningFromCheckout()
@@ -434,6 +621,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        dismissCharacterAnnouncement()
+        characterTrialExpiryWorkItem?.cancel(); characterTrialExpiryWorkItem = nil
+        for observer in characterPromotionObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            NotificationCenter.default.removeObserver(observer)
+        }
+        characterPromotionObservers.removeAll()
         userInitiatedUpdateCheckState = .idle
         userInitiatedUpdateCheckGeneration &+= 1
         isPurchaseInProgress = false
@@ -554,14 +748,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // MARK: - Sparkle Updater Setup
 
     /// Sparkle 자동 업데이트 컨트롤러 초기화.
-    /// startingUpdater: true → 자체 스케줄 (24h, Info.plist `SUScheduledCheckInterval`) 시작.
+    /// start() → 자체 스케줄 (24h, Info.plist `SUScheduledCheckInterval`) 시작.
     /// userDriverDelegate: gentle reminder 패턴을 위해 self 가 응답.
     private func setupSparkleUpdater() {
-        updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
+        updaterController = DiskOUTUpdaterController(
             updaterDelegate: self,
             userDriverDelegate: self
         )
+        do {
+            try updaterController.updater.start()
+        } catch {
+            log.error("Sparkle: failed to start updater: \(error.localizedDescription, privacy: .public)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.updaterController.userDriver.showUpdaterError(error, acknowledgement: {})
+            }
+            return
+        }
         log.notice("Sparkle: updater started (auto-check interval=\(self.updaterController.updater.updateCheckInterval, privacy: .public)s, automaticallyChecks=\(self.updaterController.updater.automaticallyChecksForUpdates, privacy: .public))")
     }
 
@@ -685,6 +887,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         guard canPresentBillingUI, !isPurchaseInProgress, !isCheckingPurchaseStatus, !isRestoringPurchase,
               let billingController, let url = billingController.checkoutURL(for: pack) else { return }
         guard NSWorkspace.shared.open(url) else { showBillingBrowserError(); return }
+        characterCheckoutOpenedThisSession = true
+        dismissCharacterAnnouncement()
         billingController.startPurchasePolling(for: pack)
     }
 
@@ -856,6 +1060,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        dismissCharacterAnnouncement()
         let event = NSApp.currentEvent
         let typeStr: String
         switch event?.type {
@@ -894,6 +1099,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// (status item 의 menu 를 영구 set 하면 좌클릭 = action handler 가 아닌 menu popup 으로 변해
     ///  우클릭 분기 등 커스텀 처리가 안 됨 — 그래서 임시 부착 패턴 유지.)
     private func showStatusMenu() {
+        dismissCharacterAnnouncement()
+        reconcileCharacterTrial()
+        characterMenuOpen = true
+        let promotionGeneration = characterPromotionGeneration
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
@@ -901,6 +1110,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.statusItem.menu = nil
+            if promotionGeneration == self.characterPromotionGeneration {
+                self.characterMenuOpen = false
+                self.scheduleCharacterAnnouncement(afterMenuGeneration: promotionGeneration)
+            } else {
+                self.characterMenuOpen = false
+            }
 
             // performClick has returned and the temporary menu has been detached. Only now may
             // Sparkle create its checking window without competing with menu tracking.
@@ -1466,6 +1681,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     @objc private func showSettingsWindow(_ sender: Any?) {
+        dismissCharacterAnnouncement()
+        reconcileCharacterTrial()
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController(onHotkeyChanged: { [weak self] in
                 self?.installHotkey()
@@ -1501,6 +1718,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 purchasePack: { [weak self] in self?.purchaseCharacterPack($0) },
                 characterSelection: { [weak self] in self?.characterSelection ?? CharacterSelection() },
                 applyCharacterSelection: { [weak self] in self?.saveCharacterSelection($0) },
+                effectiveCharacterSelection: { [weak self] in
+                    guard let self else { return CharacterSelection() }
+                    return self.characterPromotionStore.effectiveSelection(saved: self.characterSelection,
+                        owned: self.billingController?.ownedCharacterPacks ?? [])
+                },
+                characterTrialStatus: { [weak self] pack in
+                    guard let self else { return .unavailable }
+                    return self.characterPromotionStore.status(for: pack,
+                        owned: self.billingController?.ownedCharacterPacks ?? [], purchasable: self.characterPurchasablePacks)
+                },
+                startCharacterTrial: { [weak self] in self?.startCharacterTrial($0) },
+                endCharacterTrial: { [weak self] in self?.endCharacterTrial() },
+                characterAnnouncementsEnabled: { [weak self] in self?.characterPromotionStore.announcementsEnabled ?? true },
+                setCharacterAnnouncementsEnabled: { [weak self] in self?.setCharacterAnnouncementsEnabled($0) },
                 stopPurchaseCheck: { [weak self] in self?.stopPremiumPurchaseCheck(nil) },
                 viewDetails: { [weak self] in self?.viewPremiumPurchaseDetails(nil) },
                 copyRecoveryCode: { [weak self] in self?.copyPremiumRecoveryCode(nil) },
@@ -2018,6 +2249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     /// 개별 드라이브 추출 (Command+클릭 또는 우클릭).
     private func ejectOne(url: URL, name: String) {
+        dismissCharacterAnnouncementForDiskAction()
         let path = url.path
         // 쓰는 중이면 강제 추출 전에 확인 (수동 경로 전용 가드).
         if isWritingVolume(url),
@@ -2026,7 +2258,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return
         }
         log.info("EJECTONE start: \(name, privacy: .public) at \(path, privacy: .public)")
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let promotionActivity = characterPromotionDiskActivity
+        promotionActivity.begin()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
+            defer { promotionActivity.end() }
             guard let self = self else { return }
             let result = self.manualWholeDiskUnmount(volumePath: path)
             DiskMenuSnapshotCache.invalidate()
@@ -2078,6 +2313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func ejectAll(caller: String) {
+        dismissCharacterAnnouncementForDiskAction()
         let now = Date()
         let elapsed = now.timeIntervalSince(lastEjectAt)
         if elapsed < 1.5 {
@@ -2097,7 +2333,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // 이전 결과 아이콘 지우고 진행 표시 (회전 화살표 1초)
         flashIcon(symbol: "arrow.triangle.2.circlepath", duration: 1.0)
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let promotionActivity = characterPromotionDiskActivity
+        promotionActivity.begin()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
+            defer { promotionActivity.end() }
             guard let self = self else { return }
             let result = self.ejectAllSilently()
             log.info("EJECT(\(caller, privacy: .public)) DONE — attempted=\(result.attempted.count) success=\(result.success.count) failure=\(result.failure.count)")
@@ -2113,6 +2352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func ejectAndSleep(caller: String) {
+        dismissCharacterAnnouncementForDiskAction()
         let now = Date()
         let elapsed = now.timeIntervalSince(lastEjectAt)
         if elapsed < 1.5 {
@@ -3165,6 +3405,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                   remountDestination: CleanUnmountRemountDestination =
                                       .currentAutomaticWake,
                                   forceFallbackOverride: Bool? = nil) -> SleepEjectBatchResult {
+        characterPromotionDiskActivity.begin()
+        defer { characterPromotionDiskActivity.end() }
         let operationDeadline = deadline ?? Date().addingTimeInterval(24)
         let listStarted = Date()
         guard let sleepSnapshot = DAInventory.shared.automaticSleepVolumeSnapshot(
@@ -3871,6 +4113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func daMountWholeDisk(bsdName: String,
                                   operationID: String? = nil,
                                   timeout: TimeInterval? = nil) -> (success: Bool, errorMessage: String?) {
+        characterPromotionDiskActivity.begin()
+        defer { characterPromotionDiskActivity.end() }
         let operation = operationID ?? "-"
         let r = runDiskutil(["mountDisk", bsdName],
                             operationID: operationID,
@@ -3889,6 +4133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         volumePath: String,
         operationID: String? = nil
     ) -> (success: Bool, errorMessage: String?) {
+        characterPromotionDiskActivity.begin()
+        defer { characterPromotionDiskActivity.end() }
         let operation = operationID ?? newOperationID(reason: "manualEject")
         let result = ejectAllForSleep(
             operationID: operation,
@@ -4424,6 +4670,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 개별 마운트 (메뉴 아이템 클릭). representedObject는 whole BSD와 optional IOMedia ID.
     /// ⌘+클릭이면 마운트 후 Finder 에서 첫 mount path 열기.
     @objc private func mountOne(_ sender: NSMenuItem) {
+        dismissCharacterAnnouncementForDiskAction()
         guard let payload = sender.representedObject as? UnmountedMenuItemPayload else { return }
         let bsd = payload.bsdName
         let displayName = sender.title
@@ -4443,7 +4690,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let openInFinder = NSApp.currentEvent?.modifierFlags.contains(.command) ?? false
         log.info("MOUNTONE start: \(displayName, privacy: .public) bsd=\(bsd, privacy: .public) openInFinder=\(openInFinder, privacy: .public)")
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let promotionActivity = characterPromotionDiskActivity
+        promotionActivity.begin()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
+            defer { promotionActivity.end() }
             guard let self = self else { return }
             let r = self.daMountWholeDisk(bsdName: bsd)
             DiskMenuSnapshotCache.invalidate()
@@ -4474,6 +4724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     /// 모든 마운트 안 된 외장 일괄 마운트. 디바운스 1.5s.
     private func mountAll(caller: String) {
+        dismissCharacterAnnouncementForDiskAction()
         guard !isSystemSleepAwaitingFullWake else {
             log.info("MOUNT(\(caller, privacy: .public)) ignored during DarkWake inventory window")
             DiskMenuSnapshotCache.invalidate()
@@ -4490,7 +4741,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.info("MOUNT(\(caller, privacy: .public)) START")
         flashIcon(symbol: "arrow.down.circle", duration: 0.6)
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let promotionActivity = characterPromotionDiskActivity
+        promotionActivity.begin()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
+            defer { promotionActivity.end() }
             guard let self = self else { return }
             let unmounted = UnmountedExternal.list()
             guard !unmounted.isEmpty else {
@@ -6330,8 +6584,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// 끈 앱은 재실행하지 않는다 (사용자가 추출하려고 끈 것 — 다시 띄우면 볼륨 재잠금).
     /// pid 는 stale 일 수 있어 bundle ID 로 현재 실행 중인 앱을 다시 찾는다.
     private func handleQuitAndRetry(volumePath: String, appBundleIDs: [String]) {
+        dismissCharacterAnnouncementForDiskAction()
         let name = (volumePath as NSString).lastPathComponent
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let promotionActivity = characterPromotionDiskActivity
+        promotionActivity.begin()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
+            defer { promotionActivity.end() }
             guard let self = self else { return }
             let targets = NSWorkspace.shared.runningApplications.filter {
                 guard let bid = $0.bundleIdentifier else { return false }
@@ -7051,6 +7309,12 @@ private struct PremiumSettingsActions {
     var purchasePack: (CharacterPack) -> Void = { _ in }
     var characterSelection: () -> CharacterSelection = { CharacterSelection() }
     var applyCharacterSelection: (CharacterSelection) -> Void = { _ in }
+    var effectiveCharacterSelection: () -> CharacterSelection = { CharacterSelection() }
+    var characterTrialStatus: (CharacterPack) -> CharacterTrialStatus = { _ in .unavailable }
+    var startCharacterTrial: (CharacterPack) -> Void = { _ in }
+    var endCharacterTrial: () -> Void = {}
+    var characterAnnouncementsEnabled: () -> Bool = { true }
+    var setCharacterAnnouncementsEnabled: (Bool) -> Void = { _ in }
     let stopPurchaseCheck: () -> Void
     let viewDetails: () -> Void
     let copyRecoveryCode: () -> Void
@@ -7190,6 +7454,11 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     func showPremiumPane() {
         refreshControls()
         showPane(.premium, animated: window?.isVisible == true)
+    }
+
+    func previewCharacterCollection(_ collection: CharacterCollection) {
+        characterPicker.preview(collection: collection)
+        resizeCharacterPane()
     }
 
     // MARK: Toolbar (페인 전환)
@@ -7360,6 +7629,11 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
                 guard let state = self?.premiumState() else { return true }
                 return state.isPurchaseInProgress || state.isRestoring || state.isCheckingStatus
             }, apply: premiumActions.applyCharacterSelection, purchase: premiumActions.purchasePack,
+            effectiveSelection: premiumActions.effectiveCharacterSelection,
+            trialStatus: premiumActions.characterTrialStatus,
+            startTrial: premiumActions.startCharacterTrial, endTrial: premiumActions.endCharacterTrial,
+            announcementsEnabled: premiumActions.characterAnnouncementsEnabled,
+            setAnnouncementsEnabled: premiumActions.setCharacterAnnouncementsEnabled,
             layoutChanged: { [weak self] in self?.resizeCharacterPane() })
         premiumStatusLabel = NSTextField(wrappingLabelWithString: "")
         premiumStatusLabel.font = .systemFont(ofSize: UI.captionSize)

@@ -9,6 +9,12 @@ final class CharacterSettingsView: NSStackView {
     private let apply: (CharacterSelection) -> Void
     private let purchase: (CharacterPack) -> Void
     private let layoutChanged: () -> Void
+    private let effectiveSelection: (() -> CharacterSelection)?
+    private let trialStatus: (CharacterPack) -> CharacterTrialStatus
+    private let startTrial: (CharacterPack) -> Void
+    private let endTrial: () -> Void
+    private let announcementsEnabled: () -> Bool
+    private let setAnnouncementsEnabled: (Bool) -> Void
     private var draft: CharacterSelection
     private var lastSelection: CharacterSelection
     private var lastOwned: Set<CharacterPack>
@@ -21,6 +27,12 @@ final class CharacterSettingsView: NSStackView {
     private let offerTitle = NSTextField(labelWithString: "")
     private let offerDetail = NSTextField(wrappingLabelWithString: String(localized: "10 seasonal characters. One-time purchase, yours year-round."))
     private let purchaseButton = NSButton(title: String(localized: "Buy Pack…"), target: nil, action: nil)
+    private let trialRow = NSStackView()
+    private let trialTitle = NSTextField(labelWithString: "")
+    private let trialDetail = NSTextField(wrappingLabelWithString: "")
+    private let trialButton = NSButton()
+    private let announcementToggle = NSButton(checkboxWithTitle: String(localized: "Show new character announcements"),
+                                              target: nil, action: nil)
     private let animator = CharacterGalleryAnimator(renderSize: UI.characterPreviewSize)
     private var previewVisible = false
     private var windowObserver: NSObjectProtocol?
@@ -32,10 +44,19 @@ final class CharacterSettingsView: NSStackView {
          busy: @escaping () -> Bool,
          apply: @escaping (CharacterSelection) -> Void,
          purchase: @escaping (CharacterPack) -> Void,
+         effectiveSelection: (() -> CharacterSelection)? = nil,
+         trialStatus: @escaping (CharacterPack) -> CharacterTrialStatus = { _ in .unavailable },
+         startTrial: @escaping (CharacterPack) -> Void = { _ in },
+         endTrial: @escaping () -> Void = {},
+         announcementsEnabled: @escaping () -> Bool = { true },
+         setAnnouncementsEnabled: @escaping (Bool) -> Void = { _ in },
          layoutChanged: @escaping () -> Void = {}) {
         self.selection = selection; self.owned = owned; self.purchasable = purchasable
         self.busy = busy; self.apply = apply; self.purchase = purchase; self.layoutChanged = layoutChanged
-        draft = selection(); lastSelection = draft; lastOwned = owned()
+        self.effectiveSelection = effectiveSelection; self.trialStatus = trialStatus
+        self.startTrial = startTrial; self.endTrial = endTrial
+        self.announcementsEnabled = announcementsEnabled; self.setAnnouncementsEnabled = setAnnouncementsEnabled
+        draft = effectiveSelection?() ?? selection(); lastSelection = selection(); lastOwned = owned()
         super.init(frame: .zero)
         orientation = .vertical; alignment = .leading; spacing = UI.spacing
         widthAnchor.constraint(equalToConstant: UI.settingsContentWidth).isActive = true
@@ -84,6 +105,18 @@ final class CharacterSettingsView: NSStackView {
         addArrangedSubview(descriptionLabel)
         descriptionLabel.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
 
+        trialTitle.font = .systemFont(ofSize: UI.bodySize, weight: .medium)
+        trialDetail.font = .systemFont(ofSize: UI.captionSize); trialDetail.textColor = .secondaryLabelColor
+        trialDetail.widthAnchor.constraint(equalToConstant: UI.characterOfferTextWidth).isActive = true
+        let trialText = NSStackView(views: [trialTitle, trialDetail])
+        trialText.orientation = .vertical; trialText.alignment = .leading; trialText.spacing = UI.compactSpacing
+        trialButton.bezelStyle = .rounded; trialButton.target = self; trialButton.action = #selector(trialClicked)
+        trialButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        trialRow.orientation = .horizontal; trialRow.alignment = .centerY; trialRow.spacing = UI.rowSpacing
+        trialRow.addArrangedSubview(trialText); trialRow.addArrangedSubview(NSView()); trialRow.addArrangedSubview(trialButton)
+        addArrangedSubview(trialRow)
+        trialRow.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+
         offerTitle.font = .systemFont(ofSize: UI.bodySize, weight: .semibold)
         offerDetail.font = .systemFont(ofSize: UI.captionSize); offerDetail.textColor = .secondaryLabelColor
         offerDetail.widthAnchor.constraint(equalToConstant: UI.characterOfferTextWidth).isActive = true
@@ -95,6 +128,9 @@ final class CharacterSettingsView: NSStackView {
         offer.addArrangedSubview(offerText); offer.addArrangedSubview(NSView()); offer.addArrangedSubview(purchaseButton)
         addArrangedSubview(offer)
         offer.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+        announcementToggle.font = .systemFont(ofSize: UI.captionSize)
+        announcementToggle.target = self; announcementToggle.action = #selector(announcementPreferenceChanged)
+        addArrangedSubview(announcementToggle)
         appliedStatusLabel.font = .systemFont(ofSize: UI.captionSize)
         appliedStatusLabel.textColor = .secondaryLabelColor
 
@@ -124,6 +160,11 @@ final class CharacterSettingsView: NSStackView {
         updatePlayback()
     }
 
+    func preview(collection: CharacterCollection) {
+        draft = CharacterSelection(display: .characters, collection: collection)
+        refresh(); layoutChanged()
+    }
+
     private func updatePlayback() {
         animator.setActive(previewVisible && draft.display == .characters && window?.occlusionState.contains(.visible) == true)
     }
@@ -148,9 +189,18 @@ final class CharacterSettingsView: NSStackView {
         gallery.isHidden = numbers; numberPreview.isHidden = !numbers
         descriptionLabel.stringValue = numbers ? String(localized: "Show the number of connected drives.")
             : String(localized: "Preview shows characters sleeping and moving. In the menu bar, characters respond to drive activity.")
-        let activeCollection = current.collection.paidPack.map { packs.contains($0) } == false ? CharacterCollection.basic : current.collection
-        let activeTitle = current.display == .numbers ? String(localized: "Numbers") : activeCollection.title
+        let displayed = effectiveSelection?() ?? current
+        let activeTrial = displayed.collection.paidPack.map { pack -> Bool in
+            if case .active = trialStatus(pack) { return true }
+            return false
+        } ?? false
+        let activeCollection = displayed.collection.paidPack.map { !packs.contains($0) && !activeTrial } == true
+            ? CharacterCollection.basic : displayed.collection
+        let activeTitle = displayed.display == .numbers ? String(localized: "Numbers") : activeCollection.title
         appliedStatusLabel.stringValue = String(localized: "Using: \(activeTitle)")
+            + (activeTrial ? " · " + String(localized: "Trial") : "")
+        announcementToggle.state = announcementsEnabled() ? .on : .off
+        trialRow.isHidden = true
         if let pack = draft.collection.paidPack, !numbers, !packs.contains(pack) {
             offer.isHidden = false
             offerTitle.stringValue = draft.collection.title
@@ -158,6 +208,31 @@ final class CharacterSettingsView: NSStackView {
             purchaseButton.toolTip = String(localized: "One-Time Purchase")
             purchaseButton.isEnabled = purchasable(pack) && !busy()
         } else { offer.isHidden = true }
+        let trialPack = activeTrialPack ?? (numbers ? nil : draft.collection.paidPack)
+        if let pack = trialPack, !packs.contains(pack) {
+            switch trialStatus(pack) {
+            case .unavailable: break
+            case .available:
+                trialRow.isHidden = false
+                trialTitle.stringValue = String(localized: "3-Day Menu Bar Trial")
+                trialDetail.stringValue = String(localized: "Your previous selection returns when the trial ends.")
+                trialButton.title = String(localized: "Try for 3 Days")
+                trialButton.isEnabled = !busy()
+            case .active(let until):
+                trialRow.isHidden = false
+                trialTitle.stringValue = String(localized: "Trying These Characters")
+                let date = DateFormatter.localizedString(from: until, dateStyle: .medium, timeStyle: .short)
+                trialDetail.stringValue = String(localized: "Trial ends \(date)")
+                trialButton.title = String(localized: "End Trial")
+                trialButton.isEnabled = true
+            case .ended:
+                trialRow.isHidden = false
+                trialTitle.stringValue = String(localized: "Trial Finished")
+                trialDetail.stringValue = String(localized: "This pack's 3-day trial has ended.")
+                trialButton.title = String(localized: "Trial Used")
+                trialButton.isEnabled = false
+            }
+        }
         for (index, preview) in previews.enumerated() {
             // Counts remain available to VoiceOver without cluttering the visual gallery.
             preview.setAccessibilityLabel(draft.collection == .basic
@@ -185,6 +260,27 @@ final class CharacterSettingsView: NSStackView {
         guard draft.display == .characters, let pack = draft.collection.paidPack,
               purchasable(pack), !owned().contains(pack), !busy() else { return }
         purchase(pack); refresh(); layoutChanged()
+    }
+
+    private var activeTrialPack: CharacterPack? {
+        CharacterPack.allCases.first { pack in
+            if case .active = trialStatus(pack) { return true }
+            return false
+        }
+    }
+
+    @objc private func trialClicked() {
+        guard let pack = activeTrialPack ?? draft.collection.paidPack else { return }
+        switch trialStatus(pack) {
+        case .available where !busy(): startTrial(pack)
+        case .active: endTrial()
+        default: return
+        }
+        refresh(); layoutChanged()
+    }
+
+    @objc private func announcementPreferenceChanged() {
+        setAnnouncementsEnabled(announcementToggle.state == .on)
     }
 
     deinit {

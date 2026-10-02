@@ -7,57 +7,53 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		94DA74798D205997054AD3AB /* BasicFox.png in Resources */ = {isa = PBXBuildFile; fileRef = EE4F2FFBBF44DF9312E3FECF /* BasicFox.png */; };
-		8B2E53334D333136331DA928 /* HalloweenBicycleRest.png in Resources */ = {isa = PBXBuildFile; fileRef = 48E6AEBCBA49DDC52220C74E /* HalloweenBicycleRest.png */; };
-		22FF28464F9CD8E958A42546 /* HalloweenBroom.png in Resources */ = {isa = PBXBuildFile; fileRef = 70C2BD26532A100F1BE8ACAE /* HalloweenBroom.png */; };
-		791C791C26C28FEFE4CF7A6E /* HalloweenHound.png in Resources */ = {isa = PBXBuildFile; fileRef = C2276DADC378BE5B6B3B086A /* HalloweenHound.png */; };
-		B649CB23ED1D0D34397B7817 /* HalloweenWeb.png in Resources */ = {isa = PBXBuildFile; fileRef = E510C7DEF545DCDB4817C093 /* HalloweenWeb.png */; };
-		B97A64140C88AF8AB0BEFF4D /* HalloweenScythe.png in Resources */ = {isa = PBXBuildFile; fileRef = 0B73FB82FBE48F5807CFC9DB /* HalloweenScythe.png */; };
-		58CA24B496001C0109C441C5 /* HalloweenFox.png in Resources */ = {isa = PBXBuildFile; fileRef = 7838F00E93CB7CF3B7A8C005 /* HalloweenFox.png */; };
-		C5A5202C449342659ECF8ED0 /* BasicBicycle.png in Resources */ = {isa = PBXBuildFile; fileRef = 142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */; };
-		C4E388B414CE4134947D9C1B /* HalloweenBicycleSleepingGhost.png in Resources */ = {isa = PBXBuildFile; fileRef = 19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */; };
-		1440D89BCD054D018C7D02B2 /* HalloweenBicycle.png in Resources */ = {isa = PBXBuildFile; fileRef = 21B0812231E54345B254D938 /* HalloweenBicycle.png */; };
 		00B609F60A64D6AAB26C31D5 /* StatusItemPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EC0337B0CBCDEAC755A4BE /* StatusItemPresentation.swift */; };
+		02405507C02C04FB6E7BF12E /* DiskOUTUpdaterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C944507375C670595573C864 /* DiskOUTUpdaterController.swift */; };
+		0358FF9B02C93A81F269B374 /* BasicFox.png in Resources */ = {isa = PBXBuildFile; fileRef = 7BE92ED93345A62EF0786B23 /* BasicFox.png */; };
 		0CF6B079873DAB52C2442C73 /* HalloweenDeskPoses.png in Resources */ = {isa = PBXBuildFile; fileRef = B312038308A39DA484561D83 /* HalloweenDeskPoses.png */; };
 		0D90E960F2F73EA404CDF6E4 /* PremiumStatusCharacters@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 8AE3FB77ABEA83464780A0AF /* PremiumStatusCharacters@2x.png */; };
+		0FBCC163ECADED35740063EC /* CharacterAnnouncementController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A4CDC49C16D265D8F49300 /* CharacterAnnouncementController.swift */; };
+		1D5FFF66F8B2E714AA5636B4 /* HalloweenWeb.png in Resources */ = {isa = PBXBuildFile; fileRef = 680C2D80DA79AE9152FE92E7 /* HalloweenWeb.png */; };
 		220C94ED7F7E150968ED2D8C /* EjectAndSleepPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D228EF8C4149426DE51A433C /* EjectAndSleepPolicy.swift */; };
 		26F788BD8B729FC1BD680625 /* HalloweenCharacters.png in Resources */ = {isa = PBXBuildFile; fileRef = 3DF0BFE9CF9FEE450100946F /* HalloweenCharacters.png */; };
 		2B86112D2208BA1D58AD3E4D /* CharacterActivityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 322A9E5D4E2030242CEAE070 /* CharacterActivityPolicy.swift */; };
 		2EED812FEDD1352A94DCCFC7 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44CDE422E8407721E3B40C1C /* main.swift */; };
+		356827F24335F4BB80A79F4D /* HalloweenHound.png in Resources */ = {isa = PBXBuildFile; fileRef = 712762B0E8BD7EDF8181869A /* HalloweenHound.png */; };
 		37DBF5233342983EFE7F3CFA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C2E6BE99C3D17823694299C8 /* Assets.xcassets */; };
 		46EDE9F5A5F882091320314F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = EAA125530A0170ECA703858F /* Sparkle */; };
+		51608EF076A3FF2193A25E52 /* UpdateInstallationConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8D7833C499F67D9B25F157A /* UpdateInstallationConsent.swift */; };
 		5DC53311F05A8A11E3894139 /* DiskActivityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11BA76708DDF535A724FB1ED /* DiskActivityPolicy.swift */; };
 		61FD966FCFA11BFD3B66FA13 /* PaddleBilling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EC0B7318D0615479CF2EFB9 /* PaddleBilling.swift */; };
 		68338131FDE242192B11D010 /* SleepEpisodeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11BF93D3BDA0DEDCABF19B9 /* SleepEpisodeCoordinator.swift */; };
 		6E991C3577A5365CDF9ACA0C /* PremiumStatusCharacters.png in Resources */ = {isa = PBXBuildFile; fileRef = ACFEC8A78861352EF16B2EEF /* PremiumStatusCharacters.png */; };
 		772BB3DE9A7F68F3F0299E83 /* CharacterSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C8A3D5233C17DB3F69005C /* CharacterSettingsView.swift */; };
 		7BAFBE8B28951CD32B87BA5A /* SleepUnmountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D544B97EEC4FF82E7DFC464 /* SleepUnmountPolicy.swift */; };
+		810652675D49F82940AA06AC /* CharacterPromotionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2ABFD395E1D5AA080A4C824 /* CharacterPromotionPolicy.swift */; };
+		82D2B22085E05A0C9764F243 /* HalloweenBroom.png in Resources */ = {isa = PBXBuildFile; fileRef = A07183D1040FF104BCAEE3E0 /* HalloweenBroom.png */; };
 		86F9C739D1CA12C64AC8E3FE /* CharacterCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA536A53CC88C84370A11530 /* CharacterCatalog.swift */; };
 		917731C06A63FF4DC562AD1F /* BasicCharacters.png in Resources */ = {isa = PBXBuildFile; fileRef = A3CBF64993C7F9689D9D76F5 /* BasicCharacters.png */; };
 		9B31B3BE9E40AC2A49EC4F1C /* PowerSleepAckCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90489C221196E31CB10F915 /* PowerSleepAckCoordinator.swift */; };
 		9D3769CF9AF66C58988F8680 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 41E6237D05464B7B78D4D542 /* Localizable.xcstrings */; };
 		9EE69CD109A5D4CF8F4E6BAC /* CharacterArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7392D9A22592D7CF302DA3F4 /* CharacterArtwork.swift */; };
+		9FFC514942B2FCD8B5D5798F /* HalloweenBicycle.png in Resources */ = {isa = PBXBuildFile; fileRef = E934EA99E78ABE334C423D98 /* HalloweenBicycle.png */; };
 		A302927406AE406D0C9E3067 /* CrashReportParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E510B6BF5B75E7FF62F019C3 /* CrashReportParsing.swift */; };
+		A490F5EA29939E4E9E7BEF4D /* HalloweenBicycleRest.png in Resources */ = {isa = PBXBuildFile; fileRef = 80CEA68DC9D657D501C0DEA2 /* HalloweenBicycleRest.png */; };
 		AE82DCA47B799CDB7613A861 /* StatusCharacterAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A7EF53AE7C1F21EAA6538D /* StatusCharacterAnimator.swift */; };
+		B8495B1DF983164C0F91DA65 /* BasicBicycle.png in Resources */ = {isa = PBXBuildFile; fileRef = 74A0011A5FA68393C540806C /* BasicBicycle.png */; };
 		D0C0B4A17F330B090FB4D540 /* PremiumAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E4AF25EAFBC50EE5F0265D /* PremiumAccessPolicy.swift */; };
 		D6591525BAC17B6A19B4FD58 /* AppLifecycleTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7FF054619500FCB5908BC57 /* AppLifecycleTelemetry.swift */; };
 		D661259592528392DE2ED874 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EDE56AD31EB4310C52F205F /* AppDelegate.swift */; };
 		DD2C307722C246EC48C6AFDF /* LanguageRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EB19C3D59C13AA999F0BF03 /* LanguageRuntime.swift */; };
+		E3FB1740E60F5DCBEFDCA2CD /* HalloweenFox.png in Resources */ = {isa = PBXBuildFile; fileRef = 07D5B39AE89A0A2508EBD22D /* HalloweenFox.png */; };
+		E489436FD52D159F4DAB63E9 /* HalloweenBicycleSleepingGhost.png in Resources */ = {isa = PBXBuildFile; fileRef = 082769891B6356BACFF91FB5 /* HalloweenBicycleSleepingGhost.png */; };
+		F480E0780B83EA04C60128FA /* HalloweenScythe.png in Resources */ = {isa = PBXBuildFile; fileRef = D7291770ED6F515B262556FC /* HalloweenScythe.png */; };
 		F9773A4BACE2CC0964A1CE19 /* DiskClassification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA1C96727FF4307B242AB26 /* DiskClassification.swift */; };
 		FF37CF10ACC2DF5C4B7FFDBD /* SettingsBehaviorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3486D7618A8166DD700759D1 /* SettingsBehaviorPolicy.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		EE4F2FFBBF44DF9312E3FECF /* BasicFox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicFox.png; sourceTree = "<group>"; };
-		48E6AEBCBA49DDC52220C74E /* HalloweenBicycleRest.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycleRest.png; sourceTree = "<group>"; };
-		70C2BD26532A100F1BE8ACAE /* HalloweenBroom.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBroom.png; sourceTree = "<group>"; };
-		C2276DADC378BE5B6B3B086A /* HalloweenHound.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenHound.png; sourceTree = "<group>"; };
-		E510C7DEF545DCDB4817C093 /* HalloweenWeb.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenWeb.png; sourceTree = "<group>"; };
-		0B73FB82FBE48F5807CFC9DB /* HalloweenScythe.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenScythe.png; sourceTree = "<group>"; };
-		7838F00E93CB7CF3B7A8C005 /* HalloweenFox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenFox.png; sourceTree = "<group>"; };
-		142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicBicycle.png; sourceTree = "<group>"; };
-		19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycleSleepingGhost.png; sourceTree = "<group>"; };
-		21B0812231E54345B254D938 /* HalloweenBicycle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycle.png; sourceTree = "<group>"; };
+		07D5B39AE89A0A2508EBD22D /* HalloweenFox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenFox.png; sourceTree = "<group>"; };
+		082769891B6356BACFF91FB5 /* HalloweenBicycleSleepingGhost.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycleSleepingGhost.png; sourceTree = "<group>"; };
 		0EDE56AD31EB4310C52F205F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		11BA76708DDF535A724FB1ED /* DiskActivityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskActivityPolicy.swift; sourceTree = "<group>"; };
 		1EB19C3D59C13AA999F0BF03 /* LanguageRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageRuntime.swift; sourceTree = "<group>"; };
@@ -69,22 +65,34 @@
 		61E4AF25EAFBC50EE5F0265D /* PremiumAccessPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumAccessPolicy.swift; sourceTree = "<group>"; };
 		62EC0337B0CBCDEAC755A4BE /* StatusItemPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemPresentation.swift; sourceTree = "<group>"; };
 		67A3A704BE87C9899BB6D10F /* DiskOUT.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DiskOUT.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		680C2D80DA79AE9152FE92E7 /* HalloweenWeb.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenWeb.png; sourceTree = "<group>"; };
 		6EC0B7318D0615479CF2EFB9 /* PaddleBilling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaddleBilling.swift; sourceTree = "<group>"; };
+		712762B0E8BD7EDF8181869A /* HalloweenHound.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenHound.png; sourceTree = "<group>"; };
 		71C8A3D5233C17DB3F69005C /* CharacterSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSettingsView.swift; sourceTree = "<group>"; };
 		7392D9A22592D7CF302DA3F4 /* CharacterArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterArtwork.swift; sourceTree = "<group>"; };
+		74A0011A5FA68393C540806C /* BasicBicycle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicBicycle.png; sourceTree = "<group>"; };
+		7BE92ED93345A62EF0786B23 /* BasicFox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicFox.png; sourceTree = "<group>"; };
 		7D544B97EEC4FF82E7DFC464 /* SleepUnmountPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepUnmountPolicy.swift; sourceTree = "<group>"; };
+		80CEA68DC9D657D501C0DEA2 /* HalloweenBicycleRest.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycleRest.png; sourceTree = "<group>"; };
 		8AE3FB77ABEA83464780A0AF /* PremiumStatusCharacters@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "PremiumStatusCharacters@2x.png"; sourceTree = "<group>"; };
 		9FA1C96727FF4307B242AB26 /* DiskClassification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskClassification.swift; sourceTree = "<group>"; };
+		A07183D1040FF104BCAEE3E0 /* HalloweenBroom.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBroom.png; sourceTree = "<group>"; };
 		A3CBF64993C7F9689D9D76F5 /* BasicCharacters.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BasicCharacters.png; sourceTree = "<group>"; };
 		ACFEC8A78861352EF16B2EEF /* PremiumStatusCharacters.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PremiumStatusCharacters.png; sourceTree = "<group>"; };
 		B312038308A39DA484561D83 /* HalloweenDeskPoses.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenDeskPoses.png; sourceTree = "<group>"; };
 		C11BF93D3BDA0DEDCABF19B9 /* SleepEpisodeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepEpisodeCoordinator.swift; sourceTree = "<group>"; };
+		C2ABFD395E1D5AA080A4C824 /* CharacterPromotionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterPromotionPolicy.swift; sourceTree = "<group>"; };
 		C2E6BE99C3D17823694299C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C944507375C670595573C864 /* DiskOUTUpdaterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskOUTUpdaterController.swift; sourceTree = "<group>"; };
 		D228EF8C4149426DE51A433C /* EjectAndSleepPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EjectAndSleepPolicy.swift; sourceTree = "<group>"; };
+		D7291770ED6F515B262556FC /* HalloweenScythe.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenScythe.png; sourceTree = "<group>"; };
 		D7FF054619500FCB5908BC57 /* AppLifecycleTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleTelemetry.swift; sourceTree = "<group>"; };
+		D8D7833C499F67D9B25F157A /* UpdateInstallationConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateInstallationConsent.swift; sourceTree = "<group>"; };
 		D90489C221196E31CB10F915 /* PowerSleepAckCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerSleepAckCoordinator.swift; sourceTree = "<group>"; };
 		DA536A53CC88C84370A11530 /* CharacterCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterCatalog.swift; sourceTree = "<group>"; };
+		E0A4CDC49C16D265D8F49300 /* CharacterAnnouncementController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterAnnouncementController.swift; sourceTree = "<group>"; };
 		E510B6BF5B75E7FF62F019C3 /* CrashReportParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReportParsing.swift; sourceTree = "<group>"; };
+		E934EA99E78ABE334C423D98 /* HalloweenBicycle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenBicycle.png; sourceTree = "<group>"; };
 		F7A7EF53AE7C1F21EAA6538D /* StatusCharacterAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCharacterAnimator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -103,19 +111,19 @@
 		57E54D20AA60E079DB29C260 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				74A0011A5FA68393C540806C /* BasicBicycle.png */,
 				A3CBF64993C7F9689D9D76F5 /* BasicCharacters.png */,
-				142CB2C706FA4FE4BBF7E588 /* BasicBicycle.png */,
-				EE4F2FFBBF44DF9312E3FECF /* BasicFox.png */,
-				48E6AEBCBA49DDC52220C74E /* HalloweenBicycleRest.png */,
-				70C2BD26532A100F1BE8ACAE /* HalloweenBroom.png */,
-				C2276DADC378BE5B6B3B086A /* HalloweenHound.png */,
-				E510C7DEF545DCDB4817C093 /* HalloweenWeb.png */,
-				0B73FB82FBE48F5807CFC9DB /* HalloweenScythe.png */,
-				7838F00E93CB7CF3B7A8C005 /* HalloweenFox.png */,
+				7BE92ED93345A62EF0786B23 /* BasicFox.png */,
+				E934EA99E78ABE334C423D98 /* HalloweenBicycle.png */,
+				80CEA68DC9D657D501C0DEA2 /* HalloweenBicycleRest.png */,
+				082769891B6356BACFF91FB5 /* HalloweenBicycleSleepingGhost.png */,
+				A07183D1040FF104BCAEE3E0 /* HalloweenBroom.png */,
 				3DF0BFE9CF9FEE450100946F /* HalloweenCharacters.png */,
-				21B0812231E54345B254D938 /* HalloweenBicycle.png */,
-				19474152AB1E44DEB90603D9 /* HalloweenBicycleSleepingGhost.png */,
 				B312038308A39DA484561D83 /* HalloweenDeskPoses.png */,
+				07D5B39AE89A0A2508EBD22D /* HalloweenFox.png */,
+				712762B0E8BD7EDF8181869A /* HalloweenHound.png */,
+				D7291770ED6F515B262556FC /* HalloweenScythe.png */,
+				680C2D80DA79AE9152FE92E7 /* HalloweenWeb.png */,
 				ACFEC8A78861352EF16B2EEF /* PremiumStatusCharacters.png */,
 				8AE3FB77ABEA83464780A0AF /* PremiumStatusCharacters@2x.png */,
 			);
@@ -129,12 +137,15 @@
 				D7FF054619500FCB5908BC57 /* AppLifecycleTelemetry.swift */,
 				C2E6BE99C3D17823694299C8 /* Assets.xcassets */,
 				322A9E5D4E2030242CEAE070 /* CharacterActivityPolicy.swift */,
+				E0A4CDC49C16D265D8F49300 /* CharacterAnnouncementController.swift */,
 				7392D9A22592D7CF302DA3F4 /* CharacterArtwork.swift */,
 				DA536A53CC88C84370A11530 /* CharacterCatalog.swift */,
+				C2ABFD395E1D5AA080A4C824 /* CharacterPromotionPolicy.swift */,
 				71C8A3D5233C17DB3F69005C /* CharacterSettingsView.swift */,
 				E510B6BF5B75E7FF62F019C3 /* CrashReportParsing.swift */,
 				11BA76708DDF535A724FB1ED /* DiskActivityPolicy.swift */,
 				9FA1C96727FF4307B242AB26 /* DiskClassification.swift */,
+				C944507375C670595573C864 /* DiskOUTUpdaterController.swift */,
 				D228EF8C4149426DE51A433C /* EjectAndSleepPolicy.swift */,
 				1EB19C3D59C13AA999F0BF03 /* LanguageRuntime.swift */,
 				41E6237D05464B7B78D4D542 /* Localizable.xcstrings */,
@@ -147,6 +158,7 @@
 				7D544B97EEC4FF82E7DFC464 /* SleepUnmountPolicy.swift */,
 				F7A7EF53AE7C1F21EAA6538D /* StatusCharacterAnimator.swift */,
 				62EC0337B0CBCDEAC755A4BE /* StatusItemPresentation.swift */,
+				D8D7833C499F67D9B25F157A /* UpdateInstallationConsent.swift */,
 				57E54D20AA60E079DB29C260 /* Resources */,
 				905D85FEFF24AB9C00871C87 /* Products */,
 			);
@@ -226,19 +238,19 @@
 			buildActionMask = 2147483647;
 			files = (
 				37DBF5233342983EFE7F3CFA /* Assets.xcassets in Resources */,
+				B8495B1DF983164C0F91DA65 /* BasicBicycle.png in Resources */,
 				917731C06A63FF4DC562AD1F /* BasicCharacters.png in Resources */,
-				C5A5202C449342659ECF8ED0 /* BasicBicycle.png in Resources */,
-				94DA74798D205997054AD3AB /* BasicFox.png in Resources */,
-				8B2E53334D333136331DA928 /* HalloweenBicycleRest.png in Resources */,
-				22FF28464F9CD8E958A42546 /* HalloweenBroom.png in Resources */,
-				791C791C26C28FEFE4CF7A6E /* HalloweenHound.png in Resources */,
-				B649CB23ED1D0D34397B7817 /* HalloweenWeb.png in Resources */,
-				B97A64140C88AF8AB0BEFF4D /* HalloweenScythe.png in Resources */,
-				58CA24B496001C0109C441C5 /* HalloweenFox.png in Resources */,
+				0358FF9B02C93A81F269B374 /* BasicFox.png in Resources */,
+				9FFC514942B2FCD8B5D5798F /* HalloweenBicycle.png in Resources */,
+				A490F5EA29939E4E9E7BEF4D /* HalloweenBicycleRest.png in Resources */,
+				E489436FD52D159F4DAB63E9 /* HalloweenBicycleSleepingGhost.png in Resources */,
+				82D2B22085E05A0C9764F243 /* HalloweenBroom.png in Resources */,
 				26F788BD8B729FC1BD680625 /* HalloweenCharacters.png in Resources */,
-				1440D89BCD054D018C7D02B2 /* HalloweenBicycle.png in Resources */,
-				C4E388B414CE4134947D9C1B /* HalloweenBicycleSleepingGhost.png in Resources */,
 				0CF6B079873DAB52C2442C73 /* HalloweenDeskPoses.png in Resources */,
+				E3FB1740E60F5DCBEFDCA2CD /* HalloweenFox.png in Resources */,
+				356827F24335F4BB80A79F4D /* HalloweenHound.png in Resources */,
+				F480E0780B83EA04C60128FA /* HalloweenScythe.png in Resources */,
+				1D5FFF66F8B2E714AA5636B4 /* HalloweenWeb.png in Resources */,
 				9D3769CF9AF66C58988F8680 /* Localizable.xcstrings in Resources */,
 				6E991C3577A5365CDF9ACA0C /* PremiumStatusCharacters.png in Resources */,
 				0D90E960F2F73EA404CDF6E4 /* PremiumStatusCharacters@2x.png in Resources */,
@@ -255,12 +267,15 @@
 				D661259592528392DE2ED874 /* AppDelegate.swift in Sources */,
 				D6591525BAC17B6A19B4FD58 /* AppLifecycleTelemetry.swift in Sources */,
 				2B86112D2208BA1D58AD3E4D /* CharacterActivityPolicy.swift in Sources */,
+				0FBCC163ECADED35740063EC /* CharacterAnnouncementController.swift in Sources */,
 				9EE69CD109A5D4CF8F4E6BAC /* CharacterArtwork.swift in Sources */,
 				86F9C739D1CA12C64AC8E3FE /* CharacterCatalog.swift in Sources */,
+				810652675D49F82940AA06AC /* CharacterPromotionPolicy.swift in Sources */,
 				772BB3DE9A7F68F3F0299E83 /* CharacterSettingsView.swift in Sources */,
 				A302927406AE406D0C9E3067 /* CrashReportParsing.swift in Sources */,
 				5DC53311F05A8A11E3894139 /* DiskActivityPolicy.swift in Sources */,
 				F9773A4BACE2CC0964A1CE19 /* DiskClassification.swift in Sources */,
+				02405507C02C04FB6E7BF12E /* DiskOUTUpdaterController.swift in Sources */,
 				220C94ED7F7E150968ED2D8C /* EjectAndSleepPolicy.swift in Sources */,
 				DD2C307722C246EC48C6AFDF /* LanguageRuntime.swift in Sources */,
 				61FD966FCFA11BFD3B66FA13 /* PaddleBilling.swift in Sources */,
@@ -271,6 +286,7 @@
 				7BAFBE8B28951CD32B87BA5A /* SleepUnmountPolicy.swift in Sources */,
 				AE82DCA47B799CDB7613A861 /* StatusCharacterAnimator.swift in Sources */,
 				00B609F60A64D6AAB26C31D5 /* StatusItemPresentation.swift in Sources */,
+				51608EF076A3FF2193A25E52 /* UpdateInstallationConsent.swift in Sources */,
 				2EED812FEDD1352A94DCCFC7 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -313,7 +329,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 35;
+				CURRENT_PROJECT_VERSION = 36;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -334,7 +350,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.6.7;
+				MARKETING_VERSION = 0.6.8;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -381,7 +397,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 35;
+				CURRENT_PROJECT_VERSION = 36;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -396,7 +412,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.6.7;
+				MARKETING_VERSION = 0.6.8;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -53,6 +53,10 @@ struct CharacterSelection: Equatable {
     var collection: CharacterCollection = .basic
 
     init() {}
+    init(display: CharacterDisplayMode, collection: CharacterCollection) {
+        self.display = display
+        self.collection = collection
+    }
     init(defaults: UserDefaults) {
         display = CharacterDisplayMode(rawValue: defaults.string(forKey: "character.display") ?? "") ?? .characters
         collection = CharacterCollection(rawValue: defaults.string(forKey: "character.collection") ?? "") ?? .basic

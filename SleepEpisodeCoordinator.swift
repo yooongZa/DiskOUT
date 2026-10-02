@@ -304,6 +304,11 @@ struct SleepEpisodeCoordinator: Sendable {
     /// 결과는 한 번만 받아 pending target으로 되돌린다. 임의의 stale token은 state를 못 바꾼다.
     private var invalidatedActiveRemounts = Set<RemountToken>()
 
+    /// Read by the caller under its existing coordinator lock; no remount state is changed.
+    var hasRemountWork: Bool {
+        scheduledRemount != nil || activeRemount != nil || !invalidatedActiveRemounts.isEmpty
+    }
+
     mutating func setInitialLidState(closed: Bool) {
         isLidClosed = closed
         if closed, lidGeneration == 0 {
