@@ -119,13 +119,9 @@ targets:
       # sandbox=true 가 들어가는 함정을 방지한다 (xcodegen 의 entitlements 자동 생성 동작).
       path: DiskOUT.entitlements
       properties: {}
-    postBuildScripts:
+    scheme:
+      postActions:
       - name: Localize Sparkle Automatic Updates
-        basedOnDependencyAnalysis: false
+        settingsTarget: DiskOUT
         script: |
-          set -eu
-          SPARKLE_EMBEDDED="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Sparkle.framework"
-          /usr/bin/python3 "${SRCROOT}/BuildSupport/localize-sparkle.py" "$SPARKLE_EMBEDDED" "${SRCROOT}/Localizable.xcstrings"
-          if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ]; then
-            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --preserve-metadata=identifier,entitlements,flags,runtime "$SPARKLE_EMBEDDED"
-          fi
+          /bin/bash "${SRCROOT}/BuildSupport/finalize-sparkle.sh"

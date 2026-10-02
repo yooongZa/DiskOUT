@@ -182,7 +182,6 @@
 				5AC2A5D833CE3BEFE9895E95 /* Sources */,
 				070A1918053E53AFEA4558ED /* Resources */,
 				A6AAAE4B1C26E8A8B13763E5 /* Frameworks */,
-				2F5E7414AD24833D87CAF11A /* Localize Sparkle Automatic Updates */,
 			);
 			buildRules = (
 			);
@@ -259,28 +258,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		2F5E7414AD24833D87CAF11A /* Localize Sparkle Automatic Updates */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Localize Sparkle Automatic Updates";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -eu\nSPARKLE_EMBEDDED=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Sparkle.framework\"\n/usr/bin/python3 \"${SRCROOT}/BuildSupport/localize-sparkle.py\" \"$SPARKLE_EMBEDDED\" \"${SRCROOT}/Localizable.xcstrings\"\nif [ \"${CODE_SIGNING_ALLOWED:-YES}\" != \"NO\" ]; then\n  /usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" --preserve-metadata=identifier,entitlements,flags,runtime \"$SPARKLE_EMBEDDED\"\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		5AC2A5D833CE3BEFE9895E95 /* Sources */ = {
