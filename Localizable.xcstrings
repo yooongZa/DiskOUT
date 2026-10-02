@@ -1,6 +1,35 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Install Updates Automatically (New characters are continually added.)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Updates Automatically (New characters are continually added.)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 자동으로 설치 (새로운 캐릭터가 지속적으로 추가됩니다.)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートを自動インストール（新しいキャラクターが継続的に追加されます。）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动安装更新（新角色将持续推出。）"
+          }
+        }
+      }
+    },
     "Keep Checking": {
       "extractionState": "manual",
       "localizations": {

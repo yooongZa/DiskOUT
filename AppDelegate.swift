@@ -1692,7 +1692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }, onCheckForUpdates: { [weak self] in
                 // About 페인의 "업데이트 확인…" — 메뉴 항목과 같은 경로 (userInitiated).
                 self?.checkForUpdatesFromMenu(nil)
-            }, premiumState: { [weak self] in
+            }, updater: updaterController.updater, premiumState: { [weak self] in
                 guard let self, let billing = self.billingController else {
                     return PremiumSettingsState(isConfigured: false,
                                                 hasAccess: false,
@@ -7326,6 +7326,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private let onHotkeyChanged: () -> Void
     private let onClosed: () -> Void
     private let onCheckForUpdates: () -> Void
+    private let updater: SPUUpdater
     private let premiumState: () -> PremiumSettingsState
     private let premiumActions: PremiumSettingsActions
 
@@ -7343,6 +7344,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     private var forceFallbackToggle: NSButton!
     private var rightClickEjectToggle: NSButton!
     private var crashReportingToggle: NSButton!
+    private var automaticUpdatesToggle: NSButton!
     private var ejectHotkeyPopup: NSPopUpButton!
     private var mountHotkeyPopup: NSPopUpButton!
     private var ejectAndSleepHotkeyPopup: NSPopUpButton!
@@ -7395,11 +7397,13 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     init(onHotkeyChanged: @escaping () -> Void,
          onClosed: @escaping () -> Void,
          onCheckForUpdates: @escaping () -> Void,
+         updater: SPUUpdater,
          premiumState: @escaping () -> PremiumSettingsState,
          premiumActions: PremiumSettingsActions) {
         self.onHotkeyChanged = onHotkeyChanged
         self.onClosed = onClosed
         self.onCheckForUpdates = onCheckForUpdates
+        self.updater = updater
         self.premiumState = premiumState
         self.premiumActions = premiumActions
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.paneWidth, height: 320),
@@ -7431,6 +7435,8 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
     }
 
     func windowWillClose(_ notification: Notification) {
+        automaticUpdatesToggle.unbind(.value)
+        automaticUpdatesToggle.unbind(.enabled)
         characterPicker?.setPreviewVisible(false)
         onClosed()
     }
@@ -7699,6 +7705,14 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
                                     target: self, action: #selector(checkForUpdatesClicked))
         updateButton.bezelStyle = .rounded
 
+        automaticUpdatesToggle = NSButton(checkboxWithTitle:
+            String(localized: "Install Updates Automatically (New characters are continually added.)"),
+            target: self, action: #selector(automaticUpdatesChanged(_:)))
+        automaticUpdatesToggle.bind(.value, to: updater,
+                                    withKeyPath: #keyPath(SPUUpdater.automaticallyDownloadsUpdates), options: nil)
+        automaticUpdatesToggle.bind(.enabled, to: updater,
+                                    withKeyPath: #keyPath(SPUUpdater.allowsAutomaticUpdates), options: nil)
+
         let links = NSStackView(views: [
             linkButton(title: "GitHub", urlString: "https://github.com/yooongZa/DiskOUT"),
             linkButton(title: String(localized: "Release Notes"),
@@ -7707,7 +7721,8 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         links.orientation = .horizontal
         links.spacing = UI.spacing
 
-        let stack = NSStackView(views: [icon, name, versionLabel, copyrightLabel, updateButton, links])
+        let stack = NSStackView(views: [icon, name, versionLabel, copyrightLabel,
+                                      automaticUpdatesToggle, updateButton, links])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 4
@@ -7816,6 +7831,13 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     @objc private func checkForUpdatesClicked() {
         onCheckForUpdates()
+    }
+
+    @objc private func automaticUpdatesChanged(_ sender: NSButton) {
+        let enabled = sender.state == .on
+        if updater.automaticallyDownloadsUpdates != enabled {
+            updater.automaticallyDownloadsUpdates = enabled
+        }
     }
 
     private func checkbox(title: String, action: Selector) -> NSButton {

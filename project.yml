@@ -12,8 +12,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 495S4FVMCB
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: "0.6.8"
-    CURRENT_PROJECT_VERSION: "36"
+    MARKETING_VERSION: "0.6.9"
+    CURRENT_PROJECT_VERSION: "37"
 
 # Swift Package Manager 의존성.
 # Sparkle 2: 자동 업데이트 프레임워크 (https://sparkle-project.org).
@@ -92,6 +92,8 @@ targets:
         SUFeedURL: https://diskout-appcast.sukmack.workers.dev/appcast.xml
         SUPublicEDKey: "ObQo/BNVRTo8chYqk127BR2sOIE7NNQaYGQEEuGdIFE="
         SUEnableAutomaticChecks: true
+        # Default only: Sparkle preserves the user's explicit on/off choice.
+        SUAutomaticallyUpdate: true
         SUScheduledCheckInterval: 86400
         # Paddle public configuration only. API keys, webhook secrets, and the Ed25519
         # private signing key belong exclusively in the billing Worker secrets.
@@ -117,3 +119,13 @@ targets:
       # sandbox=true 가 들어가는 함정을 방지한다 (xcodegen 의 entitlements 자동 생성 동작).
       path: DiskOUT.entitlements
       properties: {}
+    postBuildScripts:
+      - name: Localize Sparkle Automatic Updates
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          SPARKLE_EMBEDDED="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Sparkle.framework"
+          /usr/bin/python3 "${SRCROOT}/BuildSupport/localize-sparkle.py" "$SPARKLE_EMBEDDED" "${SRCROOT}/Localizable.xcstrings"
+          if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ]; then
+            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --preserve-metadata=identifier,entitlements,flags,runtime "$SPARKLE_EMBEDDED"
+          fi
