@@ -8,11 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		00B609F60A64D6AAB26C31D5 /* StatusItemPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EC0337B0CBCDEAC755A4BE /* StatusItemPresentation.swift */; };
+		010F8CCF105712AFC3055741 /* GlobalHotkeyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2C108D6A15105812DD7D13 /* GlobalHotkeyController.swift */; };
 		02405507C02C04FB6E7BF12E /* DiskOUTUpdaterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C944507375C670595573C864 /* DiskOUTUpdaterController.swift */; };
 		0358FF9B02C93A81F269B374 /* BasicFox.png in Resources */ = {isa = PBXBuildFile; fileRef = 7BE92ED93345A62EF0786B23 /* BasicFox.png */; };
 		0CF6B079873DAB52C2442C73 /* HalloweenDeskPoses.png in Resources */ = {isa = PBXBuildFile; fileRef = B312038308A39DA484561D83 /* HalloweenDeskPoses.png */; };
 		0D90E960F2F73EA404CDF6E4 /* PremiumStatusCharacters@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 8AE3FB77ABEA83464780A0AF /* PremiumStatusCharacters@2x.png */; };
 		0FBCC163ECADED35740063EC /* CharacterAnnouncementController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A4CDC49C16D265D8F49300 /* CharacterAnnouncementController.swift */; };
+		14FB696952E949DD55F9C136 /* ManualDiskOperationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3CA000CEBE16AA084A992B /* ManualDiskOperationPolicy.swift */; };
 		1D5FFF66F8B2E714AA5636B4 /* HalloweenWeb.png in Resources */ = {isa = PBXBuildFile; fileRef = 680C2D80DA79AE9152FE92E7 /* HalloweenWeb.png */; };
 		220C94ED7F7E150968ED2D8C /* EjectAndSleepPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D228EF8C4149426DE51A433C /* EjectAndSleepPolicy.swift */; };
 		26F788BD8B729FC1BD680625 /* HalloweenCharacters.png in Resources */ = {isa = PBXBuildFile; fileRef = 3DF0BFE9CF9FEE450100946F /* HalloweenCharacters.png */; };
@@ -62,6 +64,8 @@
 		3DF0BFE9CF9FEE450100946F /* HalloweenCharacters.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HalloweenCharacters.png; sourceTree = "<group>"; };
 		41E6237D05464B7B78D4D542 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		44CDE422E8407721E3B40C1C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		4C2C108D6A15105812DD7D13 /* GlobalHotkeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyController.swift; sourceTree = "<group>"; };
+		5C3CA000CEBE16AA084A992B /* ManualDiskOperationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualDiskOperationPolicy.swift; sourceTree = "<group>"; };
 		61E4AF25EAFBC50EE5F0265D /* PremiumAccessPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumAccessPolicy.swift; sourceTree = "<group>"; };
 		62EC0337B0CBCDEAC755A4BE /* StatusItemPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemPresentation.swift; sourceTree = "<group>"; };
 		67A3A704BE87C9899BB6D10F /* DiskOUT.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DiskOUT.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -147,9 +151,11 @@
 				9FA1C96727FF4307B242AB26 /* DiskClassification.swift */,
 				C944507375C670595573C864 /* DiskOUTUpdaterController.swift */,
 				D228EF8C4149426DE51A433C /* EjectAndSleepPolicy.swift */,
+				4C2C108D6A15105812DD7D13 /* GlobalHotkeyController.swift */,
 				1EB19C3D59C13AA999F0BF03 /* LanguageRuntime.swift */,
 				41E6237D05464B7B78D4D542 /* Localizable.xcstrings */,
 				44CDE422E8407721E3B40C1C /* main.swift */,
+				5C3CA000CEBE16AA084A992B /* ManualDiskOperationPolicy.swift */,
 				6EC0B7318D0615479CF2EFB9 /* PaddleBilling.swift */,
 				D90489C221196E31CB10F915 /* PowerSleepAckCoordinator.swift */,
 				61E4AF25EAFBC50EE5F0265D /* PremiumAccessPolicy.swift */,
@@ -277,7 +283,9 @@
 				F9773A4BACE2CC0964A1CE19 /* DiskClassification.swift in Sources */,
 				02405507C02C04FB6E7BF12E /* DiskOUTUpdaterController.swift in Sources */,
 				220C94ED7F7E150968ED2D8C /* EjectAndSleepPolicy.swift in Sources */,
+				010F8CCF105712AFC3055741 /* GlobalHotkeyController.swift in Sources */,
 				DD2C307722C246EC48C6AFDF /* LanguageRuntime.swift in Sources */,
+				14FB696952E949DD55F9C136 /* ManualDiskOperationPolicy.swift in Sources */,
 				61FD966FCFA11BFD3B66FA13 /* PaddleBilling.swift in Sources */,
 				9B31B3BE9E40AC2A49EC4F1C /* PowerSleepAckCoordinator.swift in Sources */,
 				D0C0B4A17F330B090FB4D540 /* PremiumAccessPolicy.swift in Sources */,
@@ -329,7 +337,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -350,7 +358,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.6.9;
+				MARKETING_VERSION = 0.6.10;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -397,7 +405,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 495S4FVMCB;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -412,7 +420,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.6.9;
+				MARKETING_VERSION = 0.6.10;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

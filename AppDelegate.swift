@@ -173,7 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let manualSleepBusy = manualEjectAndSleepCommandInFlight || armedManualEjectAndSleep != nil
             || manualEjectAndSleepPolicy.hasUnresolvedPendingRequest
         manualEjectAndSleepLock.unlock()
-        let busy = characterPromotionDiskActivity.isBusy || sleepUnmountActivityTracker.activeCount > 0
+        let busy = characterPromotionDiskActivity.isBusy || manualDiskCommands.isBusy
+            || sleepUnmountActivityTracker.activeCount > 0
             || currentSleepEjectTask() != nil || remountBusy || manualSleepBusy || powerOffEjectInProgress
         return CharacterAnnouncementContext(
             menuOpen: characterMenuOpen,
@@ -343,8 +344,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
-    private var globalKeyMonitor: Any?
-    private var localKeyMonitor: Any?
+    private let globalHotkeys = GlobalHotkeyController()
+    private var unavailableHotkeys: [String] = []
+    private let manualDiskCommands = ManualDiskCommandGate()
+    private let diskIdentitySession = UUID()
+    private var lastManualCommandID: UUID?
+    private var manualOperationTitle: String?
+    private var manualOperationDetail: String?
+    private weak var manualOperationMenuItem: NSMenuItem?
     private var settingsWindowController: SettingsWindowController?
     private var onboardingWindowController: OnboardingWindowController?
     /// 언어 변경 재시작은 새 인스턴스의 ready 신호를 받은 경우에만 현재 앱을 종료한다.
@@ -355,7 +362,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var languageRelaunchTimeoutWorkItem: DispatchWorkItem?
     private var languageRelaunchCandidate: NSRunningApplication?
     private var lastEjectAt: Date = .distantPast
-    private var lastMountAt: Date = .distantPast
     /// 마지막 추출 결과 symbol (wake 후 복원용). nil 이면 default ⏏ 표시.
     private var lastResultSymbol: String?
     /// flashIcon 의 지연 reset 이 그 사이 set 된 결과 아이콘을 덮어쓰는 race 방지용.
@@ -621,6 +627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        globalHotkeys.invalidate()
         dismissCharacterAnnouncement()
         characterTrialExpiryWorkItem?.cancel(); characterTrialExpiryWorkItem = nil
         for observer in characterPromotionObservers {
@@ -734,7 +741,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func updateAnimatedStatusCharacterFrame() {
         guard Thread.isMainThread, !isTransientStatusIconVisible, lastResultSymbol == nil else { return }
         statusCharacterAnimator.configure(visual: currentCharacterVisual, state: currentCharacterMotion)
-        if let image = statusCharacterAnimator.currentImage() { statusItem.button?.image = image }
+        if let image = statusCharacterAnimator.currentImage(), statusItem.button?.image !== image {
+            statusItem.button?.image = image
+        }
     }
 
     /// `DISKOUT_PREMIUM_PREVIEW` opens only the character presentation for a local demo build.
@@ -1158,20 +1167,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         populateMenu(menu, snapshot: state.snapshot, isRefreshing: state.isRefreshing)
     }
 
-    /// Accessibility 권한 — global hotkey 동작 필수. prompt 없는 동기 체크.
-    private var isAccessibilityTrusted: Bool {
-        AXIsProcessTrustedWithOptions([
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false
-        ] as CFDictionary)
-    }
-
     /// 메뉴 상단에 표시할 권한 경고 항목들. 빈 배열이면 표시 안 함.
     private func permissionWarnings() -> [(title: String, action: Selector)] {
         var warnings: [(String, Selector)] = []
-        if !isAccessibilityTrusted {
-            warnings.append((String(localized: "Allow Accessibility for global hotkeys"),
-                             #selector(openPermissionsFromMenu)))
-        }
         if SettingsStore.notificationsEnabled,
            lastKnownNotificationStatus == .denied {
             warnings.append((String(localized: "Allow notifications to see eject results"),
@@ -1394,6 +1392,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             menu.addItem(NSMenuItem.separator())
         }
 
+        if let title = manualOperationTitle {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.toolTip = manualOperationDetail
+            menu.addItem(item)
+            manualOperationMenuItem = item
+            menu.addItem(NSMenuItem.separator())
+        }
+        if !unavailableHotkeys.isEmpty {
+            let item = NSMenuItem(title: String(localized: "Shortcut unavailable"),
+                                 action: #selector(showSettingsWindow(_:)), keyEquivalent: "")
+            item.target = self
+            item.toolTip = unavailableHotkeys.joined(separator: ", ")
+            menu.addItem(item)
+        }
         let drives = snapshot.drives
 
         if isRefreshing {
@@ -1551,7 +1564,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     bsdName: u.bsdName,
                     mediaRegistryEntryID: u.mediaRegistryEntryID
                 )
-                item.isEnabled = !isRefreshing
+                item.isEnabled = !isRefreshing && u.mediaRegistryEntryID != nil
                 item.image = menuSymbol(u.kind.unmountedSymbolName, fallback: "externaldrive.badge.plus")
                 item.toolTip = String(localized: "Click to mount.  ⌘+click to also open in Finder.")
                 menu.addItem(item)
@@ -1860,11 +1873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         log.notice("onboarding: showOnboardingWindow() called")
         if onboardingWindowController == nil {
             onboardingWindowController = OnboardingWindowController(
-                onClosed: { [weak self] in self?.onboardingWindowController = nil },
-                onAccessibilityGranted: { [weak self] in
-                    // 손쉬운 사용 권한이 부여된 순간 — 단축키 모니터 재설치로 재시작 없이 활성화.
-                    self?.installHotkey()
-                }
+                onClosed: { [weak self] in self?.onboardingWindowController = nil }
             )
         }
         onboardingWindowController?.show()
@@ -2247,55 +2256,142 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         )
     }
 
-    /// 개별 드라이브 추출 (Command+클릭 또는 우클릭).
+    private func capturedManualIdentity(at path: String) -> ManualDiskIdentity? {
+        guard let identity = DAInventory.shared.sleepIdentity(at: path) else { return nil }
+        guard DAInventory.shared.isCurrentPhysicalGeneration(SleepRemountTarget(
+            wholeDiskBSD: identity.wholeDiskBSD, physicalGeneration: identity.generation,
+            mediaRegistryEntryID: identity.mediaRegistryEntryID)) else { return nil }
+        return ManualDiskIdentity(session: diskIdentitySession, wholeDiskBSD: identity.wholeDiskBSD,
+            generation: identity.generation, mediaRegistryEntryID: identity.mediaRegistryEntryID)
+    }
+
+    private func beginManualDiskCommand(title: String) -> ManualDiskCommandContext? {
+        precondition(Thread.isMainThread)
+        automaticRemountCommandGate.lock()
+        manualEjectAndSleepLock.lock()
+        let manualSleepBusy = manualEjectAndSleepCommandInFlight || armedManualEjectAndSleep != nil
+            || manualEjectAndSleepPolicy.hasUnresolvedPendingRequest
+        manualEjectAndSleepLock.unlock()
+        autoEjectStateLock.lock()
+        let automaticBusy = sleepEpisodeCoordinator.systemSleepAwaitingWake
+            || sleepEpisodeCoordinator.hasRemountWork
+        autoEjectStateLock.unlock()
+        let token: UUID? = !manualSleepBusy && !automaticBusy
+            && sleepUnmountActivityTracker.activeCount == 0 && currentSleepEjectTask() == nil
+            && !DAInventory.shared.hasPendingMounts
+            ? manualDiskCommands.reserve() : nil
+        automaticRemountCommandGate.unlock()
+        guard let token else {
+            notify(title: String(localized: "A disk operation is still in progress"),
+                   body: String(localized: "Wait for the current operation to finish, then try again."), kind: .info)
+            return nil
+        }
+        let context = ManualDiskCommandContext(token: token, results: ManualDiskResultLedger())
+        lastManualCommandID = token
+        manualOperationTitle = title
+        manualOperationDetail = nil
+        manualOperationMenuItem?.title = title
+        context.results.onChange = { [weak self, weak results = context.results] in
+            DispatchQueue.main.async {
+                guard let self, let results, self.lastManualCommandID == token else { return }
+                self.manualOperationTitle = results.title
+                self.manualOperationDetail = results.snapshot.map { "\($0.name): \($0.outcome.title)" }.joined(separator: "\n")
+                self.manualOperationMenuItem?.title = results.title
+                self.manualOperationMenuItem?.toolTip = self.manualOperationDetail
+                let entries = results.snapshot
+                let symbol = entries.contains { $0.outcome == .pending } ? "ellipsis.circle.fill"
+                    : (entries.allSatisfy { $0.outcome.succeeded } ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                self.setPersistentIcon(symbol: symbol)
+            }
+        }
+        return context
+    }
+
+    private func finishManualDiskCommand(_ context: ManualDiskCommandContext) {
+        sleepUnmountActivityTracker.whenIdle { [weak self] in
+            guard let self else { return }
+            self.manualDiskCommands.release(context.token)
+            DispatchQueue.main.async {
+                if self.lastManualCommandID == context.token, context.results.snapshot.isEmpty {
+                    self.manualOperationTitle = String(localized: "No disk operation performed")
+                    self.manualOperationMenuItem?.title = self.manualOperationTitle ?? ""
+                }
+                self.requestAutomaticRemount(trigger: "manualCommandFinished")
+            }
+        }
+    }
+
     private func ejectOne(url: URL, name: String) {
+        startManualEject(url: url, name: name, expected: capturedManualIdentity(at: url.path))
+    }
+
+    /// The reservation starts before any modal confirmation and survives late DA callbacks.
+    private func startManualEject(url: URL, name: String, expected: ManualDiskIdentity?,
+                                  appsToQuit: [String] = []) {
+        precondition(Thread.isMainThread)
         dismissCharacterAnnouncementForDiskAction()
-        let path = url.path
-        // 쓰는 중이면 강제 추출 전에 확인 (수동 경로 전용 가드).
-        if isWritingVolume(url),
-           !confirmEjectWhileWriting(title: String(localized: "\"\(name)\" is being written to")) {
-            log.notice("EJECTONE cancelled by user — disk busy (writing): \(name, privacy: .public)")
+        guard let context = beginManualDiskCommand(title: String(localized: "Ejecting…")) else { return }
+        guard let expected, expected.matches(capturedManualIdentity(at: url.path)) else {
+            context.results.record(key: url.path, name: name, outcome: .absent)
+            notify(title: String(localized: "Select the disk again"),
+                   body: String(localized: "The original disk is no longer available. Choose the disk from the menu."), kind: .info)
+            finishManualDiskCommand(context)
             return
         }
-        log.info("EJECTONE start: \(name, privacy: .public) at \(path, privacy: .public)")
-        let promotionActivity = characterPromotionDiskActivity
-        promotionActivity.begin()
-        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
-            defer { promotionActivity.end() }
-            guard let self = self else { return }
-            let result = self.manualWholeDiskUnmount(volumePath: path)
-            DiskMenuSnapshotCache.invalidate()
-            DiskMenuSnapshotCache.warm()
-            log.info("EJECTONE done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
-            // 실패 시 점유 앱 중 끌 수 있는 것 계산 — lsof 가 blocking 이라 background 에서 (main 전에).
-            var quittableNames: [String] = []
-            var quittableBundleIDs: [String] = []
-            if !result.success {
-                let apps = self.quittableApps(from: LsofInspector.blockingProcesses(forVolumePath: path))
-                quittableNames = apps.map { $0.localizedName ?? $0.bundleIdentifier ?? "?" }
-                quittableBundleIDs = apps.compactMap { $0.bundleIdentifier }
+        func confirmCurrentWrite() -> Bool {
+            !isWritingVolume(url) || confirmEjectWhileWriting(title: String(localized: "\"\(name)\" is being written to"))
+        }
+        guard !appsToQuit.isEmpty || confirmCurrentWrite() else { finishManualDiskCommand(context); return }
+        context.results.record(key: url.path, name: name, outcome: .pending)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            guard expected.matches(self.capturedManualIdentity(at: url.path)) else {
+                context.results.record(key: url.path, name: name, outcome: .absent)
+                self.finishManualDiskCommand(context)
+                return
             }
+            if !appsToQuit.isEmpty {
+                let apps = NSWorkspace.shared.runningApplications.filter {
+                    $0.bundleIdentifier.map(appsToQuit.contains) ?? false
+                }
+                LibraryAppHandler.terminate(apps: apps, timeout: 3)
+            }
+            // Quitting an app can take seconds. Recheck writes and identity after that wait.
             DispatchQueue.main.async {
-                if result.success {
-                    self.notify(title: String(localized: "Ejected"), body: name, kind: .success)
-                } else if quittableBundleIDs.isEmpty {
-                    // 끌 수 있는 앱 없음 (데몬뿐 / 진단 실패) → 기존 텍스트 알림.
-                    self.notify(title: String(localized: "Couldn't eject \(name)"),
-                                body: localizedOperationFailure(),
-                                archived: true,
-                                kind: .failure)
-                } else {
-                    // 끌 수 있는 앱 있음 → "끄고 재시도" 액션 알림. userInfo 에 대상 박아 둠.
-                    let appList = quittableNames.joined(separator: ", ")
-                    self.notify(title: String(localized: "Couldn't eject \(name)"),
-                                body: String(localized: "\(appList) is using this disk. Quit it and try ejecting again?"),
-                                archived: true,
-                                kind: .failure,
-                                categoryIdentifier: EjectNotification.retryCategory,
-                                userInfo: [
-                                    EjectNotification.volumePathKey: path,
-                                    EjectNotification.appBundleIDsKey: quittableBundleIDs,
-                                ])
+                guard expected.matches(self.capturedManualIdentity(at: url.path)),
+                      appsToQuit.isEmpty || confirmCurrentWrite() else {
+                    context.results.record(key: url.path, name: name, outcome: .failed)
+                    self.finishManualDiskCommand(context)
+                    return
+                }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let result = self.manualWholeDiskUnmount(volumePath: url.path,
+                        expectedIdentity: expected, manualResults: context.results)
+                    if context.results.snapshot.allSatisfy({ $0.outcome == .pending }), result.outcome != .pending {
+                        context.results.record(key: url.path, name: name, outcome: result.outcome)
+                    }
+                    let blockers = result.outcome == .failed
+                        ? self.quittableApps(from: LsofInspector.blockingProcesses(forVolumePath: url.path)) : []
+                    DiskMenuSnapshotCache.invalidate()
+                    DispatchQueue.main.async {
+                        self.setPersistentIcon(symbol: result.success ? "checkmark.circle.fill" :
+                            (result.outcome == .pending ? "ellipsis.circle.fill" : "exclamationmark.circle.fill"))
+                        if result.outcome == .failed, !blockers.isEmpty,
+                           expected.matches(self.capturedManualIdentity(at: url.path)),
+                           let data = try? JSONEncoder().encode(expected) {
+                            let apps = blockers.map { $0.localizedName ?? $0.bundleIdentifier ?? "?" }.joined(separator: ", ")
+                            self.notify(title: String(localized: "Couldn't eject \(name)"),
+                                body: String(localized: "\(apps) is using this disk. Quit it and try ejecting again?"),
+                                archived: true, kind: .failure, categoryIdentifier: EjectNotification.retryCategory,
+                                userInfo: [EjectNotification.volumePathKey: url.path,
+                                           EjectNotification.identityKey: data.base64EncodedString(),
+                                           EjectNotification.appBundleIDsKey: blockers.compactMap(\.bundleIdentifier)])
+                        } else {
+                            self.notify(title: result.outcome.title, body: name,
+                                archived: result.outcome == .failed, kind: result.success ? .success : (result.outcome == .failed ? .failure : .info))
+                        }
+                        self.finishManualDiskCommand(context)
+                    }
                 }
             }
         }
@@ -2321,10 +2417,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             flashIcon(symbol: "circle.dashed", duration: 0.3)
             return
         }
+        guard let context = beginManualDiskCommand(title: String(localized: "Ejecting…")) else { return }
         // 외장 중 하나라도 쓰는 중이면 강제 추출 전에 확인 (수동 경로 전용 가드).
         if !writingPhysicalBSDs.isEmpty,
            !confirmEjectWhileWriting(title: String(localized: "An external disk is being written to")) {
             log.notice("EJECT(\(caller, privacy: .public)) cancelled by user — disk(s) busy (writing)")
+            finishManualDiskCommand(context)
             return
         }
         lastEjectAt = now
@@ -2338,15 +2436,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
             defer { promotionActivity.end() }
             guard let self = self else { return }
-            let result = self.ejectAllSilently()
+            let result = self.ejectAllSilently(manualResults: context.results)
+            if context.results.snapshot.isEmpty, !result.failure.isEmpty {
+                context.results.record(key: "preflight", name: String(localized: "External drives"), outcome: .failed)
+            }
             log.info("EJECT(\(caller, privacy: .public)) DONE — attempted=\(result.attempted.count) success=\(result.success.count) failure=\(result.failure.count)")
             DispatchQueue.main.async { [weak self] in
-                self?.notifyResult(result)
+                let entries = context.results.snapshot
+                if entries.contains(where: { $0.outcome == .pending }) {
+                    self?.notify(title: String(localized: "Waiting for macOS…"),
+                                 body: entries.filter { $0.outcome == .pending }.map(\.name).joined(separator: ", "))
+                } else {
+                    self?.notifyResult(result, forcedNames: entries.filter { $0.outcome == .forced }.map(\.name))
+                }
+                self?.finishManualDiskCommand(context)
                 // 결과 아이콘 영구 표시 — 메뉴 열거나 다음 추출 시작 시까지 유지
                 let resultSymbol = AppDelegate.ejectResultSymbol(attemptedEmpty: result.attempted.isEmpty,
                                                                  failureEmpty: result.failure.isEmpty,
                                                                  successEmpty: result.success.isEmpty)
-                self?.setPersistentIcon(symbol: resultSymbol)
+                self?.setPersistentIcon(symbol: entries.contains { $0.outcome == .pending } ? "ellipsis.circle.fill" : resultSymbol)
             }
         }
     }
@@ -2360,7 +2468,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             flashIcon(symbol: "circle.dashed", duration: 0.3)
             return
         }
+        guard let context = beginManualDiskCommand(title: String(localized: "Ejecting…")) else { return }
         guard reserveManualEjectAndSleepCommand() else {
+            finishManualDiskCommand(context)
             log.notice("EJECT_AND_SLEEP(\(caller, privacy: .public)) rejected — prior request active or pending")
             notify(title: String(localized: "Eject and Sleep is still waiting"),
                    body: String(localized: "A previous eject request is still pending. Keep the disk connected and try again after it finishes."),
@@ -2377,6 +2487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
            ) {
             log.notice("EJECT_AND_SLEEP(\(caller, privacy: .public)) cancelled by user — disk(s) busy (writing)")
             releaseManualEjectAndSleepCommandReservation()
+            finishManualDiskCommand(context)
             return
         }
         lastEjectAt = now
@@ -2391,6 +2502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
+            defer { self.finishManualDiskCommand(context) }
             if self.abortManualEjectAndSleepBeforeUnmountIfNeeded(
                 caller: caller,
                 libraryOwner: manualLibraryOwner
@@ -2415,9 +2527,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                forceClaims: SleepEpisodeForceClaimLedger(),
                                                deadline: operationDeadline,
                                                manualAttemptStartedAtNanoseconds: startedAtNanoseconds,
-                                               remountDestination: .nextWake)
+                                               remountDestination: .nextWake,
+                                               manualResults: context.results)
             // Evaluate on the worker immediately after the bounded batch returns. Main-queue UI
             // latency must not extend the exact ten-second eligibility window.
+            if context.results.snapshot.isEmpty, !result.failure.isEmpty {
+                context.results.record(key: "preflight", name: String(localized: "External drives"), outcome: .failed)
+            }
             let decision = result.manualAttemptID.map {
                 self.evaluateManualEjectAndSleepAttempt($0)
             }
@@ -2485,7 +2601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 })
                 let invalidWakeTargets = wakeTargets.subtracting(validWakeTargets)
                 self.invalidateManualEjectAndSleepTargets(invalidWakeTargets)
-                guard let nonce = self.armManualEjectAndSleep(
+                guard invalidWakeTargets.isEmpty, let nonce = self.armManualEjectAndSleep(
                     attemptID: attemptID,
                     targets: validWakeTargets,
                     operationID: operation,
@@ -2511,13 +2627,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
                 self.notifyResult((attempted: result.attempted,
                                    success: result.success,
-                                   failure: result.failure))
+                                   failure: result.failure),
+                                  forcedNames: context.results.snapshot.filter { $0.outcome == .forced }.map(\.name))
                 log.info("EJECT_AND_SLEEP(\(caller, privacy: .public)) armed clean targets for real wake only: \(validWakeTargets.sorted(), privacy: .public) nonce=\(nonce, privacy: .public)")
 
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     guard let self = self else { return }
                     let sleep = self.requestSystemSleep(nonce: nonce)
-                    guard sleep.launched else {
+                    guard sleep.launched || sleep.errorMessage != nil else {
                         log.notice("EJECT_AND_SLEEP(\(caller, privacy: .public)) pmset launch skipped because a real sleep boundary already won nonce=\(nonce, privacy: .public)")
                         return
                     }
@@ -2530,7 +2647,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                             reason: "pmsetFailed"
                         ) {
                             self.notify(title: String(localized: "Couldn't start sleep"),
-                                        body: String(localized: "The drives remain ejected. Try Eject and Sleep again."),
+                                        body: sleep.launched
+                                            ? String(localized: "The drives remain ejected. Try Eject and Sleep again.")
+                                            : String(localized: "Disk state changed. Check the drives and try again."),
                                         archived: true,
                                         kind: .failure)
                             self.setPersistentIcon(symbol: "xmark.circle.fill")
@@ -3232,7 +3351,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
-    private func notifyResult(_ result: (attempted: [String], success: [String], failure: [(String, String)])) {
+    private func notifyResult(_ result: (attempted: [String], success: [String], failure: [(String, String)]),
+                              forcedNames: [String] = []) {
         guard !result.attempted.isEmpty else {
             notify(title: String(localized: "No drives to eject"),
                    body: String(localized: "No external drives connected."))
@@ -3242,7 +3362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let archived: Bool
         let kind: AppNotificationKind
         if result.failure.isEmpty {
-            title = String(localized: "All drives ejected")
+            title = forcedNames.isEmpty ? String(localized: "All drives ejected") : String(localized: "Ejected with force")
             archived = false   // 성공 — 결과 아이콘 ✓ 으로 즉시 피드백 충분
             kind = .success
         } else if result.success.isEmpty {
@@ -3255,6 +3375,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             kind = .failure
         }
         var lines: [String] = []
+        if !forcedNames.isEmpty {
+            lines.append(String(localized: "Ejected with force") + ": " + forcedNames.joined(separator: ", "))
+        }
         if !result.success.isEmpty {
             lines.append(String(localized: "Succeeded: \(result.success.joined(separator: ", "))"))
         }
@@ -3372,7 +3495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     ///   자동 (sleep / display sleep / power-off) path 에서만 true. 사용자 명시 추출은 false (사용자 의도 우선).
     @discardableResult
     private func ejectAllSilently(applyExcludeFilter: Bool = false,
-                                  operationID: String? = nil) -> (attempted: [String], success: [String], failure: [(String, String)]) {
+                                  operationID: String? = nil,
+                                  manualResults: ManualDiskResultLedger? = nil) -> (attempted: [String], success: [String], failure: [(String, String)]) {
         let operation = operationID ?? newOperationID(reason: "manualEject")
         let context = applyExcludeFilter ? "powerOff" : "manualEject"
         let trigger: SleepEjectTrigger = applyExcludeFilter ? .powerOff : .ejectAndSleep
@@ -3386,7 +3510,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             remountDestination: .nextWake,
             forceFallbackOverride: trigger.effectiveForceFallback(
                 masterEnabled: SettingsStore.forceFallbackEnabled
-            )
+            ),
+            manualResults: manualResults
         )
         DiskMenuSnapshotCache.warm()
         return (result.attempted, result.success, result.failure)
@@ -3404,7 +3529,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                   selectedVolumePaths: Set<String>? = nil,
                                   remountDestination: CleanUnmountRemountDestination =
                                       .currentAutomaticWake,
-                                  forceFallbackOverride: Bool? = nil) -> SleepEjectBatchResult {
+                                  forceFallbackOverride: Bool? = nil,
+                                  expectedManualIdentity: ManualDiskIdentity? = nil,
+                                  manualResults: ManualDiskResultLedger? = nil) -> SleepEjectBatchResult {
         characterPromotionDiskActivity.begin()
         defer { characterPromotionDiskActivity.end() }
         let operationDeadline = deadline ?? Date().addingTimeInterval(24)
@@ -3419,6 +3546,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                          failure: [("External drives", message)],
                                          remountTargets: [],
                                          manualAttemptID: nil)
+        }
+        if let expected = expectedManualIdentity {
+            let selected = sleepSnapshot.volumes.filter { selectedVolumePaths?.contains($0.drive.url.path) == true }
+            guard expected.session == diskIdentitySession, !selected.isEmpty,
+                  selected.allSatisfy({ $0.identity.wholeDiskBSD == expected.wholeDiskBSD
+                    && $0.identity.generation == expected.generation
+                    && $0.identity.mediaRegistryEntryID == expected.mediaRegistryEntryID }) else {
+                return SleepEjectBatchResult(attempted: [], success: [], failure: [],
+                                             remountTargets: [], manualAttemptID: nil)
+            }
         }
         var candidates = sleepSnapshot.volumes.map {
             AutomaticEjectCandidate(drive: $0.drive,
@@ -3813,6 +3950,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             preparedForcedRequestsByKey = [:]
         }
 
+        for (index, failure) in preflightFailures.enumerated() {
+            manualResults?.record(key: "preflight-\(index)", name: failure.0, outcome: .failed)
+        }
         let lock = NSLock()
         var success: [String] = []
         var failure = preflightFailures
@@ -3824,6 +3964,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                           attributes: .concurrent)
 
         for request in requests {
+            for target in request.targets {
+                manualResults?.record(key: target.volumePath, name: target.name, outcome: .pending)
+            }
             // Retain before dispatch so a scheduler-stalled worker still blocks any overlapping
             // automatic wake relaunch, including a manual request superseded by real sleep.
             if case .established = mode {
@@ -3867,6 +4010,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                          manualStartedAtNanoseconds: manualAttemptStartedAtNanoseconds,
                                                          preparedNormalRequest: preparedNormalRequest,
                                                          submissionAuthorizer: submissionAuthorizer,
+                                                         onManualOutcome: { outcome in
+                                                             for target in request.targets {
+                                                                 manualResults?.record(key: target.volumePath, name: target.name, outcome: outcome)
+                                                             }
+                                                         },
                                                          onWaiterTimeout: manualAttemptID.map { attemptID in
                                                              { requestWasForced in
                                                                  if requestWasForced,
@@ -3937,6 +4085,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                                              self.sleepUnmountActivityTracker.finish()
                                                          },
                                                          lateSuccessRecordingPolicy: mode.lateSuccessRecordingPolicy)
+                let outcome: ManualDiskOutcome = result.success ? (result.requestWasForced ? .forced : .ejected)
+                    : (result.awaitsPendingRequestTerminal ? .pending : .failed)
+                for target in request.targets {
+                    manualResults?.record(key: target.volumePath, name: target.name, outcome: outcome)
+                }
                 let elapsed = Date().timeIntervalSince(started)
                 let manualTerminalRecord = manualAttemptID.flatMap { attemptID in
                     Self.manualIdentity(for: request).flatMap { identity in
@@ -4107,32 +4260,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return TimeInterval(monotonicRemaining) / 1_000_000_000
     }
 
-    /// whole disk 의 mountable partition 들을 모두 mount.
-    /// App Store/sandbox 포기 경로: helper daemon 없이 `diskutil mountDisk` 직접 실행.
-    /// background thread 에서만 호출.
-    private func daMountWholeDisk(bsdName: String,
-                                  operationID: String? = nil,
-                                  timeout: TimeInterval? = nil) -> (success: Bool, errorMessage: String?) {
-        characterPromotionDiskActivity.begin()
-        defer { characterPromotionDiskActivity.end() }
-        let operation = operationID ?? "-"
-        let r = runDiskutil(["mountDisk", bsdName],
-                            operationID: operationID,
-                            timeout: timeout)
-        if r.success {
-            log.info("cycle \(operation, privacy: .public) diskutil mountDisk: \(bsdName, privacy: .public) OK")
-        } else {
-            log.notice("cycle \(operation, privacy: .public) diskutil mountDisk: \(bsdName, privacy: .public) failed — \(r.errorMessage ?? "?", privacy: .public)")
-        }
-        return r
-    }
-
     /// User-commanded individual unmount. It uses the same public Whole-disk DA path as every
     /// sleep trigger and records an exact remount target for the next wake boundary.
     private func manualWholeDiskUnmount(
         volumePath: String,
+        expectedIdentity: ManualDiskIdentity,
+        manualResults: ManualDiskResultLedger,
         operationID: String? = nil
-    ) -> (success: Bool, errorMessage: String?) {
+    ) -> (success: Bool, errorMessage: String?, outcome: ManualDiskOutcome) {
         characterPromotionDiskActivity.begin()
         defer { characterPromotionDiskActivity.end() }
         let operation = operationID ?? newOperationID(reason: "manualEject")
@@ -4145,24 +4280,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             deadline: Date().addingTimeInterval(24),
             selectedVolumePaths: Set([volumePath]),
             remountDestination: .nextWake,
-            forceFallbackOverride: SettingsStore.forceFallbackEnabled
+            forceFallbackOverride: SettingsStore.forceFallbackEnabled,
+            expectedManualIdentity: expectedIdentity,
+            manualResults: manualResults
         )
         if !result.success.isEmpty {
-            return (true, nil)
+            let forced = manualResults.snapshot.contains { $0.outcome == .forced }
+            return (true, nil, forced ? .forced : .ejected)
         }
-        if result.attempted.isEmpty,
-           !DAInventory.shared.isVolumePresent(at: volumePath) {
+        if result.attempted.isEmpty, result.failure.isEmpty {
             log.notice("cycle \(operation, privacy: .public) manual Whole target already unmounted: \(volumePath, privacy: .public)")
-            return (true, nil)
+            return (false, nil, .absent)
         }
-
+        if sleepUnmountActivityTracker.activeCount > 0 {
+            return (false, nil, .pending)
+        }
         var details = result.failure.map(\.1)
         if let blockers = LsofInspector.diagnosticMessage(forVolumePath: volumePath) {
             details.append(blockers)
         }
         return (false, details.isEmpty
             ? String(localized: "Unknown error")
-            : details.joined(separator: "\n"))
+            : details.joined(separator: "\n"), .failed)
     }
 
     private func unmountRequestForSleep(volumePath: String,
@@ -4180,6 +4319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                         manualStartedAtNanoseconds: UInt64? = nil,
                                         preparedNormalRequest: PreparedSleepDAUnmount? = nil,
                                         submissionAuthorizer: SleepDAUnmountSubmissionAuthorizer? = nil,
+                                        onManualOutcome: ((ManualDiskOutcome) -> Void)? = nil,
                                         onWaiterTimeout: ((Bool) -> Void)? = nil,
                                         onLateTerminal: ((EjectAndSleepDiskEvent) -> Void)? = nil,
                                         onLateCleanTarget: ((SleepRemountTarget) -> Void)? = nil,
@@ -4308,6 +4448,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         func observe(_ request: PendingSleepDAUnmount) {
             pendingRequests.track(request) { evidence in
                 let action = consume(evidence, requestWasForced: request.force)
+                if case .callbackSuccess = evidence {
+                    onManualOutcome?(request.force ? .forced : .ejected)
+                }
                 guard case .callbackSuccess = evidence,
                       action == .none,
                       !terminalIsClean(coordinator.terminalSnapshot()),
@@ -4366,6 +4509,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
 
         func presentLate(_ terminal: SleepUnmountEscalationTerminal) {
+            if case let .evidence(.callbackSuccess, forced) = terminal {
+                onManualOutcome?(forced ? .forced : .ejected)
+            } else { onManualOutcome?(.failed) }
             switch terminal {
             case let .evidence(.callbackSuccess, requestWasForced):
                 guard let target = remountTarget() else { return }
@@ -4633,6 +4779,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                            // Serialize the causal state transition with the actual
                                            // process spawn. WillSleep either wins before this lock,
                                            // or observes a command that has already been submitted.
+                                           self.automaticRemountCommandGate.lock()
+                                           defer { self.automaticRemountCommandGate.unlock() }
+                                           self.manualEjectAndSleepLock.lock()
+                                           let armed = self.armedManualEjectAndSleep
+                                           self.manualEjectAndSleepLock.unlock()
+                                           guard let armed, armed.nonce == nonce else { return false }
+                                           let targets = armed.targets
+                                           guard DAInventory.shared.confirmedUnmounted(
+                                                Set(targets.map { Self.sleepRemountTarget(for: $0) })
+                                           ) else {
+                                               throw NSError(domain: "DiskOUT.Sleep", code: 1,
+                                                   userInfo: [NSLocalizedDescriptionKey: "Disk state changed before sleep"])
+                                           }
                                            self.manualEjectAndSleepLock.lock()
                                            defer { self.manualEjectAndSleepLock.unlock() }
                                            guard self.armedManualEjectAndSleep?.nonce == nonce,
@@ -4644,7 +4803,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                            return true
                                        })
         guard result.wasLaunched else {
-            return (false, false, nil)
+            return (false, false, result.errorMessage)
         }
         if result.success {
             log.notice("pmset sleepnow requested")
@@ -4667,123 +4826,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         mountAll(caller: "menu")
     }
 
-    /// 개별 마운트 (메뉴 아이템 클릭). representedObject는 whole BSD와 optional IOMedia ID.
-    /// ⌘+클릭이면 마운트 후 Finder 에서 첫 mount path 열기.
     @objc private func mountOne(_ sender: NSMenuItem) {
-        dismissCharacterAnnouncementForDiskAction()
         guard let payload = sender.representedObject as? UnmountedMenuItemPayload else { return }
-        let bsd = payload.bsdName
-        let displayName = sender.title
-        guard !isSystemSleepAwaitingFullWake else {
-            log.info("MOUNTONE ignored during DarkWake inventory window: \(displayName, privacy: .public) bsd=\(bsd, privacy: .public)")
-            DiskMenuSnapshotCache.invalidate()
-            return
-        }
-        guard ioRegistryHasBSDDisk(
-            bsd,
-            expectedRegistryEntryID: payload.mediaRegistryEntryID
-        ) else {
-            log.info("MOUNTONE ignored because physical media disappeared: \(displayName, privacy: .public) bsd=\(bsd, privacy: .public)")
-            DiskMenuSnapshotCache.invalidate()
-            return
-        }
         let openInFinder = NSApp.currentEvent?.modifierFlags.contains(.command) ?? false
-        log.info("MOUNTONE start: \(displayName, privacy: .public) bsd=\(bsd, privacy: .public) openInFinder=\(openInFinder, privacy: .public)")
+        guard let context = beginManualDiskCommand(title: String(localized: "Mounting…")) else { return }
+        let candidate = UnmountedExternal(bsdName: payload.bsdName, displayName: sender.title,
+                                          kind: .disk, mediaRegistryEntryID: payload.mediaRegistryEntryID)
+        startManualMount([candidate], context: context, openInFinder: openInFinder)
+    }
 
-        let promotionActivity = characterPromotionDiskActivity
-        promotionActivity.begin()
-        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
-            defer { promotionActivity.end() }
-            guard let self = self else { return }
-            let r = self.daMountWholeDisk(bsdName: bsd)
-            DiskMenuSnapshotCache.invalidate()
-            DiskMenuSnapshotCache.warm()
-            log.info("MOUNTONE done: \(displayName, privacy: .public) success=\(r.success, privacy: .public)")
-            DispatchQueue.main.async {
-                if r.success {
-                    self.notify(title: String(localized: "Mounted"), body: displayName, kind: .success)
-                    if openInFinder {
-                        // mount path 가 보통 /Volumes/<volumeName>. 충돌 시 (2) suffix 가능,
-                        // 그 케이스는 silent 처리 (열기 실패해도 mount 자체는 성공).
-                        let url = URL(fileURLWithPath: "/Volumes/\(displayName)")
-                        if FileManager.default.fileExists(atPath: url.path) {
-                            NSWorkspace.shared.open(url)
-                        } else {
-                            log.notice("openInFinder: /Volumes/\(displayName, privacy: .public) not found")
-                        }
-                    }
-                } else {
-                    self.notify(title: String(localized: "Couldn't mount \(displayName)"),
-                                body: localizedOperationFailure(),
-                                archived: true,
-                                kind: .failure)
-                }
+    private func mountAll(caller: String) {
+        guard let context = beginManualDiskCommand(title: String(localized: "Mounting…")) else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            // Same authoritative inventory and cold-start fallback used by the menu.
+            let snapshot = DiskMenuSnapshot.load()
+            if snapshot.refreshError != nil {
+                context.results.record(key: "inventory", name: String(localized: "External drives"), outcome: .failed)
+                self.finishManualDiskCommand(context)
+                return
             }
+            self.startManualMount(snapshot.unmounted, context: context, openInFinder: false)
         }
     }
 
-    /// 모든 마운트 안 된 외장 일괄 마운트. 디바운스 1.5s.
-    private func mountAll(caller: String) {
-        dismissCharacterAnnouncementForDiskAction()
-        guard !isSystemSleepAwaitingFullWake else {
-            log.info("MOUNT(\(caller, privacy: .public)) ignored during DarkWake inventory window")
-            DiskMenuSnapshotCache.invalidate()
-            return
-        }
-        let now = Date()
-        let elapsed = now.timeIntervalSince(lastMountAt)
-        if elapsed < 1.5 {
-            log.info("MOUNT(\(caller, privacy: .public)) DEBOUNCED — last fired \(String(format: "%.2f", elapsed), privacy: .public)s ago")
-            flashIcon(symbol: "circle.dashed", duration: 0.3)
-            return
-        }
-        lastMountAt = now
-        log.info("MOUNT(\(caller, privacy: .public)) START")
-        flashIcon(symbol: "arrow.down.circle", duration: 0.6)
-
+    private func startManualMount(_ candidates: [UnmountedExternal], context: ManualDiskCommandContext,
+                                  openInFinder: Bool) {
         let promotionActivity = characterPromotionDiskActivity
         promotionActivity.begin()
-        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
-            defer { promotionActivity.end() }
-            guard let self = self else { return }
-            let unmounted = UnmountedExternal.list()
-            guard !unmounted.isEmpty else {
-                log.info("MOUNT(\(caller, privacy: .public)) — no candidates")
-                DispatchQueue.main.async { [weak self] in
-                    self?.notify(title: String(localized: "Nothing to mount"),
-                                 body: String(localized: "No unmounted external drives connected."))
-                }
-                return
-            }
-
-            let lock = NSLock()
-            var success: [String] = []
-            var failure: [(String, String)] = []
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { promotionActivity.end(); return }
             let group = DispatchGroup()
-            let pq = DispatchQueue(label: "com.yongza.ejectdrives.mountall", attributes: .concurrent)
-
-            for u in unmounted {
-                group.enter()
-                pq.async {
-                    let r = self.daMountWholeDisk(bsdName: u.bsdName)
-                    if r.success {
-                        log.info("✓ mount OK:    \(u.displayName, privacy: .public) (\(u.bsdName, privacy: .public))")
-                    } else {
-                        log.error("✗ mount FAIL:  \(u.displayName, privacy: .public) — \(r.errorMessage ?? "?", privacy: .public)")
+            for candidate in candidates {
+                let key = candidate.bsdName
+                let name = candidate.displayName
+                context.results.record(key: key, name: name, outcome: .pending)
+                self.automaticRemountCommandGate.lock()
+                let target = DAInventory.shared.mountTarget(bsd: key, expectedEntryID: candidate.mediaRegistryEntryID)
+                let submission: SleepDAMountSubmissionResult
+                if !self.isSystemSleepAwaitingFullWake, self.sleepUnmountActivityTracker.activeCount == 0,
+                   let target {
+                    submission = DAInventory.shared.submitMountForWake(target: target, operationID: context.token.uuidString)
+                } else { submission = .unavailable("Disk or sleep state changed before mount") }
+                self.automaticRemountCommandGate.unlock()
+                switch submission {
+                case .unavailable:
+                    context.results.record(key: key, name: name, outcome: .failed)
+                case let .request(request):
+                    group.enter()
+                    request.observe { evidence in
+                        let outcome: ManualDiskOutcome
+                        if case .callbackSuccess = evidence { outcome = .mounted } else { outcome = .failed }
+                        context.results.record(key: key, name: name, outcome: outcome)
+                        DiskMenuSnapshotCache.invalidate()
+                        if outcome == .mounted, openInFinder, let target {
+                            DispatchQueue.main.async {
+                                let paths = DAInventory.shared.mountedPaths(for: target)
+                                if let path = paths.sorted().first,
+                                   NSWorkspace.shared.open(URL(fileURLWithPath: path)) { return }
+                                self.notify(title: String(localized: "Couldn't open \(name) in Finder"),
+                                            body: localizedOperationFailure(), kind: .failure)
+                            }
+                        }
+                        group.leave()
                     }
-                    lock.lock()
-                    if r.success { success.append(u.displayName) }
-                    else { failure.append((u.displayName, r.errorMessage ?? String(localized: "Unknown error"))) }
-                    lock.unlock()
-                    group.leave()
                 }
             }
-            group.wait()
-            DiskMenuSnapshotCache.invalidate()
-            DiskMenuSnapshotCache.warm()
-            log.info("MOUNT(\(caller, privacy: .public)) DONE — success=\(success.count, privacy: .public) failure=\(failure.count, privacy: .public)")
-            DispatchQueue.main.async { [weak self] in
-                self?.notifyMountResult(success: success, failure: failure)
+            // A deadline bounds the caller, not the uncancelable DA request. The reservation and
+            // callbacks remain alive until each real result/disconnection arrives.
+            group.notify(queue: .main) {
+                promotionActivity.end()
+                let entries = context.results.snapshot
+                if !entries.isEmpty {
+                    self.notify(title: context.results.title, body: entries.map(\.name).joined(separator: ", "),
+                                kind: entries.allSatisfy { $0.outcome == .mounted } ? .success : .failure)
+                } else {
+                    self.notify(title: String(localized: "Nothing to mount"),
+                                body: String(localized: "No unmounted external drives connected."))
+                }
+                self.finishManualDiskCommand(context)
+            }
+            if group.wait(timeout: .now() + 10) == .timedOut {
+                DispatchQueue.main.async {
+                    let pending = context.results.snapshot.filter { $0.outcome == .pending }
+                    guard !pending.isEmpty else { return }
+                    self.notify(title: String(localized: "Waiting for macOS…"),
+                                body: pending.map(\.name).joined(separator: ", "), kind: .info)
+                }
             }
         }
     }
@@ -6368,7 +6497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             // 2) token 확인→실제 DADiskMount 제출만 lid close/new system sleep invalidation과
             // 같은 gate로 직렬화한다. callback 대기는 gate 밖이므로 잠자기를 붙잡지 않는다.
             automaticRemountCommandGate.lock()
-            guard shouldContinue() else {
+            guard shouldContinue(), !manualDiskCommands.isBusy else {
                 automaticRemountCommandGate.unlock()
                 return .canceled
             }
@@ -6552,7 +6681,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         guard let volumePath = userInfo[EjectNotification.volumePathKey] as? String else { return }
         let bundleIDs = userInfo[EjectNotification.appBundleIDsKey] as? [String] ?? []
         log.notice("eject retry action: volume=\(volumePath, privacy: .public) apps=\(bundleIDs, privacy: .public)")
-        handleQuitAndRetry(volumePath: volumePath, appBundleIDs: bundleIDs)
+        let expected = (userInfo[EjectNotification.identityKey] as? String)
+            .flatMap { Data(base64Encoded: $0) }
+            .flatMap { try? JSONDecoder().decode(ManualDiskIdentity.self, from: $0) }
+        DispatchQueue.main.async { [weak self] in
+            self?.startManualEject(url: URL(fileURLWithPath: volumePath),
+                name: (volumePath as NSString).lastPathComponent, expected: expected, appsToQuit: bundleIDs)
+        }
     }
 
     /// 점유 프로세스 중 "사용자가 끌 수 있는 일반 GUI 앱"만 추려 반환.
@@ -6580,65 +6715,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return apps
     }
 
-    /// "끄고 재시도" 버튼 핸들러 — 대상 앱 graceful 종료 → 추출 **1회만** 재시도 → 결과 알림.
-    /// 끈 앱은 재실행하지 않는다 (사용자가 추출하려고 끈 것 — 다시 띄우면 볼륨 재잠금).
-    /// pid 는 stale 일 수 있어 bundle ID 로 현재 실행 중인 앱을 다시 찾는다.
-    private func handleQuitAndRetry(volumePath: String, appBundleIDs: [String]) {
-        dismissCharacterAnnouncementForDiskAction()
-        let name = (volumePath as NSString).lastPathComponent
-        let promotionActivity = characterPromotionDiskActivity
-        promotionActivity.begin()
-        DispatchQueue.global(qos: .userInitiated).async { [weak self, promotionActivity] in
-            defer { promotionActivity.end() }
-            guard let self = self else { return }
-            let targets = NSWorkspace.shared.runningApplications.filter {
-                guard let bid = $0.bundleIdentifier else { return false }
-                return appBundleIDs.contains(bid)
-            }
-            if !targets.isEmpty {
-                LibraryAppHandler.terminate(apps: targets, timeout: 3.0)
-            }
-            // 재시도 1회 — 루프 금지. 재시도도 동일한 DA Whole 경로를 사용한다.
-            let result = self.manualWholeDiskUnmount(volumePath: volumePath)
-            DiskMenuSnapshotCache.invalidate()
-            DiskMenuSnapshotCache.warm()
-            log.info("eject retry done: \(name, privacy: .public) success=\(result.success, privacy: .public) err=\(result.errorMessage ?? "-", privacy: .public)")
-            DispatchQueue.main.async {
-                if result.success {
-                    self.notify(title: String(localized: "Ejected"), body: name, kind: .success)
-                } else {
-                    // graceful terminate 라 미저장 문서 앱은 종료 거부 가능 → 솔직히 실패 알림.
-                    self.notify(title: String(localized: "Still couldn't eject \(name)"),
-                                body: localizedOperationFailure(),
-                                archived: true,
-                                kind: .failure)
-                }
-            }
-        }
-    }
-
-    // MARK: - Global Hotkey (설정된 E 기반 preset)
-    // NSEvent.addGlobalMonitorForEvents 만 사용. Accessibility 권한 필요.
-    // 우클릭 monitor 는 제거 — false positive 위험. 우클릭은 button.sendAction 으로 받음.
+    // MARK: - Exclusive global shortcuts
 
     private func installHotkey() {
-        if let globalKeyMonitor {
-            NSEvent.removeMonitor(globalKeyMonitor)
-            self.globalKeyMonitor = nil
-        }
-        if let localKeyMonitor {
-            NSEvent.removeMonitor(localKeyMonitor)
-            self.localKeyMonitor = nil
-        }
-
-        // 손쉬운 사용 프롬프트는 여기서 띄우지 않는다 — 온보딩 창의 "허용" 버튼이 1회 담당.
-        // 무프롬프트 체크만: 권한 없으면 global monitor 는 등록돼도 이벤트를 못 받고,
-        // 권한 부여 시 OnboardingWindowController 가 installHotkey() 를 재호출해 활성화한다.
-        let trusted = AXIsProcessTrustedWithOptions([
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false
-        ] as CFDictionary)
-        log.notice("Accessibility trusted = \(trusted, privacy: .public)")
-
         // Repair all three assignments together. Eject keeps startup priority, then Mount, then
         // the optional Eject and Sleep shortcut; no action can become unreachable.
         let normalized = SettingsShortcutConflictPolicy.normalized(
@@ -6650,54 +6729,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             log.notice("hotkey conflicts repaired at startup: displaced=\(String(describing: normalized.displacedRoles), privacy: .public)")
         }
 
-        let ejectHotkey = SettingsStore.ejectHotkey
-        let mountHotkey = SettingsStore.mountHotkey
-        log.notice("hotkeys: eject=\(ejectHotkey.title, privacy: .public) mount=\(mountHotkey.title, privacy: .public)")
-
-        // GLOBAL monitor — 다른 앱이 활성일 때 잡음 (Accessibility 권한 필요)
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            _ = self?.handleHotkey(event, scope: "GLOBAL")
+        globalHotkeys.onPress = { [weak self] identifier in
+            guard let self else { return }
+            switch identifier {
+            case 1: self.ejectAll(caller: "hotkey")
+            case 2: self.mountAll(caller: "hotkey")
+            case 3: self.ejectAndSleep(caller: "hotkey")
+            default: break
+            }
         }
-        log.notice("globalKeyMonitor = \(self.globalKeyMonitor != nil ? "REGISTERED" : "NIL — failed!", privacy: .public)")
-
-        // LOCAL monitor — 우리 앱 활성일 때
-        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            return self.handleHotkey(event, scope: "LOCAL") ? nil : event
+        let presets: [(UInt32, SettingsHotkeyPreset?)] = [
+            (1, SettingsStore.ejectHotkey), (2, SettingsStore.mountHotkey), (3, SettingsStore.ejectAndSleepHotkey)
+        ]
+        unavailableHotkeys = globalHotkeys.register(presets.compactMap { id, preset in
+            preset.map { GlobalHotkeyController.Shortcut(id: id, keyCode: UInt32($0.keyCode),
+                                                          modifiers: $0.flags, title: $0.title) }
+        })
+        if !unavailableHotkeys.isEmpty {
+            let names = unavailableHotkeys.joined(separator: ", ")
+            notify(title: String(localized: "Shortcut unavailable"),
+                   body: String(localized: "Choose another shortcut in Settings: \(names)"), kind: .failure)
         }
     }
 
-    private func handleHotkey(_ event: NSEvent, scope: String) -> Bool {
-        guard event.keyCode == SettingsStore.ejectHotkey.keyCode else { return false }
-        // 키 누름 유지로 인한 자동 반복 이벤트 무시 — 디바운스 1.5s 가 있긴 하지만 첫 한두 번이
-        // 통과해 결과 알림이 두 번 뜨는 경우 방지. 사용자 의도는 한 번 누름 = 한 번 실행.
-        guard !event.isARepeat else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .help, .capsLock])
+}
 
-        // 별도 ack 플래시 없음 — 각 동작 함수가 곧바로 자기 진행 플래시를 띄운다
-        // (ejectAll=회전 화살표, mountAll=arrow.down.circle, ejectAndSleep=moon.zzz.fill).
-        // ack 0.3s + 진행 1.0s 가 연달아 깜빡이면 같은 자리에서 심볼이 두 번 바뀌어 어수선.
-        if flags == SettingsStore.ejectHotkey.flags {
-            log.info("HOTKEY \(scope, privacy: .public) eject fired")
-            DispatchQueue.main.async { [weak self] in self?.ejectAll(caller: "hotkey-\(scope.lowercased())") }
-            return true
-        }
-
-        if flags == SettingsStore.mountHotkey.flags {
-            log.info("HOTKEY \(scope, privacy: .public) mount fired")
-            DispatchQueue.main.async { [weak self] in self?.mountAll(caller: "hotkey-\(scope.lowercased())") }
-            return true
-        }
-
-        if let preset = SettingsStore.ejectAndSleepHotkey, flags == preset.flags {
-            log.info("HOTKEY \(scope, privacy: .public) eject-and-sleep fired")
-            DispatchQueue.main.async { [weak self] in self?.ejectAndSleep(caller: "hotkey-\(scope.lowercased())") }
-            return true
-        }
-
-        return false
-    }
+private struct ManualDiskCommandContext {
+    let token: UUID
+    let results: ManualDiskResultLedger
 }
 
 private enum AppNotificationKind {
@@ -6712,6 +6771,7 @@ private enum EjectNotification {
     static let retryCategory = "diskout.eject.retry"
     static let retryAction = "diskout.eject.retry.action"
     static let volumePathKey = "diskout.volumePath"
+    static let identityKey = "diskout.physicalIdentity.v1"
     /// 끌 대상 앱 bundle ID 목록 — 탭 시점에 pid 는 stale 일 수 있어 bundle ID 로 재해석.
     static let appBundleIDsKey = "diskout.appBundleIDs"
 }
@@ -6929,6 +6989,10 @@ private final class PendingSleepDAMount {
     @discardableResult
     func finishOnce(_ evidence: SleepDAMountEvidence) -> Bool {
         evidenceLatch.finishOnce(evidence)
+    }
+
+    func observe(_ callback: @escaping (SleepDAMountEvidence) -> Void) {
+        evidenceLatch.observe(callback)
     }
 
     func wait(timeout: TimeInterval) -> SleepDAMountWaitResult {
@@ -8140,7 +8204,7 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 /// - 로그인 항목 → 자동 실행 (순수 선택 → 체크박스, 자동 요청 안 함)
 ///
 /// 창이 열린 동안 0.5s 타이머로 권한 상태를 폴링해 카드 상태점을 실시간 갱신
-/// (손쉬운 사용은 변경 알림 API 가 없어 폴링이 정석). 닫히면 타이머 중지 +
+/// 닫히면 타이머 중지 +
 /// `SettingsStore.onboardingCompletedVersion` 기록 → 재노출 안 함.
 /// `SettingsWindowController` 와 같은 패턴 (순수 AppKit, 프로그래밍 방식 NSWindow).
 private final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
@@ -8150,24 +8214,19 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
     private static let minimumContentSize = NSSize(width: 460, height: 456)
 
     private let onClosed: () -> Void
-    private let onAccessibilityGranted: () -> Void
 
-    private var accessibilityDot: NSImageView!
-    private var accessibilityButton: NSButton!
     private var notificationsDot: NSImageView!
     private var notificationsButton: NSButton!
     private var loginToggle: NSButton!
     private var loginHint: NSTextField!
 
     private var pollTimer: Timer?
-    private var lastAccessibilityTrusted = false
     private var notificationStatus: UNAuthorizationStatus = .notDetermined
     /// 사용자가 직접 닫았는지 (Done 버튼 / X 버튼). 앱 종료로 인한 닫힘과 구분.
     private var userDismissed = false
 
-    init(onClosed: @escaping () -> Void, onAccessibilityGranted: @escaping () -> Void) {
+    init(onClosed: @escaping () -> Void) {
         self.onClosed = onClosed
-        self.onAccessibilityGranted = onAccessibilityGranted
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.minimumContentSize),
                               styleMask: [.titled, .closable, .resizable],
                               backing: .buffered,
@@ -8193,7 +8252,6 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
     /// 창 표시 + 폴링 시작. `.accessory` 앱이지만 SettingsWindowController 와 동일하게
     /// makeKeyAndOrderFront + NSApp.activate 로 포커스 확보 (이미 검증된 경로).
     func show() {
-        lastAccessibilityTrusted = AXIsProcessTrusted()
         refreshAll()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
@@ -8250,7 +8308,7 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         header.alignment = .centerY
         header.spacing = 14
 
-        let accessibilityCard = makeAccessibilityCard()
+        let shortcutCard = makeShortcutCard()
         let notificationsCard = makeNotificationsCard()
         let loginCard = makeLoginCard()
 
@@ -8271,7 +8329,7 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         footer.spacing = 12
 
         let children: [NSView] = [header, makeSeparator(),
-                                  accessibilityCard, makeSeparator(),
+                                  shortcutCard, makeSeparator(),
                                   notificationsCard, makeSeparator(),
                                   loginCard, makeSeparator(),
                                   footer]
@@ -8300,17 +8358,11 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
         return (container, stack.fittingSize.height + 44)
     }
 
-    private func makeAccessibilityCard() -> NSView {
-        accessibilityDot = makeStatusDot(accessibilityLabel: String(localized: "Global hotkey"))
-        accessibilityButton = NSButton(title: String(localized: "Allow"),
-                                       target: self, action: #selector(accessibilityButtonClicked))
-        accessibilityButton.bezelStyle = .rounded
-        // trailing 은 [버튼, 상태점] 순 — 상태점이 항상 우측 끝 고정폭 칸에 와서
-        // 버튼 폭이 행마다 달라도 점들이 세로로 정렬된다.
-        return makeRow(symbol: "keyboard",
-                       title: String(localized: "Global hotkey"),
-                       detail: String(localized: "Eject all drives anywhere with ⌥⌘E"),
-                       trailing: [accessibilityButton, accessibilityDot])
+    private func makeShortcutCard() -> NSView {
+        let shortcut = SettingsStore.ejectHotkey.title
+        return makeRow(symbol: "keyboard", title: String(localized: "Global hotkey"),
+                       detail: String(localized: "Eject all drives with \(shortcut). Change shortcuts in Settings."),
+                       trailing: [])
     }
 
     private func makeNotificationsCard() -> NSView {
@@ -8404,14 +8456,6 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
 
     // MARK: Actions
 
-    @objc private func accessibilityButtonClicked() {
-        // macOS 1회성 프롬프트 + 시스템 설정 딥링크 — 둘 다 함께 (research 권장).
-        _ = AXIsProcessTrustedWithOptions([
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
-        ] as CFDictionary)
-        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-    }
-
     @objc private func notificationsButtonClicked() {
         if notificationStatus == .denied {
             // 거부 후엔 앱이 다시 프롬프트 못 띄움 → 시스템 설정으로 안내.
@@ -8479,22 +8523,6 @@ private final class OnboardingWindowController: NSWindowController, NSWindowDele
     }
 
     private func refreshAll() {
-        // 손쉬운 사용 — 변경 알림 API 가 없어 폴링으로 감지.
-        let axTrusted = AXIsProcessTrusted()
-        accessibilityDot.contentTintColor = axTrusted ? .systemGreen : .tertiaryLabelColor
-        accessibilityDot.setAccessibilityValue(axTrusted
-            ? String(localized: "Eject all drives anywhere with ⌥⌘E")
-            : String(localized: "Allow Accessibility for global hotkeys"))
-        accessibilityDot.setAccessibilityHelp(axTrusted ? nil : String(localized: "Allow"))
-        accessibilityButton.isHidden = axTrusted
-        if axTrusted && !lastAccessibilityTrusted {
-            lastAccessibilityTrusted = true
-            onAccessibilityGranted()   // 단축키 모니터 재설치 → 재시작 없이 즉시 활성화
-        } else if !axTrusted {
-            lastAccessibilityTrusted = false
-        }
-
-        // 로그인 항목 — 각주는 alphaValue 토글 (자리 유지, 레이아웃 점프 방지)
         let loginStatus = LoginItem.status
         loginToggle.state = (loginStatus == .enabled || loginStatus == .requiresApproval) ? .on : .off
         loginHint.alphaValue = (loginStatus == .requiresApproval) ? 1 : 0
@@ -10121,6 +10149,39 @@ private final class DAInventory {
             log.notice("DAInventory: sleep unmount callback accepted target=\(request.target, privacy: .public) generation=\(request.token.generation, privacy: .public) mode=\(request.modeLabel, privacy: .public) clean=\(clean, privacy: .public)")
         } else {
             log.error("DAInventory: sleep unmount late callback ignored target=\(request.target, privacy: .public) generation=\(request.token.generation, privacy: .public) mode=\(request.modeLabel, privacy: .public)")
+        }
+    }
+
+    var hasPendingMounts: Bool { queue.sync { !pendingWakeMounts.isEmpty } }
+
+    func mountTarget(bsd: String, expectedEntryID: UInt64?) -> SleepRemountTarget? {
+        queue.sync {
+            guard let expectedEntryID,
+                  let generation = physicalGenerations[bsd],
+                  physicalRegistryEntryIDs[bsd] == expectedEntryID,
+                  currentIOMediaRegistryEntryID(bsd: bsd) == expectedEntryID else { return nil }
+            return SleepRemountTarget(wholeDiskBSD: bsd, physicalGeneration: generation,
+                                      mediaRegistryEntryID: expectedEntryID)
+        }
+    }
+
+    func mountedPaths(for target: SleepRemountTarget) -> [String] {
+        queue.sync {
+            guard physicalGenerations[target.wholeDiskBSD] == target.physicalGeneration,
+                  currentIOMediaRegistryEntryID(bsd: target.wholeDiskBSD) == target.mediaRegistryEntryID,
+                  let current = currentMountedDiskInfosOnQueue() else { return [] }
+            return current.values.filter { $0.wholeDiskBSD == target.wholeDiskBSD }.compactMap(\.mountPath)
+        }
+    }
+
+    func confirmedUnmounted(_ targets: Set<SleepRemountTarget>) -> Bool {
+        queue.sync {
+            guard pendingWakeMounts.isEmpty, let current = currentMountedDiskInfosOnQueue() else { return false }
+            return targets.allSatisfy { target in
+                physicalGenerations[target.wholeDiskBSD] == target.physicalGeneration
+                    && currentIOMediaRegistryEntryID(bsd: target.wholeDiskBSD) == target.mediaRegistryEntryID
+                    && !current.values.contains { $0.wholeDiskBSD == target.wholeDiskBSD && $0.mountPath != nil }
+            }
         }
     }
 

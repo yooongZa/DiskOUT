@@ -134,7 +134,9 @@ final class StatusCharacterAnimator {
             return image
         }
         let state = shouldAnimate ? motionState : CharacterMotionState.unknown
-        let pose = timeline.pose(at: now(), animated: shouldAnimate, frameCount: CharacterArtwork.frameCount(for: visual))
+        let pose = shouldAnimate && state == .rest
+            ? StatusCharacterSleepSchedule.pose(timeline: timeline, time: now(), frameCount: CharacterArtwork.frameCount(for: visual))
+            : timeline.pose(at: now(), animated: shouldAnimate, frameCount: CharacterArtwork.frameCount(for: visual))
         let key = "\(visual)-\(state.rawValue)-\(pose)"
         if let cached = framesCache[key] { return cached }
         let base: NSImage?
@@ -189,13 +191,19 @@ final class StatusCharacterAnimator {
         guard timer == nil else { return }
         let duration: TimeInterval
         if case .basic(_, let reactive) = visual, !reactive { duration = Self.frameDuration }
-        // Keep the sleep effects' 100ms clock, while waking motion gets every pose.
-        else { duration = motionState == .rest ? 0.1 : motionState.frameDuration }
-        let timer = Timer(timeInterval: duration, repeats: true) { [weak self] _ in
+        else {
+            duration = motionState == .rest
+                ? StatusCharacterSleepSchedule.nextDelay(elapsed: now() - timeline.startedAt)
+                : motionState.frameDuration
+        }
+        let timer = Timer(timeInterval: max(0.01, duration), repeats: false) { [weak self] _ in
             guard let self, self.isActive else { return }
+            self.timer = nil
             self.frameIndex = (self.frameIndex + 1) % CharacterArtwork.frameCount(for: self.visual ?? .numbers)
             self.onFrameChanged?()
+            if self.shouldAnimate { self.startTimer() }
         }
+        timer.tolerance = min(0.05, duration * 0.1)
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
     }

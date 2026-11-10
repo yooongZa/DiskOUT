@@ -191,9 +191,9 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 | **ログイン時自動起動** | 設定 → 一般で設定。`SMAppService.mainApp` を使用し、`.requiresApproval` は混合状態と「承認が必要」ラベルで表示してシステム設定へ案内 |
 | **環境設定ウィンドウ** | <kbd>⌘</kbd><kbd>,</kbd> またはメニューの「設定…」。システム設定式の**ツールバー 6 ペイン** — 一般 (ログイン · 言語 · エラー報告) / 取り出しの動作 (sleep · display sleep · Music/Photos · 強制アンマウント · 右クリック) / 通知 / ホットキー / Characters (購入 · 復元 · 状態) / About (バージョン · アップデート · リンク)。ペインごとに高さを自動調整し、分かりにくいオプションには説明行を表示 |
 | **ショートカット衝突自動修正** | 取り出し / マウント / 取り出してスリープのショートカットが同じ preset で保存されると衝突検出 + 別 preset に自動移動 + alert |
-| **権限不足メニュー案内** | Accessibility(アクセシビリティ) / 通知権限が許可されていない状態だとメニュー上部に ⚠ 警告 row 表示。クリックでシステム設定の該当ページへ移動 |
+| **ショートカット・権限の案内** | グローバルショートカットはアクセシビリティ権限なしで動作します。登録の競合をメニューで案内し、通知が許可されていない場合はシステム設定に移動できます |
 | **通知の詳細制御** | 全体通知、成功通知、失敗通知を個別に設定。デフォルトは全て ON。macOSのシステム設定で通知が許可されていない場合は状態を表示し、該当設定を直接開ける |
-| **多言語 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 224 個のキー。システムの優先言語リスト全体から最初の対応言語を選び、該当がない場合のみ英語にフォールバック。設定 → 一般 → Language でシステム設定または明示言語を選択可能 |
+| **多言語 (ko + en + ja + zh-Hans)** | `Localizable.xcstrings` 237 個のキー。システムの優先言語リスト全体から最初の対応言語を選び、該当がない場合のみ英語にフォールバック。設定 → 一般 → Language でシステム設定または明示言語を選択可能 |
 | **自動アップデート (Sparkle 2)** | 24 時間周期でバックグラウンドチェック。新バージョン発見時にダイアログを出さず**メニューバーアイコンに小さな systemRed `●` + メニュー内「X.Y.Z にアップデート…」項目 (同じ赤い点 prefix)** だけで表示 (gentle reminder)。ユーザーがクリックすると、状態メニューを閉じてから Sparkle の確認を開始し、確認中・アップデート案内・アップデートなし／エラーのモーダル各段階で、前面表示を限られた回数だけ再要求。EdDSA(Ed25519) + Apple Code Signing の二重検証。appcast ホスティングは GitHub Pages、DMG ホスティングは GitHub Releases — 無料運用 |
 | **ディスク別自動取り出し除外** | メニュー下部の*「自動取り出しから除外されたディスク」* submenu でディスク別トグル。Volume UUID 基準 (ケーブルスロットが変わっても維持)。自動 path だけ影響、明示的取り出しはそのまま。 |
 | **Time Machine 自動保護** | TM バックアップディスクを自動識別 (`Backups.backupdb` / `.com.apple.timemachine.donotpresent` 検査) → 初回登場時に自動取り出しから除外 + 1 回通知。メニューに時計アイコン + Time Machine バッジ表記 (macOS 14+、13 は括弧) |
@@ -225,7 +225,7 @@ DiskOUT の自動(スリープ)取り出しは正常 unmount 段階を先に試�
 diskOUT/
 ├── AppDelegate.swift            # メインロジック (diskutil 実行、メニューキャッシュ、sleep/wake 処理)
 ├── LanguageRuntime.swift        # 言語ネゴシエーション・保存値検証・安全な再起動ポリシー
-├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻訳 (Xcode String Catalog、224 キー)
+├── Localizable.xcstrings        # ko + en + ja + zh-Hans 翻訳 (Xcode String Catalog、237 キー)
 ├── main.swift                   # 明示的 entry point (NSApp.run)
 ├── Info.plist                   # bundle metadata (xcodegen 自動生成)
 ├── DiskOUT.entitlements         # 空の plist。project.yml の entitlements 明示でハマるのを防止

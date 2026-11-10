@@ -121,6 +121,33 @@ struct CharacterMotionTimeline {
     }
 }
 
+/// Status-item sleep effects play briefly every twenty seconds. The sleeping pose stays visible
+/// between bursts; active/busy motion and the settings gallery keep their original cadence.
+enum StatusCharacterSleepSchedule {
+    static let period: TimeInterval = 20
+    static let burst: TimeInterval = 3.6
+
+    static func phase(elapsed: TimeInterval) -> TimeInterval {
+        max(0, elapsed).truncatingRemainder(dividingBy: period)
+    }
+
+    static func nextDelay(elapsed: TimeInterval) -> TimeInterval {
+        let phase = phase(elapsed: elapsed)
+        return phase < burst ? min(0.1, burst - phase) : period - phase
+    }
+
+    static func pose(timeline: CharacterMotionTimeline, time: TimeInterval, frameCount: Int) -> CharacterRenderPose {
+        let elapsed = max(0, time - timeline.startedAt)
+        let phase = phase(elapsed: elapsed)
+        guard phase < burst else {
+            return CharacterRenderPose(frame: 0, sleepStep: 8, breathFrame: 0, zFrame: -1)
+        }
+        if elapsed < period { return timeline.pose(at: time, frameCount: frameCount) }
+        return CharacterRenderPose(frame: 0, sleepStep: 8,
+            breathFrame: Int(phase / 0.3) % 12, zFrame: phase < 2.8 ? Int(phase / 0.1) : -1)
+    }
+}
+
 /// A settings-only demonstration. It never supplies samples to the real disk activity policy.
 enum CharacterPreviewTimeline {
     static let characterCount = 10
